@@ -1,7 +1,7 @@
 [
   {
     "month": "2026_08",
-    "crowned_at": "2026-08-20 20:45:41",
+    "crowned_at": "2026-08-20 21:00:44",
     "strategy_name": "Liquidity_Sweep_Reversal",
     "timeframe": "1h",
     "params": {

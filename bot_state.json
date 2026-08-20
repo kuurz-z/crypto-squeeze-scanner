@@ -1,6 +1,6 @@
 {
   "initial_capital": 100.0,
-  "current_balance": 83.87,
+  "current_balance": 83.4,
   "fixed_risk_usd": 1.0,
   "is_depleted": false,
   "depletion_report_file": null,
@@ -95,5 +95,5 @@
       "report_file": "reports\\ai_evolution_report_20260820_195734.md"
     }
   ],
-  "updated_at": "2026-08-20 20:37:01"
+  "updated_at": "2026-08-20 21:00:24"
 }

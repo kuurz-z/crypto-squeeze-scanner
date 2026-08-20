@@ -797,5 +797,52 @@
       "risk_management_quality": "High"
     },
     "report_file": "reports\\trade_journal_#17_SNDKBUSDT_TIME_EXIT.md"
+  },
+  {
+    "trade_id": 18,
+    "symbol": "SNDKBUSDT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "direction": "SHORT",
+    "entry_time": 1787227200,
+    "entry_time_str": "2026-08-20 20:37:01",
+    "exit_time": 1787230800,
+    "exit_time_str": "2026-08-20 21:00:24",
+    "entry_price": 1535.11,
+    "exit_price": 1548.42,
+    "sl_price": 1569.2,
+    "tp_price": 1449.87,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 0.0293,
+    "position_value_usd": 44.98,
+    "outcome": "TIME_EXIT",
+    "raw_r": -0.39,
+    "net_r": -0.47,
+    "pnl_usd": -0.47,
+    "account_balance": 83.4,
+    "mfe_r": 0.2,
+    "mae_r": 0.96,
+    "bars_held": 62,
+    "friction_breakdown": "Gross: -0.39R | Friction: -0.08R | Net: -0.47R ($-0.47 USD)",
+    "trade_efficiency": "MFE: +0.2R | MAE: -0.96R",
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 2.91,
+      "rsi": 28.5,
+      "momentum": -14.2955,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 24.3536
+    },
+    "diagnostic": {
+      "summary": "Trade stagnated in low-volatility consolidation for 62 bars without momentum expansion. Exited early to free up capital.",
+      "catalyst_type": "Time Stagnation Invalidation",
+      "key_factors": [
+        "Capital recycled out of dead chop",
+        "Realized PnL: -0.47R"
+      ],
+      "risk_management_quality": "High"
+    },
+    "report_file": "reports\\trade_journal_#18_SNDKBUSDT_TIME_EXIT.md"
   }
 ]

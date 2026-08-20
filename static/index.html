@@ -456,7 +456,7 @@
     </div>
 
     <!-- MAIN TWO-COLUMN DASHBOARD GRID -->
-    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
 
       <!-- LEFT COLUMN: ACTIVE POSITIONS & LIVE DIAGNOSTIC STREAM (8 COLS) -->
       <div class="lg:col-span-8 flex flex-col gap-6">
@@ -551,7 +551,7 @@
         </div>
 
         <!-- LIVE TRADE DIAGNOSTIC JOURNAL STREAM -->
-        <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl flex-1 flex flex-col transition-colors">
+        <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl flex flex-col transition-colors">
           <div class="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-gray-800 pb-3">
             <div>
               <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
@@ -568,7 +568,7 @@
           </div>
 
           <!-- Journal Feed Container -->
-          <div id="bot-journal-feed" class="flex-1 overflow-y-auto max-h-[550px] space-y-3 custom-scrollbar pr-1">
+          <div id="bot-journal-feed" class="overflow-y-auto max-h-[550px] space-y-3 custom-scrollbar pr-1">
             <div class="text-center py-8 text-slate-400 dark:text-gray-500">
               <i class="fa-solid fa-clipboard-list text-2xl mb-2 block text-slate-300 dark:text-gray-600"></i>
               Waiting for trade closures. Each closed trade will automatically appear here with full pre-entry context and post-trade root-cause diagnosis.
@@ -628,7 +628,7 @@
         </div>
 
         <!-- AI SELF-EVOLUTION TIMELINE -->
-        <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl flex-1 flex flex-col transition-colors">
+        <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl flex flex-col transition-colors">
           <div class="flex items-center justify-between mb-3 border-b border-slate-200 dark:border-gray-800 pb-2.5">
             <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <i class="fa-solid fa-dna text-purple-500"></i> AI Strategy Evolution Log
@@ -636,7 +636,7 @@
             <span class="text-[10px] text-slate-400">Walk-Forward</span>
           </div>
 
-          <div id="bot-evolution-timeline" class="flex-1 space-y-3 text-xs min-h-[220px]">
+          <div id="bot-evolution-timeline" class="space-y-3 text-xs">
             <div class="text-center py-6 text-slate-400 dark:text-gray-500">
               <i class="fa-solid fa-microchip text-xl mb-1.5 block text-slate-300 dark:text-gray-600"></i>
               The AI evaluates trade cycles and refines parameters every 5 closed trades.
