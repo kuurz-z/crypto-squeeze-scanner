@@ -736,7 +736,16 @@ function setupViewNavigation() {
     prevEvoBtn.addEventListener('click', () => {
       if (currentEvoPage > 1) {
         currentEvoPage--;
-        renderBotEvolution(cachedEvoOptimizations.slice().reverse());
+        renderBotEvolution();
+      }
+    });
+  }
+  if (nextEvoBtn) {
+    nextEvoBtn.addEventListener('click', () => {
+      const totalPages = Math.ceil((cachedEvoOptimizations ? cachedEvoOptimizations.length : 0) / EVO_PER_PAGE);
+      if (currentEvoPage < totalPages) {
+        currentEvoPage++;
+        renderBotEvolution();
       }
     });
   }
@@ -1317,7 +1326,11 @@ function renderBotEvolution(optimizations) {
   
   if (!container) return;
 
-  if (!optimizations || optimizations.length === 0) {
+  if (optimizations && Array.isArray(optimizations)) {
+    cachedEvoOptimizations = optimizations.slice().reverse();
+  }
+
+  if (!cachedEvoOptimizations || cachedEvoOptimizations.length === 0) {
     container.innerHTML = `
       <div class="text-center py-6 text-slate-400 dark:text-gray-500">
         <i class="fa-solid fa-microchip text-xl mb-1.5 block text-slate-300 dark:text-gray-600"></i>
@@ -1328,7 +1341,6 @@ function renderBotEvolution(optimizations) {
     return;
   }
 
-  cachedEvoOptimizations = optimizations.slice().reverse();
   const totalItems = cachedEvoOptimizations.length;
   const totalPages = Math.max(1, Math.ceil(totalItems / EVO_PER_PAGE));
   if (currentEvoPage > totalPages) currentEvoPage = totalPages;

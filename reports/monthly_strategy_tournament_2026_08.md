@@ -1,5 +1,5 @@
 # 🏆 End-of-Month Strategy Championship Tournament (2026-08)
-*Generated on: 2026-08-20 21:02:01 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
+*Generated on: 2026-08-20 21:05:39 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
 
 ## 1. 👑 Crowned Monthly Grand Champion
 - **Champion Strategy**: `Liquidity_Sweep_Reversal`
