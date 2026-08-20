@@ -188,6 +188,7 @@ class LiveCryptoBot:
         self.last_monthly_optimization_time: Optional[datetime] = None
         
         self.load_state()
+        self.save_state()
 
     def reset_account(self, initial_capital: float = 100.0, fixed_risk_usd: float = 1.0, target_rr: float = 2.0):
         """Reset paper wallet balance to specified USD capital and clear depletion flags without wiping trade history."""
@@ -2124,6 +2125,13 @@ class LiveCryptoBot:
 
         status_str = "DEPLETED_STOPPED" if self.is_depleted else ("RUNNING" if self.is_running else "PAUSED")
 
+        sanitized_positions = []
+        for p in self.open_positions.values():
+            p_copy = dict(p)
+            if p_copy.get("timeframe") not in ALLOWED_ENTRY_TIMEFRAMES:
+                p_copy["timeframe"] = self.timeframe
+            sanitized_positions.append(p_copy)
+
         return {
             "status": status_str,
             "is_depleted": self.is_depleted,
@@ -2143,8 +2151,8 @@ class LiveCryptoBot:
             "champion_stats": self.champion_stats,
             "all_time_grand_champion": self.all_time_grand_champion,
             "watched_pairs_count": len(self.symbols),
-            "open_positions_count": len(self.open_positions),
-            "open_positions": list(self.open_positions.values()),
+            "open_positions_count": len(sanitized_positions),
+            "open_positions": sanitized_positions,
             "btc_macro_status": self.btc_macro_status,
             "total_closed_trades": total_trades,
             "win_count": len(wins),

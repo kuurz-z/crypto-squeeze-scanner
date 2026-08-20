@@ -1,20 +1,20 @@
 {
   "ZECUSDT": {
-    "trade_id": 58,
+    "trade_id": 43,
     "symbol": "ZECUSDT",
     "sector": "GENERAL_ALT",
     "strategy": "Squeeze_Momentum_Breakout",
     "direction": "LONG",
     "entry_time": 1787241600,
-    "entry_time_str": "2026-08-21 00:55:39",
-    "entry_price": 588.5,
-    "current_price": 588.5,
-    "sl_price": 573.82,
-    "tp_price": 625.21,
-    "risk_distance": 14.684000000000012,
+    "entry_time_str": "2026-08-21 00:32:27",
+    "entry_price": 582.68,
+    "current_price": 582.68,
+    "sl_price": 569.01,
+    "tp_price": 616.85,
+    "risk_distance": 13.668000000000005,
     "risk_amount_usd": 1.0,
-    "position_qty": 0.0681,
-    "position_value_usd": 40.08,
+    "position_qty": 0.0732,
+    "position_value_usd": 42.65,
     "target_rr": 2.5,
     "unrealized_r": 0.0,
     "unrealized_pnl_usd": 0.0,
@@ -24,11 +24,12 @@
     "pre_trade_context": {
       "regime": "Bullish Trend & Volatility Expansion",
       "reason": "Squeeze fired bullishly above BB upper band with volume surge",
-      "rvol": 2.95,
-      "rsi": 71.7,
-      "momentum": 8.419,
+      "rvol": 1.41,
+      "rsi": 69.2,
+      "momentum": 8.1578,
       "ema_alignment": "Close > EMA50",
-      "volatility_atr": 10.4886
-    }
+      "volatility_atr": 9.7629
+    },
+    "timeframe": "15m"
   }
 }

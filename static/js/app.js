@@ -1052,7 +1052,7 @@ function renderBotPositions(positions) {
     const rColor = pos.unrealized_r >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold';
     const pnlUsd = pos.unrealized_pnl_usd || 0.0;
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
-    const tf = pos.timeframe || pos.pre_trade_context?.timeframe || '15m';
+    const tf = (pos.timeframe && ['15m', '30m'].includes(pos.timeframe)) ? pos.timeframe : '15m';
 
     return `
       <tr class="hover:bg-slate-50 dark:hover:bg-gray-800/40 text-[11px]">
@@ -1187,7 +1187,7 @@ function renderBotClosedHistory(trades) {
     const badgeBg = isWin ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' : (isBE ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30' : 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30');
     const rColor = isWin ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (isBE ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold');
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
-    const tf = t.timeframe || t.pre_trade_context?.timeframe || '15m';
+    const tf = (t.timeframe && ['15m', '30m'].includes(t.timeframe)) ? t.timeframe : '15m';
     const exitTimeStr = formatPhDateTime(t.exit_time_str || t.exit_time || t.entry_time_str || t.entry_time);
 
     return `
