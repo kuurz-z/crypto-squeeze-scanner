@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quant Squeeze & Pattern Scanner | 1:1 - 1:4 RR</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/style.css?v=2">
+  <script>
+    // Initialize theme before DOM load to avoid flash
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    if (savedTheme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              900: '#1e1b4b',
+            }
+          }
+        }
+      }
+    }
+  </script>
+</head>
+<body class="bg-slate-100 dark:bg-[#0a0e17] text-slate-800 dark:text-gray-200 font-sans min-h-screen flex flex-col antialiased selection:bg-indigo-500 selection:text-white transition-colors duration-150">
+
+  <!-- TOP NAVIGATION / HEADER -->
+  <header class="bg-white dark:bg-[#0f172a] border-b border-slate-200 dark:border-gray-800 px-6 py-3.5 flex flex-wrap items-center justify-between gap-4 shadow-sm dark:shadow-lg sticky top-0 z-30 transition-colors">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-lg bg-gradient-to-tr from-indigo-600 to-emerald-500 flex items-center justify-center shadow-indigo-500/20 shadow-md">
+        <i class="fa-solid fa-chart-line text-white text-lg"></i>
+      </div>
+      <div>
+        <h1 class="text-base font-bold tracking-wide text-slate-900 dark:text-white flex items-center gap-2">
+          QUANT SQUEEZE SCANNER
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold">1:1 – 1:4 RR</span>
+        </h1>
+        <p class="text-xs text-slate-500 dark:text-gray-400">Mathematical Volatility Compression & Breakout Engine</p>
+      </div>
+    </div>
+
+    <!-- VIEW SWITCHER TABS -->
+    <div class="flex items-center bg-slate-100 dark:bg-[#1e293b] p-1 rounded-lg border border-slate-200 dark:border-gray-700 text-xs font-semibold" id="view-tabs">
+      <button id="tab-scanner-btn" class="px-3 py-1.5 rounded-md transition bg-indigo-600 text-white shadow flex items-center gap-1.5">
+        <i class="fa-solid fa-chart-line"></i> Scanner & Chart
+      </button>
+      <button id="tab-bot-btn" class="px-3 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5">
+        <i class="fa-solid fa-robot text-emerald-500"></i> Live Auto-Bot & AI
+        <span id="header-bot-pulse" class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+      </button>
+    </div>
+
+    <!-- TIMEFRAME & CONTROLS -->
+    <div class="flex items-center gap-3">
+      <!-- Timeframe selector -->
+      <div class="flex items-center bg-slate-100 dark:bg-[#1e293b] p-1 rounded-lg border border-slate-200 dark:border-gray-700 text-xs font-semibold" id="tf-group">
+        <button data-tf="15m" class="tf-btn px-3 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white">15m</button>
+        <button data-tf="1h" class="tf-btn px-3 py-1.5 rounded-md transition bg-indigo-600 text-white shadow">1h</button>
+        <button data-tf="4h" class="tf-btn px-3 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white">4h</button>
+        <button data-tf="1d" class="tf-btn px-3 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white">1D</button>
+      </div>
+
+      <!-- Auto refresh toggle -->
+      <div class="flex items-center gap-2 bg-slate-100 dark:bg-[#1e293b] px-3 py-1.5 rounded-lg border border-slate-200 dark:border-gray-700 text-xs">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span class="text-slate-700 dark:text-gray-300 font-medium">Live Feed</span>
+        <button id="btn-refresh" class="ml-1 text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white transition p-1" title="Scan Now">
+          <i class="fa-solid fa-arrows-rotate"></i>
+        </button>
+      </div>
+
+      <!-- Theme Switcher Button -->
+      <button id="btn-theme-toggle" class="flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-[#1e293b] dark:hover:bg-gray-700 px-3 py-1.5 rounded-lg border border-slate-200 dark:border-gray-700 text-xs font-semibold text-slate-700 dark:text-gray-200 transition cursor-pointer" title="Toggle Light/Dark Theme">
+        <i id="theme-icon" class="fa-solid fa-sun text-amber-500"></i>
+        <span id="theme-text" class="hidden sm:inline">Light</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- SCANNER VIEW -->
+  <div id="scanner-view-container">
+  <!-- MAIN CONTENT CONTAINER -->
+  <main class="flex-1 p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+    <!-- LEFT COLUMN: SCANNER MATRIX (4 cols) -->
+    <div class="lg:col-span-4 flex flex-col gap-4">
+      <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-4 shadow-sm dark:shadow-xl flex-1 flex flex-col transition-colors">
+        
+        <!-- Table Header & Filters -->
+        <div class="flex items-center justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <i class="fa-solid fa-list-check text-indigo-600 dark:text-indigo-400"></i>
+            <h2 class="text-sm font-bold text-slate-900 dark:text-white uppercase tracking-wider">Market Scanner</h2>
+          </div>
+          <span id="scan-count-badge" class="text-xs bg-slate-100 dark:bg-gray-800 px-2 py-0.5 rounded text-slate-600 dark:text-gray-400 border border-slate-200 dark:border-gray-700 font-medium">0 Pairs</span>
+        </div>
+
+        <!-- Search and quick filter pills -->
+        <div class="space-y-2 mb-3">
+          <div class="relative">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 dark:text-gray-500 text-xs"></i>
+            <input type="text" id="coin-search" placeholder="Search (e.g. BTC, SOL, NEAR)..." 
+                   class="w-full bg-slate-50 dark:bg-[#1e293b] border border-slate-200 dark:border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:bg-white dark:focus:bg-[#1e293b] transition">
+          </div>
+
+          <div class="flex gap-1.5 text-[11px] font-medium" id="filter-tabs">
+            <button data-filter="all" class="filter-tab flex-1 py-1.5 rounded bg-indigo-600 text-white font-semibold shadow text-center">All</button>
+            <button data-filter="signals" class="filter-tab flex-1 py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-emerald-600 dark:text-emerald-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-1.5 font-medium"><i class="fa-solid fa-bolt-lightning text-xs"></i> Signals</button>
+            <button data-filter="squeeze" class="filter-tab flex-1 py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-amber-600 dark:text-amber-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-1.5 font-medium"><i class="fa-solid fa-compress text-xs"></i> Squeezes</button>
+          </div>
+        </div>
+
+        <!-- Table Container -->
+        <div class="flex-1 overflow-y-auto max-h-[580px] custom-scrollbar border border-slate-200 dark:border-gray-800/80 rounded-lg bg-white dark:bg-[#111827]">
+          <table class="w-full text-left text-xs border-collapse">
+            <thead class="bg-slate-50 dark:bg-[#1e293b] text-slate-500 dark:text-gray-400 sticky top-0 uppercase text-[10px] tracking-wider z-10 border-b border-slate-200 dark:border-gray-800">
+              <tr>
+                <th class="py-2.5 px-3">Coin</th>
+                <th class="py-2.5 px-2">Price</th>
+                <th class="py-2.5 px-2 text-center">Squeeze</th>
+                <th class="py-2.5 px-2 text-center">Signal</th>
+                <th class="py-2.5 px-2 text-right">Trend</th>
+              </tr>
+            </thead>
+            <tbody id="scanner-tbody" class="divide-y divide-slate-100 dark:divide-gray-800 text-slate-700 dark:text-gray-300">
+              <tr>
+                <td colspan="5" class="py-8 text-center text-slate-400 dark:text-gray-500">
+                  <i class="fa-solid fa-spinner fa-spin text-lg text-indigo-500 mb-2"></i>
+                  <p>Scanning top liquid pairs...</p>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- RIGHT COLUMN: INTERACTIVE CHART & RR PANEL (8 cols) -->
+    <div class="lg:col-span-8 flex flex-col gap-4">
+      
+      <!-- ACTIVE SYMBOL INFO & RR EXECUTION CARD -->
+      <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-4 shadow-sm dark:shadow-xl transition-colors">
+        <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-gray-800/80 pb-3 mb-3">
+          <div class="flex items-center gap-3">
+            <span id="active-symbol-badge" class="text-xl font-extrabold text-slate-900 dark:text-white tracking-wider">BTCUSDT</span>
+            <span id="active-price-badge" class="text-lg font-mono font-bold text-emerald-600 dark:text-emerald-400">$0.00</span>
+            <span id="active-trend-badge" class="text-xs px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 font-semibold uppercase">200 EMA Uptrend</span>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <div id="active-squeeze-status" class="text-xs px-2.5 py-1 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-500/30 flex items-center gap-1.5 font-medium">
+              <span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+              Squeeze Active (12 bars)
+            </div>
+            <span id="active-atr-badge" class="text-xs text-slate-600 dark:text-gray-400 bg-slate-100 dark:bg-gray-800 px-2.5 py-1 rounded border border-slate-200 dark:border-gray-700 font-mono">ATR14: --</span>
+          </div>
+        </div>
+
+        <!-- DYNAMIC RR LEVELS GRID -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 text-center text-xs">
+          <div class="bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 p-2 rounded-lg">
+            <p class="text-[10px] text-rose-600 dark:text-rose-400 uppercase font-semibold">Stop Loss (-1.5 ATR)</p>
+            <p id="rr-sl" class="font-mono font-bold text-rose-700 dark:text-rose-300 text-sm mt-0.5">--</p>
+          </div>
+          <div class="bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 p-2 rounded-lg">
+            <p class="text-[10px] text-blue-600 dark:text-blue-400 uppercase font-semibold">Entry Level</p>
+            <p id="rr-entry" class="font-mono font-bold text-blue-700 dark:text-blue-300 text-sm mt-0.5">--</p>
+          </div>
+          <div class="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 p-2 rounded-lg">
+            <p class="text-[10px] text-emerald-600 dark:text-emerald-400 uppercase font-semibold">TP1 (1:1 RR)</p>
+            <p id="rr-tp1" class="font-mono font-bold text-emerald-700 dark:text-emerald-300 text-sm mt-0.5">--</p>
+          </div>
+          <div class="bg-emerald-50 dark:bg-emerald-500/15 border border-emerald-300 dark:border-emerald-400/40 p-2 rounded-lg shadow-sm">
+            <p class="text-[10px] text-emerald-700 dark:text-emerald-300 uppercase font-semibold">TP2 (1:2 RR)</p>
+            <p id="rr-tp2" class="font-mono font-bold text-emerald-800 dark:text-emerald-200 text-sm mt-0.5">--</p>
+          </div>
+          <div class="bg-emerald-100/70 dark:bg-emerald-500/20 border border-emerald-300 dark:border-emerald-400/50 p-2 rounded-lg">
+            <p class="text-[10px] text-emerald-800 dark:text-emerald-300 uppercase font-semibold">TP3 (1:3 RR)</p>
+            <p id="rr-tp3" class="font-mono font-bold text-emerald-900 dark:text-emerald-100 text-sm mt-0.5">--</p>
+          </div>
+          <div class="bg-purple-50 dark:bg-purple-500/20 border border-purple-200 dark:border-purple-400/50 p-2 rounded-lg">
+            <p class="text-[10px] text-purple-700 dark:text-purple-300 uppercase font-semibold">TP4 (1:4 RR)</p>
+            <p id="rr-tp4" class="font-mono font-bold text-purple-800 dark:text-purple-100 text-sm mt-0.5">--</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- MAIN CHART CONTAINER -->
+      <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-4 shadow-sm dark:shadow-xl flex flex-col flex-1 transition-colors">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-gray-400">
+            <span class="inline-block w-2.5 h-0.5 bg-[#d97706]"></span> EMA 200
+            <span class="inline-block w-2.5 h-0.5 bg-[#2563eb] ml-2"></span> EMA 50
+            <span class="inline-block w-2.5 h-0.5 bg-[#db2777] ml-2"></span> Bollinger Bands (20, 2.0)
+            <span class="inline-block w-2.5 h-0.5 bg-[#0891b2] ml-2"></span> Keltner Channel (1.5 ATR)
+          </div>
+          <div class="text-xs text-slate-500 dark:text-gray-400 flex items-center gap-2">
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-rose-500"></span> Squeeze On</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-emerald-500"></span> Squeeze Off</span>
+          </div>
+        </div>
+
+        <!-- Candlestick Chart Target -->
+        <div id="chart-main" class="w-full h-[360px] relative rounded overflow-hidden"></div>
+
+        <!-- Squeeze Momentum Sub-pane Target -->
+        <div class="mt-2 pt-2 border-t border-slate-200 dark:border-gray-800 flex flex-col">
+          <span class="text-[10px] text-slate-500 dark:text-gray-400 uppercase font-semibold mb-1">Squeeze Momentum Oscillator</span>
+          <div id="chart-momentum" class="w-full h-[100px] relative rounded overflow-hidden"></div>
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- BOTTOM SECTION: QUANTITATIVE BACKTESTER -->
+  <section class="p-4 md:p-6 bg-slate-200/50 dark:bg-[#0c101c] border-t border-slate-300 dark:border-gray-800 transition-colors">
+    <div class="max-w-7xl mx-auto">
+      <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-2xl transition-colors">
+        
+        <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-gray-800 pb-4 mb-4">
+          <div>
+            <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <i class="fa-solid fa-microchip text-indigo-600 dark:text-indigo-400"></i>
+              Scientific Backtester & Expectancy Engine
+            </h3>
+            <p class="text-xs text-slate-500 dark:text-gray-400 mt-0.5">Simulate historical volatility breakouts with fee friction & track exact 1:1 to 1:4 hit rates</p>
+          </div>
+
+          <!-- Backtest Controls -->
+          <div class="flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-1.5 text-xs">
+              <span class="text-slate-600 dark:text-gray-400 font-medium">Coin:</span>
+              <select id="bt-symbol" class="bg-slate-50 dark:bg-[#1e293b] border border-slate-300 dark:border-gray-700 rounded px-2.5 py-1 text-slate-800 dark:text-white font-mono text-xs focus:outline-none focus:border-indigo-500 cursor-pointer">
+                <option value="ALL">All Coins (Portfolio)</option>
+                <option value="BTCUSDT" selected>BTCUSDT</option>
+                <option value="ETHUSDT">ETHUSDT</option>
+                <option value="SOLUSDT">SOLUSDT</option>
+                <option value="BNBUSDT">BNBUSDT</option>
+                <option value="XRPUSDT">XRPUSDT</option>
+                <option value="ADAUSDT">ADAUSDT</option>
+                <option value="DOGEUSDT">DOGEUSDT</option>
+                <option value="AVAXUSDT">AVAXUSDT</option>
+                <option value="LINKUSDT">LINKUSDT</option>
+                <option value="SUIUSDT">SUIUSDT</option>
+                <option value="NEARUSDT">NEARUSDT</option>
+                <option value="PEPEUSDT">PEPEUSDT</option>
+              </select>
+            </div>
+
+            <div class="flex items-center gap-1 text-xs">
+              <span class="text-slate-600 dark:text-gray-400">Target RR:</span>
+              <select id="bt-target-rr" class="bg-slate-50 dark:bg-[#1e293b] border border-slate-300 dark:border-gray-700 rounded px-2 py-1 text-slate-800 dark:text-white text-xs focus:outline-none focus:border-indigo-500">
+                <option value="1.0">1:1 RR (TP1)</option>
+                <option value="2.0" selected>1:2 RR (TP2)</option>
+                <option value="3.0">1:3 RR (TP3)</option>
+                <option value="4.0">1:4 RR (TP4)</option>
+              </select>
+            </div>
+
+            <div class="flex items-center gap-1 text-xs">
+              <span class="text-slate-600 dark:text-gray-400">Sample:</span>
+              <select id="bt-bars" class="bg-slate-50 dark:bg-[#1e293b] border border-slate-300 dark:border-gray-700 rounded px-2 py-1 text-slate-800 dark:text-white text-xs focus:outline-none focus:border-indigo-500">
+                <option value="500">500 Bars</option>
+                <option value="1000" selected>1,000 Bars</option>
+              </select>
+            </div>
+
+            <button id="btn-run-backtest" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold rounded-lg shadow-md transition flex items-center gap-2 cursor-pointer">
+              <i class="fa-solid fa-play"></i> Run Simulation
+            </button>
+          </div>
+        </div>
+
+        <!-- Backtest Metrics Dashboard -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-4">
+          <div class="bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 p-3 rounded-lg text-center">
+            <span class="text-[10px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Total Trades</span>
+            <p id="bt-total-trades" class="text-lg font-bold text-slate-900 dark:text-white font-mono mt-0.5">--</p>
+          </div>
+          <div class="bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 p-3 rounded-lg text-center">
+            <span class="text-[10px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Win Rate (Target RR)</span>
+            <p id="bt-win-rate" class="text-lg font-bold text-emerald-600 dark:text-emerald-400 font-mono mt-0.5">--%</p>
+          </div>
+          <div class="bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 p-3 rounded-lg text-center">
+            <span class="text-[10px] uppercase text-slate-500 dark:text-gray-400 font-semibold">1:1 TP1 Hit Rate</span>
+            <p id="bt-tp1-rate" class="text-lg font-bold text-blue-600 dark:text-blue-400 font-mono mt-0.5">--%</p>
+          </div>
+          <div class="bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 p-3 rounded-lg text-center">
+            <span class="text-[10px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Profit Factor</span>
+            <p id="bt-profit-factor" class="text-lg font-bold text-purple-600 dark:text-purple-400 font-mono mt-0.5">--</p>
+          </div>
+          <div class="bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 p-3 rounded-lg text-center">
+            <span class="text-[10px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Expectancy per Trade</span>
+            <p id="bt-expectancy" class="text-lg font-bold text-emerald-600 dark:text-emerald-300 font-mono mt-0.5">-- R</p>
+          </div>
+          <div class="bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 p-3 rounded-lg text-center">
+            <span class="text-[10px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Max Drawdown</span>
+            <p id="bt-max-dd" class="text-lg font-bold text-rose-600 dark:text-rose-400 font-mono mt-0.5">-- R</p>
+          </div>
+        </div>
+
+        <!-- Recent Trades Table -->
+        <div class="border border-slate-200 dark:border-gray-800 rounded-lg overflow-hidden">
+          <div class="max-h-48 overflow-y-auto custom-scrollbar">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead class="bg-slate-50 dark:bg-[#1e293b] text-slate-500 dark:text-gray-400 sticky top-0 text-[10px] uppercase tracking-wider border-b border-slate-200 dark:border-gray-800">
+                <tr>
+                  <th class="py-2 px-3">#</th>
+                  <th class="py-2 px-3">Type</th>
+                  <th class="py-2 px-3">Entry Price</th>
+                  <th class="py-2 px-3">Stop Loss</th>
+                  <th class="py-2 px-3">Target TP</th>
+                  <th class="py-2 px-3">Exit Price</th>
+                  <th class="py-2 px-3 text-center">Outcome</th>
+                  <th class="py-2 px-3 text-right">Net R</th>
+                </tr>
+              </thead>
+              <tbody id="bt-trades-tbody" class="divide-y divide-slate-100 dark:divide-gray-800 text-slate-700 dark:text-gray-300">
+                <tr>
+                  <td colspan="8" class="py-4 text-center text-slate-400 dark:text-gray-500">Run a simulation above to inspect trades.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+  </div> <!-- END SCANNER VIEW CONTAINER -->
+
+  <!-- LIVE AUTO-BOT & AI STRATEGY DASHBOARD VIEW -->
+  <div id="bot-view-container" class="hidden flex-1 p-4 md:p-6 flex flex-col gap-6 max-w-7xl mx-auto w-full">
+    
+    <!-- BOT HEADER & CONTROLS -->
+        <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl flex flex-wrap items-center justify-between gap-4 transition-colors">
+      <div class="flex items-center gap-3.5">
+        <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-emerald-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-emerald-500/20">
+          <i class="fa-solid fa-robot text-white text-2xl animate-pulse"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h2 class="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <i class="fa-solid fa-robot text-indigo-500"></i>
+              <span>Continuous Crypto Trading Bot</span>
+            </h2>
+            <span id="bot-status-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> RUNNING
+            </span>
+            <!-- BTC MACRO GATEKEEPER BADGE -->
+            <span id="btc-gatekeeper-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5" title="Bitcoin Macro Trend Gatekeeper: Protects Altcoins from broad market selloffs">
+              <i class="fa-brands fa-bitcoin text-amber-500"></i> <span id="btc-gatekeeper-text">BTC Gate: Checking...</span>
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 dark:text-gray-400 mt-0.5">Automated paper-trading across 100 crypto pairs ($100 USD capital, $1.00 fixed risk/trade) with BTC Macro Gatekeeper & Sector Caps</p>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="flex items-center gap-2.5">
+        <button id="btn-bot-reset-balance" class="px-3.5 py-2 rounded-lg bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-200 text-xs font-semibold transition flex items-center gap-1.5 border border-slate-200 dark:border-gray-700 cursor-pointer" title="Reset Wallet Balance to $100 USD">
+          <i class="fa-solid fa-rotate-left text-amber-500"></i> <span>Reset to $100</span>
+        </button>
+        <button id="btn-bot-toggle" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold transition flex items-center gap-2 shadow-sm cursor-pointer">
+          <i class="fa-solid fa-pause"></i> <span>Pause Bot</span>
+        </button>
+        <button id="btn-bot-optimize" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition flex items-center gap-2 shadow-sm cursor-pointer">
+          <i class="fa-solid fa-bolt-lightning"></i> <span>Optimize Strategy Now</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- CAPITAL DEPLETED AUTO-STOP ALERT BANNER -->
+    <div id="bot-depleted-banner" class="hidden bg-rose-500/10 border-2 border-rose-500 rounded-xl p-5 text-rose-800 dark:text-rose-200 flex flex-wrap items-center justify-between gap-4 shadow-lg">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-lg bg-rose-600 text-white flex items-center justify-center font-bold text-lg shadow">
+          <i class="fa-solid fa-triangle-exclamation"></i>
+        </div>
+        <div>
+          <h3 class="text-sm font-bold uppercase tracking-wider text-rose-900 dark:text-rose-100">Capital Depleted & Scanner Auto-Stopped</h3>
+          <p class="text-xs text-rose-700 dark:text-rose-300">The $100.00 USD capital has been utilized ($1.00/trade limit reached). All background scans have been automatically halted and a final summary report is ready.</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="btn-view-depleted-report" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-semibold shadow flex items-center gap-1.5 cursor-pointer">
+          <i class="fa-solid fa-file-lines"></i> View Final Summary Report
+        </button>
+        <button id="btn-depleted-restart" class="px-4 py-2 bg-slate-800 dark:bg-gray-700 hover:bg-slate-900 text-white rounded-lg text-xs font-semibold shadow flex items-center gap-1.5 cursor-pointer">
+          <i class="fa-solid fa-rotate-left"></i> Restart with $100
+        </button>
+      </div>
+    </div>
+
+    <!-- LIVE WALLET CAPITAL & TELEMETRY METRIC CARDS -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5">
+      <!-- 1. ACCOUNT BALANCE (USD) -->
+      <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
+        <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Account Balance</span>
+        <p id="bot-wallet-balance" class="text-xl font-bold text-slate-900 dark:text-white font-mono mt-1">$100.00</p>
+        <span id="bot-wallet-equity" class="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium font-mono">Equity: $100.00</span>
+      </div>
+
+      <!-- 2. TOTAL PNL (USD & %) -->
+      <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
+        <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Total PnL ($ / R)</span>
+        <p id="bot-total-pnl-usd" class="text-xl font-bold text-emerald-600 dark:text-emerald-300 font-mono mt-1">+$0.00</p>
+        <span id="bot-total-r" class="text-[10px] text-slate-400 font-mono">+0.00 R (0.0%)</span>
+      </div>
+
+      <!-- 3. WIN RATE -->
+      <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
+        <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Win Rate (&ge; 1:2 RR)</span>
+        <p id="bot-win-rate" class="text-xl font-bold text-slate-900 dark:text-white font-mono mt-1">0.0%</p>
+        <span id="bot-win-loss-count" class="text-[10px] text-slate-400">0W - 0L (0 Trades)</span>
+      </div>
+
+      <!-- 4. RISK PER TRADE -->
+      <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
+        <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Risk Per Trade</span>
+        <p id="bot-risk-per-trade" class="text-xl font-bold text-amber-600 dark:text-amber-400 font-mono mt-1">$1.00</p>
+        <span id="bot-risk-percent" class="text-[10px] text-slate-400">1.0% of Balance</span>
+      </div>
+
+      <!-- 5. PROFIT FACTOR -->
+      <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
+        <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Profit Factor</span>
+        <p id="bot-profit-factor" class="text-xl font-bold text-purple-600 dark:text-purple-400 font-mono mt-1">0.00</p>
+        <span class="text-[10px] text-slate-400">&ge; 1.4 Target</span>
+      </div>
+
+      <!-- 6. ACTIVE STRATEGY -->
+      <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
+        <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Active Strategy</span>
+        <p id="bot-active-strategy" class="text-sm font-bold text-indigo-600 dark:text-indigo-400 truncate mt-1">Squeeze Breakout</p>
+        <span class="text-[10px] text-slate-400">Strict &ge; 1:2 RR</span>
+      </div>
+    </div>
+
+    <!-- MAIN TWO-COLUMN DASHBOARD GRID -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- LEFT COLUMN: ACTIVE POSITIONS & LIVE DIAGNOSTIC STREAM (8 COLS) -->
+      <div class="lg:col-span-8 flex flex-col gap-6">
+        
+        <!-- ACTIVE LIVE POSITIONS -->
+        <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl transition-colors">
+          <div class="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-gray-800 pb-3">
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <i class="fa-solid fa-layer-group text-emerald-500"></i> Active Live Positions (Strict 1:2 RR)
+            </h3>
+            <span id="bot-positions-count-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-400 border border-slate-200 dark:border-gray-700">0 Active</span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs border-collapse">
+              <thead class="bg-slate-50 dark:bg-[#1e293b] text-slate-500 dark:text-gray-400 uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-gray-800">
+                <tr>
+                  <th class="py-2.5 px-3">Coin</th>
+                  <th class="py-2.5 px-2">Sector</th>
+                  <th class="py-2.5 px-2">Type</th>
+                  <th class="py-2.5 px-2">Entry</th>
+                  <th class="py-2.5 px-2">Live Price</th>
+                  <th class="py-2.5 px-2">Stop Loss</th>
+                  <th class="py-2.5 px-2">Take Profit (2R)</th>
+                  <th class="py-2.5 px-2 text-right">Unrealized R</th>
+                </tr>
+              </thead>
+              <tbody id="bot-positions-tbody" class="divide-y divide-slate-100 dark:divide-gray-800 text-slate-700 dark:text-gray-300">
+                <tr>
+                  <td colspan="8" class="py-6 text-center text-slate-400 dark:text-gray-500">
+                    <i class="fa-solid fa-radar text-lg mb-1 block"></i>
+                    No open positions right now. The bot is actively scanning 100 pairs for valid 1:2 RR setups.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- LIVE TRADE DIAGNOSTIC JOURNAL STREAM -->
+        <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl flex-1 flex flex-col transition-colors">
+          <div class="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-gray-800 pb-3">
+            <div>
+              <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <i class="fa-solid fa-brain text-indigo-500"></i> Trade Reasoning & Post-Trade Diagnostic Feed
+              </h3>
+              <p class="text-xs text-slate-500 dark:text-gray-400 mt-0.5">Real-time analysis explaining why every trade was entered and root cause of outcome</p>
+            </div>
+            <span id="bot-journal-count" class="text-xs px-2.5 py-0.5 rounded bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-400 border border-slate-200 dark:border-gray-700">0 Logged</span>
+          </div>
+
+          <!-- Journal Feed Container -->
+          <div id="bot-journal-feed" class="flex-1 overflow-y-auto max-h-[550px] space-y-3.5 custom-scrollbar pr-1">
+            <div class="text-center py-8 text-slate-400 dark:text-gray-500">
+              <i class="fa-solid fa-clipboard-list text-2xl mb-2 block text-slate-300 dark:text-gray-600"></i>
+              Waiting for trade closures. Each closed trade will automatically appear here with full pre-entry context and post-trade root-cause diagnosis.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- RIGHT COLUMN: AI STRATEGY PERFECTION & MEMORY (4 COLS) -->
+      <div class="lg:col-span-4 flex flex-col gap-6">
+        
+        <!-- CURRENT OPTIMIZED PARAMETERS CARD -->
+        <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl transition-colors">
+          <div class="flex items-center justify-between mb-3 border-b border-slate-200 dark:border-gray-800 pb-2.5">
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <i class="fa-solid fa-sliders text-emerald-500"></i> Active Strategy Parameters
+            </h3>
+            <span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">Optimal</span>
+          </div>
+          
+          <div class="space-y-2 text-xs" id="bot-params-container">
+            <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
+              <span class="text-slate-500 dark:text-gray-400">Target Risk-to-Reward:</span>
+              <span id="param-target-rr" class="font-mono font-bold text-emerald-600 dark:text-emerald-400">1:2.0 RR</span>
+            </div>
+            <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
+              <span class="text-slate-500 dark:text-gray-400">Min Relative Volume (RVOL):</span>
+              <span id="param-rvol" class="font-mono font-bold text-slate-800 dark:text-slate-200">&ge; 1.10x</span>
+            </div>
+            <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
+              <span class="text-slate-500 dark:text-gray-400">Stop Loss Distance:</span>
+              <span id="param-atr-sl" class="font-mono font-bold text-slate-800 dark:text-slate-200">1.30 &times; ATR14 (1R)</span>
+            </div>
+            <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
+              <span class="text-slate-500 dark:text-gray-400">Take Profit Distance:</span>
+              <span id="param-atr-tp" class="font-mono font-bold text-emerald-600 dark:text-emerald-400">2.60 &times; ATR14 (2R)</span>
+            </div>
+            <div class="flex justify-between items-center py-1.5">
+              <span class="text-slate-500 dark:text-gray-400">RSI Filter Bound:</span>
+              <span id="param-rsi" class="font-mono font-bold text-slate-800 dark:text-slate-200">Long &ge;50 | Short &le;50</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI SELF-EVOLUTION TIMELINE -->
+        <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl flex-1 flex flex-col transition-colors">
+          <div class="flex items-center justify-between mb-3 border-b border-slate-200 dark:border-gray-800 pb-2.5">
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <i class="fa-solid fa-dna text-purple-500"></i> AI Strategy Evolution Log
+            </h3>
+            <span class="text-[10px] text-slate-400">Walk-Forward</span>
+          </div>
+
+          <div id="bot-evolution-timeline" class="flex-1 space-y-3 text-xs min-h-[220px]">
+            <div class="text-center py-6 text-slate-400 dark:text-gray-500">
+              <i class="fa-solid fa-microchip text-xl mb-1.5 block text-slate-300 dark:text-gray-600"></i>
+              The AI evaluates trade cycles and refines parameters every 5 closed trades.
+            </div>
+          </div>
+
+          <!-- Pagination Bar -->
+          <div id="bot-evolution-pagination" class="hidden flex items-center justify-between pt-3 mt-2 border-t border-slate-100 dark:border-gray-800/80 text-[11px] text-slate-500 dark:text-gray-400">
+            <button id="btn-evo-prev" class="px-2.5 py-1 rounded bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition flex items-center gap-1">
+              <i class="fa-solid fa-chevron-left text-[9px]"></i> Prev
+            </button>
+            <span id="evo-page-indicator" class="font-mono text-[10px] font-semibold text-slate-600 dark:text-slate-400">Page 1 of 1</span>
+            <button id="btn-evo-next" class="px-2.5 py-1 rounded bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition flex items-center gap-1">
+              Next <i class="fa-solid fa-chevron-right text-[9px]"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- SAVED STRATEGY MEMORY CATALOG -->
+        <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl transition-colors">
+          <div class="flex items-center justify-between mb-3 border-b border-slate-200 dark:border-gray-800 pb-2.5">
+            <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
+              <i class="fa-solid fa-database text-blue-500"></i> Saved Memory Catalog
+            </h3>
+            <span class="text-[10px] text-emerald-600 dark:text-emerald-400 font-semibold">Agent Memory</span>
+          </div>
+
+          <div id="bot-memory-catalog" class="space-y-2.5 text-xs">
+            <!-- Populated dynamically -->
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div> <!-- END BOT VIEW CONTAINER -->
+
+  <!-- FINAL SUMMARY REPORT MODAL -->
+  <div id="report-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-2xl max-w-3xl w-full max-h-[85vh] flex flex-col shadow-2xl overflow-hidden">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-gray-800 flex items-center justify-between">
+        <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <i class="fa-solid fa-file-invoice text-indigo-500"></i> Capital Depletion Final Summary Report
+        </h3>
+        <button id="btn-close-report-modal" class="text-slate-400 hover:text-slate-900 dark:hover:text-white text-lg p-1">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      <div id="report-modal-content" class="p-6 overflow-y-auto custom-scrollbar prose dark:prose-invert max-w-none text-xs font-mono leading-relaxed bg-slate-50 dark:bg-black/30 whitespace-pre-wrap">
+        Loading report content...
+      </div>
+      <div class="px-6 py-3 border-t border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-[#1e293b]/40 flex justify-end gap-2">
+        <button id="btn-modal-close-action" class="px-4 py-2 bg-slate-200 dark:bg-gray-700 text-slate-800 dark:text-gray-200 rounded-lg text-xs font-semibold">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- FUND & RESTART BOT MODAL -->
+  <div id="fund-bot-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-2xl max-w-md w-full shadow-2xl overflow-hidden transition-all">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-gray-800 flex items-center justify-between">
+        <h3 class="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+          <i class="fa-solid fa-wallet text-emerald-500"></i> Start / Fund Trading Bot
+        </h3>
+        <button id="btn-close-fund-modal" class="text-slate-400 hover:text-slate-900 dark:hover:text-white text-lg p-1">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+      
+      <div class="p-6 space-y-4 text-xs">
+        <!-- Capital Input -->
+        <div>
+          <label class="block text-slate-700 dark:text-gray-300 font-semibold mb-1.5">Starting Capital Amount ($ USD):</label>
+          <div class="relative">
+            <span class="absolute left-3 top-2.5 text-slate-400 font-bold">$</span>
+            <input type="number" id="input-fund-capital" value="100.00" min="1.00" step="10.00" 
+                   class="w-full bg-slate-50 dark:bg-[#1e293b] border border-slate-300 dark:border-gray-700 rounded-lg pl-7 pr-3 py-2 text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500">
+          </div>
+          <!-- Quick Capital Pills -->
+          <div class="flex gap-1.5 mt-2">
+            <button class="quick-cap-btn px-2.5 py-1 rounded bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 font-mono text-[11px]" data-cap="50">$50</button>
+            <button class="quick-cap-btn px-2.5 py-1 rounded bg-emerald-500 text-white font-mono text-[11px] font-bold" data-cap="100">$100</button>
+            <button class="quick-cap-btn px-2.5 py-1 rounded bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 font-mono text-[11px]" data-cap="250">$250</button>
+            <button class="quick-cap-btn px-2.5 py-1 rounded bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 font-mono text-[11px]" data-cap="500">$500</button>
+          </div>
+        </div>
+
+        <!-- Risk Per Trade Input -->
+        <div>
+          <label class="block text-slate-700 dark:text-gray-300 font-semibold mb-1.5">Fixed Risk Per Trade ($ USD / 1R):</label>
+          <div class="relative">
+            <span class="absolute left-3 top-2.5 text-slate-400 font-bold">$</span>
+            <input type="number" id="input-fund-risk" value="1.00" min="0.10" step="0.50" 
+                   class="w-full bg-slate-50 dark:bg-[#1e293b] border border-slate-300 dark:border-gray-700 rounded-lg pl-7 pr-3 py-2 text-sm font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:border-emerald-500">
+          </div>
+          <!-- Quick Risk Pills -->
+          <div class="flex gap-1.5 mt-2">
+            <button class="quick-risk-btn px-2.5 py-1 rounded bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 font-mono text-[11px]" data-risk="0.50">$0.50</button>
+            <button class="quick-risk-btn px-2.5 py-1 rounded bg-emerald-500 text-white font-mono text-[11px] font-bold" data-risk="1.00">$1.00</button>
+            <button class="quick-risk-btn px-2.5 py-1 rounded bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 font-mono text-[11px]" data-risk="2.00">$2.00</button>
+            <button class="quick-risk-btn px-2.5 py-1 rounded bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 font-mono text-[11px]" data-risk="5.00">$5.00</button>
+          </div>
+        </div>
+
+        <!-- Explainer Box -->
+        <div class="p-3 bg-slate-100 dark:bg-black/30 rounded-lg border border-slate-200 dark:border-gray-800 text-[11px] text-slate-600 dark:text-gray-400 leading-relaxed">
+          <i class="fa-solid fa-shield-halved text-emerald-500 mr-1"></i>
+          With strict <b>1:2 RR</b>, each winning trade gains <b id="fund-calc-win" class="text-emerald-600 dark:text-emerald-400">+$2.00 USD</b>, and losses are capped at <b id="fund-calc-loss" class="text-rose-500">-$1.00 USD</b>. If capital is depleted, the bot will auto-stop and generate a summary report.
+        </div>
+      </div>
+
+      <div class="px-6 py-3.5 border-t border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-[#1e293b]/40 flex justify-end gap-2.5">
+        <button id="btn-cancel-fund-modal" class="px-4 py-2 bg-slate-200 dark:bg-gray-700 text-slate-700 dark:text-gray-200 rounded-lg text-xs font-semibold hover:bg-slate-300 dark:hover:bg-gray-600 cursor-pointer">Cancel</button>
+        <button id="btn-submit-fund-modal" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-md flex items-center gap-1.5 cursor-pointer">
+          <i class="fa-solid fa-play"></i> Start Bot with Capital
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCRIPTS -->
+  <script src="/static/js/chart.js?v=2"></script>
+  <script src="/static/js/app.js?v=3"></script>
+</body>
+</html>
+

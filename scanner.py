@@ -1,0 +1,233 @@
+import asyncio
+import aiohttp
+import numpy as np
+import pandas as pd
+from typing import List, Dict, Any, Optional
+
+BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
+BINANCE_TICKER_24HR_URL = "https://api.binance.com/api/v3/ticker/24hr"
+
+# Excluded symbols (stablecoins, wrapped tokens, leveraged tokens)
+EXCLUDED_KEYWORDS = [
+    'UPUSDT', 'DOWNUSDT', 'BEARUSDT', 'BULLUSDT', 'USDCUSDT', 'FDUSDUSDT', 
+    'TUSDUSDT', 'EURUSDT', 'DAIUSDT', 'USD1USDT', 'USDEUSDT', 'EURIUSDT', 
+    'AEURUSDT', 'USDPUSDT', 'PYUSDUSDT', 'USDDUSDT', 'WBTCUSDT', 'WETHUSDT'
+]
+
+# Default fallback list of liquid USDT trading pairs
+DEFAULT_TOP_COINS = [
+    "BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "XRPUSDT", "ADAUSDT", "DOGEUSDT", 
+    "AVAXUSDT", "LINKUSDT", "SUIUSDT", "NEARUSDT", "DOTUSDT", "APTUSDT", "LTCUSDT", 
+    "UNIUSDT", "ICPUSDT", "RENDERUSDT", "INJUSDT", "TIAUSDT", "SEIUSDT", "ARBUSDT", 
+    "OPUSDT", "PEPEUSDT", "WIFUSDT", "SHIBUSDT", "BONKUSDT", "GALAUSDT", "FTMUSDT", 
+    "STXUSDT", "OMUSDT", "JUPUSDT", "PYTHUSDT", "ONDOUSDT", "AAVEUSDT", "PENDLEUSDT",
+    "FETUSDT", "KASUSDT", "TAOUSDT", "CRVUSDT", "MKRUSDT", "RUNEUSDT", "FILUSDT"
+]
+
+async def fetch_top_usdt_pairs(limit: int = 60) -> List[str]:
+    """Fetch top USDT pairs by 24h quote volume from Binance."""
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
+            async with session.get(BINANCE_TICKER_24HR_URL) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    usdt_pairs = [
+                        item for item in data 
+                        if item['symbol'].endswith('USDT') 
+                        and not any(x == item['symbol'] or x in item['symbol'] for x in EXCLUDED_KEYWORDS)
+                    ]
+                    usdt_pairs.sort(key=lambda x: float(x.get('quoteVolume', 0)), reverse=True)
+                    top_symbols = [item['symbol'] for item in usdt_pairs[:limit]]
+                    if top_symbols:
+                        return top_symbols
+    except Exception as e:
+        print(f"Error fetching 24hr tickers: {e}, falling back to default list.")
+    return DEFAULT_TOP_COINS[:limit]
+
+async def fetch_klines(session: aiohttp.ClientSession, symbol: str, interval: str = "1h", limit: int = 300) -> Optional[pd.DataFrame]:
+    """Fetch historical kline data for a symbol and return formatted DataFrame."""
+    params = {"symbol": symbol, "interval": interval, "limit": limit}
+    try:
+        async with session.get(BINANCE_KLINES_URL, params=params, timeout=aiohttp.ClientTimeout(total=6)) as resp:
+            if resp.status == 200:
+                raw = await resp.json()
+                if not raw or len(raw) < 50:
+                    return None
+                
+                df = pd.DataFrame(raw, columns=[
+                    'open_time', 'open', 'high', 'low', 'close', 'volume',
+                    'close_time', 'quote_volume', 'trades', 'taker_buy_base',
+                    'taker_buy_quote', 'ignore'
+                ])
+                
+                df['time'] = (df['open_time'] // 1000).astype(int)
+                for col in ['open', 'high', 'low', 'close', 'volume']:
+                    df[col] = df[col].astype(float)
+                
+                return df[['time', 'open', 'high', 'low', 'close', 'volume']]
+    except Exception as e:
+        return None
+
+def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute mathematical indicators: EMA200, EMA50, Bollinger Bands, Keltner Channels, ATR, Squeeze."""
+    if len(df) < 50:
+        return df
+
+    # EMAs
+    df['ema200'] = df['close'].ewm(span=200, adjust=False).mean()
+    df['ema50'] = df['close'].ewm(span=50, adjust=False).mean()
+    df['ema20'] = df['close'].ewm(span=20, adjust=False).mean()
+    
+    # 20 SMA & Bollinger Bands (20, 2.0)
+    df['sma20'] = df['close'].rolling(window=20).mean()
+    df['std20'] = df['close'].rolling(window=20).std()
+    df['bb_upper'] = df['sma20'] + (2.0 * df['std20'])
+    df['bb_lower'] = df['sma20'] - (2.0 * df['std20'])
+    
+    # ATR (14) & Keltner Channels (20 SMA, 1.5 ATR)
+    high_low = df['high'] - df['low']
+    high_close = (df['high'] - df['close'].shift(1)).abs()
+    low_close = (df['low'] - df['close'].shift(1)).abs()
+    tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
+    df['atr14'] = tr.rolling(window=14).mean()
+    df['atr14'] = df['atr14'].bfill()
+    
+    df['kc_upper'] = df['sma20'] + (1.5 * df['atr14'])
+    df['kc_lower'] = df['sma20'] - (1.5 * df['atr14'])
+    
+    # Squeeze Condition: True if BB is inside KC
+    df['squeeze_on'] = (df['bb_upper'] < df['kc_upper']) & (df['bb_lower'] > df['kc_lower'])
+    
+    # Volume SMA 20 & Volume Surge
+    df['vol_sma20'] = df['volume'].rolling(window=20).mean()
+    df['vol_surge'] = df['volume'] > (1.3 * df['vol_sma20'])
+    
+    # Momentum (Linear regression/Momentum oscillator)
+    highest_20 = df['high'].rolling(window=20).max()
+    lowest_20 = df['low'].rolling(window=20).min()
+    midpoint = (highest_20 + lowest_20) / 2.0
+    avg_val = (midpoint + df['sma20']) / 2.0
+    df['momentum'] = df['close'] - avg_val
+    
+    # Squeeze Consecutive Duration
+    squeeze_blocks = (~df['squeeze_on']).cumsum()
+    df['squeeze_bars'] = df.groupby(squeeze_blocks).cumcount()
+    df['squeeze_bars'] = np.where(df['squeeze_on'], df['squeeze_bars'] + 1, 0)
+    
+    # Detect Breakout Releases
+    prev_squeeze = df['squeeze_on'].shift(1).fillna(False)
+    curr_squeeze = df['squeeze_on']
+    df['squeeze_released'] = prev_squeeze & (~curr_squeeze)
+    
+    # Signal classification
+    df['signal'] = 'NONE'
+    
+    # Long condition
+    long_cond = (
+        df['squeeze_released'] & 
+        (df['close'] > df['ema200']) & 
+        (df['momentum'] > 0) & 
+        df['vol_surge']
+    )
+    # Short condition
+    short_cond = (
+        df['squeeze_released'] & 
+        (df['close'] < df['ema200']) & 
+        (df['momentum'] < 0) & 
+        df['vol_surge']
+    )
+    
+    df.loc[long_cond, 'signal'] = 'LONG'
+    df.loc[short_cond, 'signal'] = 'SHORT'
+    
+    return df
+
+def calculate_rr_levels(price: float, atr: float, direction: str) -> Dict[str, float]:
+    """Calculate exact mathematical 1:1, 1:2, 1:3, and 1:4 Risk-to-Reward levels using ATR."""
+    risk = 1.5 * atr
+    if direction == "LONG":
+        sl = price - risk
+        tp1 = price + (1.0 * risk)
+        tp2 = price + (2.0 * risk)
+        tp3 = price + (3.0 * risk)
+        tp4 = price + (4.0 * risk)
+    elif direction == "SHORT":
+        sl = price + risk
+        tp1 = price - (1.0 * risk)
+        tp2 = price - (2.0 * risk)
+        tp3 = price - (3.0 * risk)
+        tp4 = price - (4.0 * risk)
+    else:
+        sl = price - risk
+        tp1 = price + (1.0 * risk)
+        tp2 = price + (2.0 * risk)
+        tp3 = price + (3.0 * risk)
+        tp4 = price + (4.0 * risk)
+        
+    return {
+        "entry": round(price, 6 if price < 1 else 2),
+        "stop_loss": round(sl, 6 if sl < 1 else 2),
+        "risk_distance": round(risk, 6 if risk < 1 else 2),
+        "tp1_1rr": round(tp1, 6 if tp1 < 1 else 2),
+        "tp2_2rr": round(tp2, 6 if tp2 < 1 else 2),
+        "tp3_3rr": round(tp3, 6 if tp3 < 1 else 2),
+        "tp4_4rr": round(tp4, 6 if tp4 < 1 else 2),
+    }
+
+async def scan_single_symbol(session: aiohttp.ClientSession, symbol: str, interval: str = "1h") -> Optional[Dict[str, Any]]:
+    """Scan and compute real-time metrics for a single symbol."""
+    df = await fetch_klines(session, symbol, interval=interval, limit=250)
+    if df is None or len(df) < 50:
+        return None
+    
+    df = compute_indicators(df)
+    last_row = df.iloc[-1]
+    
+    is_squeeze = bool(last_row['squeeze_on'])
+    squeeze_bars = int(last_row['squeeze_bars'])
+    signal = str(last_row['signal'])
+    
+    recent_signal = "NONE"
+    for i in range(1, min(4, len(df))):
+        sig = df.iloc[-i]['signal']
+        if sig in ['LONG', 'SHORT']:
+            recent_signal = f"{sig} ({i} bar{'s' if i > 1 else ''} ago)"
+            break
+            
+    trend = "BULLISH" if last_row['close'] > last_row['ema200'] else "BEARISH"
+    pct_from_ema200 = ((last_row['close'] - last_row['ema200']) / last_row['ema200']) * 100.0
+    
+    target_dir = "LONG" if (signal == "LONG" or (signal == "NONE" and trend == "BULLISH")) else "SHORT"
+    rr_targets = calculate_rr_levels(float(last_row['close']), float(last_row['atr14']), target_dir)
+    
+    return {
+        "symbol": symbol,
+        "price": float(last_row['close']),
+        "volume": float(last_row['volume']),
+        "change_pct": round(((last_row['close'] - df.iloc[-24]['close']) / df.iloc[-24]['close'] * 100.0) if len(df) >= 24 else 0.0, 2),
+        "is_squeeze": is_squeeze,
+        "squeeze_bars": squeeze_bars,
+        "signal": signal,
+        "recent_signal": recent_signal,
+        "trend": trend,
+        "pct_from_ema200": round(pct_from_ema200, 2),
+        "momentum": round(float(last_row['momentum']), 4),
+        "atr": round(float(last_row['atr14']), 6 if last_row['atr14'] < 1 else 2),
+        "rr_targets": rr_targets
+    }
+
+async def scan_market(interval: str = "1h", limit_pairs: int = 50) -> List[Dict[str, Any]]:
+    """Scan all top market pairs concurrently using aiohttp."""
+    symbols = await fetch_top_usdt_pairs(limit=limit_pairs)
+    async with aiohttp.ClientSession() as session:
+        tasks = [scan_single_symbol(session, sym, interval=interval) for sym in symbols]
+        results = await asyncio.gather(*tasks, return_exceptions=False)
+        valid_results = [r for r in results if r is not None]
+        
+        def sort_priority(item):
+            sig_score = 100 if item['signal'] in ['LONG', 'SHORT'] else (50 if item['recent_signal'] != 'NONE' else 0)
+            sqz_score = (item['squeeze_bars'] * 2) if item['is_squeeze'] else 0
+            return sig_score + sqz_score
+            
+        valid_results.sort(key=sort_priority, reverse=True)
+        return valid_results

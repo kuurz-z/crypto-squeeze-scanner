@@ -1,0 +1,17 @@
+{
+  "initial_capital": 100.0,
+  "current_balance": 100.0,
+  "fixed_risk_usd": 1.0,
+  "is_depleted": false,
+  "depletion_report_file": null,
+  "active_strategy_name": "Squeeze_Momentum_Breakout",
+  "active_params": {
+    "rvol_min": 1.25,
+    "atr_sl_mult": 1.4,
+    "target_rr": 2.0,
+    "rsi_min_long": 50.0,
+    "rsi_max_short": 50.0
+  },
+  "optimization_logs": [],
+  "updated_at": "2026-08-20 17:58:06"
+}

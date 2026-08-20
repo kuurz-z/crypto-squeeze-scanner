@@ -1,0 +1,17 @@
+﻿version: '3.8'
+
+services:
+  crypto-bot:
+    build: .
+    container_name: crypto_squeeze_bot
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./reports:/app/reports
+      - ./bot_state.json:/app/bot_state.json
+      - ./live_positions.json:/app/live_positions.json
+      - ./live_trades.json:/app/live_trades.json
+      - ./strategy_catalog.json:/app/strategy_catalog.json
+    environment:
+      - TZ=UTC
