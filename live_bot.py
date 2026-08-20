@@ -143,14 +143,34 @@ class LiveCryptoBot:
         print(f"[LiveBot] Bot re-funded with ${capital:.2f} USD and resumed scanning.")
 
     def load_state(self):
-        """Load persisted trades, balances, and open positions from disk."""
+        """Load persisted trades, balances, open positions, and audit archives from disk."""
+        # 1. Load Closed Trades with Multi-File Redundancy
+        loaded_trades = []
         if os.path.exists(LIVE_TRADES_FILE):
             try:
                 with open(LIVE_TRADES_FILE, "r", encoding="utf-8") as f:
-                    self.closed_trades = json.load(f)
+                    loaded_trades = json.load(f)
             except Exception:
-                self.closed_trades = []
+                loaded_trades = []
 
+        if os.path.exists(HISTORICAL_ARCHIVE_FILE):
+            try:
+                with open(HISTORICAL_ARCHIVE_FILE, "r", encoding="utf-8") as f:
+                    arch = json.load(f)
+                    arch_trades = arch.get("trades", [])
+                    existing_ids = {t.get("trade_id") for t in loaded_trades if t.get("trade_id")}
+                    for at in arch_trades:
+                        if at.get("trade_id") and at.get("trade_id") not in existing_ids:
+                            loaded_trades.append(at)
+                            existing_ids.add(at.get("trade_id"))
+            except Exception:
+                pass
+
+        # Sort trades by trade_id ascending
+        loaded_trades.sort(key=lambda x: x.get("trade_id", 0))
+        self.closed_trades = loaded_trades
+
+        # 2. Load Active Open Positions
         if os.path.exists(LIVE_POSITIONS_FILE):
             try:
                 with open(LIVE_POSITIONS_FILE, "r", encoding="utf-8") as f:
@@ -158,6 +178,7 @@ class LiveCryptoBot:
             except Exception:
                 self.open_positions = {}
 
+        # 3. Load Engine State & Wallets
         if os.path.exists(BOT_STATE_FILE):
             try:
                 with open(BOT_STATE_FILE, "r", encoding="utf-8") as f:
@@ -183,6 +204,7 @@ class LiveCryptoBot:
             except Exception:
                 pass
 
+        # 4. Load Hall of Fame Registry
         if os.path.exists(HALL_OF_FAME_FILE):
             try:
                 with open(HALL_OF_FAME_FILE, "r", encoding="utf-8") as f:
@@ -230,12 +252,13 @@ class LiveCryptoBot:
         self.task = asyncio.create_task(self._main_loop())
 
     async def stop(self):
-        """Pause the live trading worker."""
+        """Pause the live trading worker and flush state to disk."""
         self.is_running = False
         if self.task:
             self.task.cancel()
             self.task = None
-        print("[LiveBot] Bot worker stopped.")
+        self.save_state()
+        print("[LiveBot] Bot worker stopped and state flushed to disk.")
 
     async def _main_loop(self):
         """Continuous execution loop."""
@@ -518,8 +541,12 @@ class LiveCryptoBot:
                 position_qty = round(risk_amount_usd / risk_dist, 4) if risk_dist > 0 else 1.0
                 position_value_usd = round(position_qty * entry_price, 2)
 
+                max_closed_id = max([t.get('trade_id', 0) for t in self.closed_trades] + [0])
+                max_open_id = max([p.get('trade_id', 0) for p in self.open_positions.values()] + [0])
+                next_trade_id = max(max_closed_id, max_open_id) + 1
+
                 pos_record = {
-                    "trade_id": len(self.closed_trades) + len(self.open_positions) + 1,
+                    "trade_id": next_trade_id,
                     "symbol": sym,
                     "sector": sector,
                     "strategy": self.active_strategy_name,
@@ -739,6 +766,7 @@ class LiveCryptoBot:
 
         self.closed_trades.append(closed_record)
         self._archive_entry("trades", closed_record)
+        self.save_state()
         print(f"[LiveBot] CLOSED {pos['direction']} on {symbol}: {outcome} ({net_r}R | ${pnl_usd:+.2f} USD) | Balance: ${self.current_balance:.2f} USD")
 
         # Trigger Continuous Self-Evolution loop if threshold reached

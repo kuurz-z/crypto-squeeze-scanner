@@ -316,5 +316,42 @@ class TestLiveBotEngine(unittest.TestCase):
         hof_path = os.path.join("reports", "monthly_champions_hall_of_fame.json")
         self.assertTrue(os.path.exists(hof_path))
 
+    def test_server_restart_persistence_and_state_recovery(self):
+        """Verify that open positions, trade journal, and balance survive a server restart."""
+        # 1. Populate bot state
+        self.bot.current_balance = 105.42
+        self.bot.open_positions["BTCUSDT"] = {
+            "trade_id": 50,
+            "symbol": "BTCUSDT",
+            "sector": "LAYER_1",
+            "strategy": "Squeeze_Momentum_Breakout",
+            "direction": "LONG",
+            "entry_time": 1700000000,
+            "entry_price": 60000.0,
+            "current_price": 60500.0,
+            "sl_price": 59000.0,
+            "tp_price": 62000.0,
+            "risk_distance": 1000.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.0
+        }
+        self.bot.closed_trades = [{
+            "trade_id": 49,
+            "symbol": "ETHUSDT",
+            "direction": "LONG",
+            "outcome": "WIN",
+            "net_r": 1.92,
+            "pnl_usd": 1.92
+        }]
+        self.bot.save_state()
+
+        # 2. Simulate server restart by creating a new instance
+        bot_rebooted = LiveCryptoBot(initial_capital=100.0, fixed_risk_usd=1.0)
+        
+        # 3. Assert full recovery
+        self.assertEqual(bot_rebooted.current_balance, 105.42)
+        self.assertIn("BTCUSDT", bot_rebooted.open_positions)
+        self.assertTrue(any(t.get("symbol") == "ETHUSDT" for t in bot_rebooted.closed_trades))
+
 if __name__ == '__main__':
     unittest.main()
