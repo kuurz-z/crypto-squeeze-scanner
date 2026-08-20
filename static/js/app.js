@@ -589,6 +589,55 @@ function setupViewNavigation() {
     });
   }
 
+  // Tab Switcher for Active Positions vs Closed Trade History
+  const tabActivePosBtn = document.getElementById('tab-btn-active-pos');
+  const tabClosedHistBtn = document.getElementById('tab-btn-closed-history');
+  const tabActivePosContent = document.getElementById('tab-content-active-pos');
+  const tabClosedHistContent = document.getElementById('tab-content-closed-history');
+
+  if (tabActivePosBtn && tabClosedHistBtn) {
+    tabActivePosBtn.addEventListener('click', () => {
+      tabActivePosBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40 cursor-pointer';
+      tabClosedHistBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-2 bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-gray-700 cursor-pointer';
+      if (tabActivePosContent) tabActivePosContent.classList.remove('hidden');
+      if (tabClosedHistContent) {
+        tabClosedHistContent.classList.add('hidden');
+        tabClosedHistContent.classList.remove('flex');
+      }
+    });
+
+    tabClosedHistBtn.addEventListener('click', () => {
+      tabClosedHistBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 border border-purple-200 dark:border-purple-800/40 cursor-pointer';
+      tabActivePosBtn.className = 'px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-2 bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-gray-700 cursor-pointer';
+      if (tabActivePosContent) tabActivePosContent.classList.add('hidden');
+      if (tabClosedHistContent) {
+        tabClosedHistContent.classList.remove('hidden');
+        tabClosedHistContent.classList.add('flex');
+      }
+    });
+  }
+
+  // Closed History Pagination Buttons
+  const prevHistBtn = document.getElementById('btn-hist-prev');
+  const nextHistBtn = document.getElementById('btn-hist-next');
+  if (prevHistBtn) {
+    prevHistBtn.addEventListener('click', () => {
+      if (currentHistPage > 1) {
+        currentHistPage--;
+        renderBotClosedHistory(cachedClosedHistory);
+      }
+    });
+  }
+  if (nextHistBtn) {
+    nextHistBtn.addEventListener('click', () => {
+      const totalPages = Math.ceil(cachedClosedHistory.length / HIST_PER_PAGE);
+      if (currentHistPage < totalPages) {
+        currentHistPage++;
+        renderBotClosedHistory(cachedClosedHistory);
+      }
+    });
+  }
+
   // AI Evolution Log Pagination Buttons
   const prevEvoBtn = document.getElementById('btn-evo-prev');
   const nextEvoBtn = document.getElementById('btn-evo-next');
@@ -628,6 +677,7 @@ async function fetchBotTelemetry() {
 
     renderBotMetrics(t);
     renderBotPositions(t.open_positions || []);
+    renderBotClosedHistory(t.recent_journal || []);
     renderBotJournal(t.recent_journal || []);
     renderBotEvolution(t.recent_optimizations || []);
     renderBotParams(t.active_params || {});
@@ -748,8 +798,10 @@ function renderBotMetrics(t) {
 function renderBotPositions(positions) {
   const tbody = document.getElementById('bot-positions-tbody');
   const countBadge = document.getElementById('bot-positions-count-badge');
+  const tabBadge = document.getElementById('tab-badge-active-count');
   
   if (countBadge) countBadge.innerText = `${positions.length} Active`;
+  if (tabBadge) tabBadge.innerText = `${positions.length}`;
 
   if (!tbody) return;
 
@@ -796,6 +848,89 @@ function renderBotPositions(positions) {
       </tr>
     `;
   }).join('');
+}
+
+let currentHistPage = 1;
+const HIST_PER_PAGE = 5;
+let cachedClosedHistory = [];
+
+function renderBotClosedHistory(trades) {
+  const tbody = document.getElementById('bot-closed-history-tbody');
+  const badgeCount = document.getElementById('tab-badge-closed-count');
+  const paginationBar = document.getElementById('bot-history-pagination');
+  const pageIndicator = document.getElementById('hist-page-indicator');
+  const prevBtn = document.getElementById('btn-hist-prev');
+  const nextBtn = document.getElementById('btn-hist-next');
+
+  if (badgeCount) badgeCount.innerText = `${trades ? trades.length : 0}`;
+  if (!tbody) return;
+
+  if (!trades || trades.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="9" class="py-6 text-center text-slate-400 dark:text-gray-500">
+          <i class="fa-solid fa-clipboard-check text-lg mb-1 block text-slate-400"></i>
+          No closed trades yet. Completed trades will appear in this history table.
+        </td>
+      </tr>
+    `;
+    if (paginationBar) paginationBar.classList.add('hidden');
+    return;
+  }
+
+  cachedClosedHistory = trades;
+  const totalItems = cachedClosedHistory.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / HIST_PER_PAGE));
+  if (currentHistPage > totalPages) currentHistPage = totalPages;
+  if (currentHistPage < 1) currentHistPage = 1;
+
+  const startIndex = (currentHistPage - 1) * HIST_PER_PAGE;
+  const pageItems = cachedClosedHistory.slice(startIndex, startIndex + HIST_PER_PAGE);
+
+  tbody.innerHTML = pageItems.map(t => {
+    const isLong = t.direction === 'LONG';
+    const typeColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50';
+    const isWin = t.outcome === 'WIN' || t.outcome === 'TRAILING_STOP_WIN';
+    const isBE = t.outcome === 'BE_EXIT' || t.outcome === 'BREAKEVEN_DEFENSE';
+    const badgeBg = isWin ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' : (isBE ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30' : 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30');
+    const rColor = t.net_r > 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (t.net_r === 0 ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold');
+    const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : round(t.net_r * 1.0, 2);
+    const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
+
+    return `
+      <tr class="hover:bg-slate-50 dark:hover:bg-gray-800/40 text-[11px]">
+        <td class="py-2.5 px-3 font-mono font-bold text-indigo-600 dark:text-indigo-400">#${t.trade_id || 1}</td>
+        <td class="py-2.5 px-2 font-bold text-slate-900 dark:text-white">${t.symbol}</td>
+        <td class="py-2.5 px-2">
+          <span class="px-1.5 py-0.5 rounded font-mono text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">${(t.sector || 'ALT').replace(/_/g, ' ')}</span>
+        </td>
+        <td class="py-2.5 px-2">
+          <span class="px-2 py-0.5 rounded font-semibold text-[10px] border ${typeColor}">${t.direction}</span>
+        </td>
+        <td class="py-2.5 px-2 font-mono text-slate-700 dark:text-slate-300">$${t.entry_price} ➔ $${t.exit_price}</td>
+        <td class="py-2.5 px-2 font-mono text-slate-500">${t.bars_held || 1}b</td>
+        <td class="py-2.5 px-2">
+          <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${badgeBg}">${t.outcome.replace(/_/g, ' ')}</span>
+        </td>
+        <td class="py-2.5 px-2 text-right font-mono ${rColor}">
+          <div>${pnlUsdStr}</div>
+          <div class="text-[10px] opacity-80">(${t.net_r > 0 ? '+' : ''}${t.net_r} R)</div>
+        </td>
+        <td class="py-2.5 px-3 text-right text-[10px] text-slate-400 font-mono">${t.exit_time_str || ''}</td>
+      </tr>
+    `;
+  }).join('');
+
+  if (paginationBar) {
+    if (totalItems > HIST_PER_PAGE) {
+      paginationBar.classList.remove('hidden');
+      if (pageIndicator) pageIndicator.innerText = `Page ${currentHistPage} of ${totalPages} (${totalItems} trades)`;
+      if (prevBtn) prevBtn.disabled = (currentHistPage <= 1);
+      if (nextBtn) nextBtn.disabled = (currentHistPage >= totalPages);
+    } else {
+      paginationBar.classList.add('hidden');
+    }
+  }
 }
 
 function renderBotJournal(trades) {

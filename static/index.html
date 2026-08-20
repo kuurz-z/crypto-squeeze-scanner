@@ -457,16 +457,29 @@
       <!-- LEFT COLUMN: ACTIVE POSITIONS & LIVE DIAGNOSTIC STREAM (8 COLS) -->
       <div class="lg:col-span-8 flex flex-col gap-6">
         
-        <!-- ACTIVE LIVE POSITIONS -->
+        <!-- ACTIVE POSITIONS & CLOSED TRADE HISTORY TABS -->
         <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl transition-colors">
-          <div class="flex items-center justify-between mb-4 border-b border-slate-200 dark:border-gray-800 pb-3">
-            <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <i class="fa-solid fa-layer-group text-emerald-500"></i> Active Live Positions (Strict 1:2 RR)
-            </h3>
-            <span id="bot-positions-count-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-400 border border-slate-200 dark:border-gray-700">0 Active</span>
+          <!-- Card Header & Tab Switcher -->
+          <div class="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-slate-200 dark:border-gray-800 pb-3">
+            <div class="flex items-center gap-2">
+              <button id="tab-btn-active-pos" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40 cursor-pointer">
+                <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Active Live Positions</span>
+                <span id="tab-badge-active-count" class="px-1.5 py-0.2 rounded bg-indigo-200/60 dark:bg-indigo-900/60 text-[10px]">0</span>
+              </button>
+
+              <button id="tab-btn-closed-history" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-2 bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-gray-700 cursor-pointer">
+                <i class="fa-solid fa-clock-rotate-left text-purple-500"></i>
+                <span>Closed Trade History</span>
+                <span id="tab-badge-closed-count" class="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-gray-700 text-[10px]">0</span>
+              </button>
+            </div>
+
+            <span class="text-[10px] text-slate-400 font-mono">Strict &ge; 1:2 RR Execution</span>
           </div>
 
-          <div class="overflow-x-auto">
+          <!-- TAB 1: ACTIVE LIVE POSITIONS -->
+          <div id="tab-content-active-pos" class="overflow-x-auto">
             <table class="w-full text-left text-xs border-collapse">
               <thead class="bg-slate-50 dark:bg-[#1e293b] text-slate-500 dark:text-gray-400 uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-gray-800">
                 <tr>
@@ -483,13 +496,54 @@
               <tbody id="bot-positions-tbody" class="divide-y divide-slate-100 dark:divide-gray-800 text-slate-700 dark:text-gray-300">
                 <tr>
                   <td colspan="8" class="py-6 text-center text-slate-400 dark:text-gray-500">
-                    <i class="fa-solid fa-radar text-lg mb-1 block"></i>
+                    <i class="fa-solid fa-radar text-lg mb-1 block text-indigo-500"></i>
                     No open positions right now. The bot is actively scanning 100 pairs for valid 1:2 RR setups.
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
+
+          <!-- TAB 2: CLOSED TRADE HISTORY -->
+          <div id="tab-content-closed-history" class="hidden flex-col">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-xs border-collapse">
+                <thead class="bg-slate-50 dark:bg-[#1e293b] text-slate-500 dark:text-gray-400 uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-gray-800">
+                  <tr>
+                    <th class="py-2.5 px-3">#</th>
+                    <th class="py-2.5 px-2">Coin</th>
+                    <th class="py-2.5 px-2">Sector</th>
+                    <th class="py-2.5 px-2">Type</th>
+                    <th class="py-2.5 px-2">Entry ➔ Exit</th>
+                    <th class="py-2.5 px-2">Bars</th>
+                    <th class="py-2.5 px-2">Outcome</th>
+                    <th class="py-2.5 px-2 text-right">Realized PnL</th>
+                    <th class="py-2.5 px-3 text-right">Closed At</th>
+                  </tr>
+                </thead>
+                <tbody id="bot-closed-history-tbody" class="divide-y divide-slate-100 dark:divide-gray-800 text-slate-700 dark:text-gray-300">
+                  <tr>
+                    <td colspan="9" class="py-6 text-center text-slate-400 dark:text-gray-500">
+                      <i class="fa-solid fa-clipboard-check text-lg mb-1 block text-slate-400"></i>
+                      No closed trades yet. Completed trades will appear in this history table.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Closed History Pagination Bar -->
+            <div id="bot-history-pagination" class="hidden flex items-center justify-between pt-3 mt-3 border-t border-slate-100 dark:border-gray-800/80 text-[11px] text-slate-500 dark:text-gray-400">
+              <button id="btn-hist-prev" class="px-2.5 py-1 rounded bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition flex items-center gap-1">
+                <i class="fa-solid fa-chevron-left text-[9px]"></i> Prev
+              </button>
+              <span id="hist-page-indicator" class="font-mono text-[10px] font-semibold text-slate-600 dark:text-slate-400">Page 1 of 1</span>
+              <button id="btn-hist-next" class="px-2.5 py-1 rounded bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer transition flex items-center gap-1">
+                Next <i class="fa-solid fa-chevron-right text-[9px]"></i>
+              </button>
+            </div>
+          </div>
+
         </div>
 
         <!-- LIVE TRADE DIAGNOSTIC JOURNAL STREAM -->
