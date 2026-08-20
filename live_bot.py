@@ -584,6 +584,7 @@ class LiveCryptoBot:
                     "symbol": sym,
                     "sector": sector,
                     "strategy": self.active_strategy_name,
+                    "timeframe": self.timeframe,
                     "direction": direction,
                     "entry_time": int(df.iloc[-1]['time']),
                     "entry_time_str": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -734,7 +735,9 @@ class LiveCryptoBot:
         closed_record = {
             "trade_id": pos['trade_id'],
             "symbol": symbol,
+            "sector": pos.get('sector', 'ALT'),
             "strategy": pos['strategy'],
+            "timeframe": pos.get('timeframe', self.timeframe),
             "direction": pos['direction'],
             "entry_time": pos['entry_time'],
             "entry_time_str": pos['entry_time_str'],

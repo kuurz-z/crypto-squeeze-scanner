@@ -970,26 +970,35 @@ function renderBotPositions(positions) {
     const rColor = pos.unrealized_r >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold';
     const pnlUsd = pos.unrealized_pnl_usd || 0.0;
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
+    const tf = pos.timeframe || pos.pre_trade_context?.timeframe || '15m';
 
     return `
       <tr class="hover:bg-slate-50 dark:hover:bg-gray-800/40 text-[11px]">
-        <td class="py-2.5 px-3 font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
+        <td class="py-2 px-2.5 font-bold text-slate-900 dark:text-white flex items-center gap-1.5 whitespace-nowrap">
           <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
           ${pos.symbol}
           ${pos.exit_status ? `<span class="px-1.5 py-0.5 text-[9px] rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-500/20">${pos.exit_status}</span>` : ''}
         </td>
-        <td class="py-2.5 px-2">
+        <td class="py-2 px-1.5 whitespace-nowrap">
           <span class="px-1.5 py-0.5 rounded font-mono text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">${(pos.sector || 'ALT').replace(/_/g, ' ')}</span>
         </td>
-        <td class="py-2.5 px-2">
+        <td class="py-2 px-1.5 whitespace-nowrap">
           <span class="px-2 py-0.5 rounded font-semibold text-[10px] border ${typeColor}">${pos.direction}</span>
         </td>
-        <td class="py-2.5 px-2 font-mono text-slate-700 dark:text-slate-300">$${pos.entry_price}</td>
-        <td class="py-2.5 px-2 font-mono font-semibold text-indigo-600 dark:text-indigo-400">$${pos.current_price}</td>
-        <td class="py-2.5 px-2 font-mono text-rose-600 dark:text-rose-400">$${pos.sl_price}</td>
-        <td class="py-2.5 px-2 font-mono text-emerald-600 dark:text-emerald-400">$${pos.tp_price} (1:${pos.target_rr})</td>
-        <td class="py-2.5 px-2 text-right font-mono ${rColor}">
-          <div>${pnlUsdStr}</div>
+        <td class="py-2 px-1.5 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
+          <div class="font-medium">$${pos.entry_price}</div>
+          <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
+            ${tf} TF
+          </span>
+        </td>
+        <td class="py-2 px-1.5 font-mono font-semibold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">$${pos.current_price}</td>
+        <td class="py-2 px-1.5 font-mono text-rose-600 dark:text-rose-400 whitespace-nowrap">$${pos.sl_price}</td>
+        <td class="py-2 px-1.5 font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+          <div>$${pos.tp_price}</div>
+          <span class="text-[9px] text-slate-400 font-sans">(1:${pos.target_rr})</span>
+        </td>
+        <td class="py-2 px-2.5 text-right font-mono ${rColor} whitespace-nowrap">
+          <div class="text-xs">${pnlUsdStr}</div>
           <div class="text-[10px] opacity-80">${pos.unrealized_r > 0 ? '+' : ''}${pos.unrealized_r} R</div>
         </td>
       </tr>
@@ -1043,27 +1052,33 @@ function renderBotClosedHistory(trades) {
     const rColor = t.net_r > 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (t.net_r === 0 ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold');
     const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : round(t.net_r * 1.0, 2);
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
+    const tf = t.timeframe || t.pre_trade_context?.timeframe || '15m';
 
     return `
       <tr class="hover:bg-slate-50 dark:hover:bg-gray-800/40 text-[11px]">
-        <td class="py-2.5 px-3 font-mono font-bold text-indigo-600 dark:text-indigo-400">#${t.trade_id || 1}</td>
-        <td class="py-2.5 px-2 font-bold text-slate-900 dark:text-white">${t.symbol}</td>
-        <td class="py-2.5 px-2">
+        <td class="py-2 px-2 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">#${t.trade_id || 1}</td>
+        <td class="py-2 px-1.5 font-bold text-slate-900 dark:text-white whitespace-nowrap">${t.symbol}</td>
+        <td class="py-2 px-1.5 whitespace-nowrap">
           <span class="px-1.5 py-0.5 rounded font-mono text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">${(t.sector || 'ALT').replace(/_/g, ' ')}</span>
         </td>
-        <td class="py-2.5 px-2">
+        <td class="py-2 px-1.5 whitespace-nowrap">
           <span class="px-2 py-0.5 rounded font-semibold text-[10px] border ${typeColor}">${t.direction}</span>
         </td>
-        <td class="py-2.5 px-2 font-mono text-slate-700 dark:text-slate-300">$${t.entry_price} ➔ $${t.exit_price}</td>
-        <td class="py-2.5 px-2 font-mono text-slate-500">${t.bars_held || 1}b</td>
-        <td class="py-2.5 px-2">
+        <td class="py-2 px-1.5 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
+          <div>$${t.entry_price} ➔ $${t.exit_price}</div>
+          <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
+            ${tf} TF
+          </span>
+        </td>
+        <td class="py-2 px-1.5 font-mono text-slate-500 whitespace-nowrap">${t.bars_held || 1}b</td>
+        <td class="py-2 px-1.5 whitespace-nowrap">
           <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${badgeBg}">${t.outcome.replace(/_/g, ' ')}</span>
         </td>
-        <td class="py-2.5 px-2 text-right font-mono ${rColor}">
+        <td class="py-2 px-2 text-right font-mono ${rColor} whitespace-nowrap">
           <div>${pnlUsdStr}</div>
           <div class="text-[10px] opacity-80">(${t.net_r > 0 ? '+' : ''}${t.net_r} R)</div>
         </td>
-        <td class="py-2.5 px-3 text-right text-[10px] text-slate-400 font-mono">${t.exit_time_str || ''}</td>
+        <td class="py-2 px-2.5 text-right text-[10px] text-slate-400 font-mono whitespace-nowrap">${t.exit_time_str || ''}</td>
       </tr>
     `;
   }).join('');
