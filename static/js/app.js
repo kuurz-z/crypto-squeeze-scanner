@@ -1048,11 +1048,11 @@ function renderBotClosedHistory(trades) {
   tbody.innerHTML = pageItems.map(t => {
     const isLong = t.direction === 'LONG';
     const typeColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50';
-    const isWin = t.outcome === 'WIN' || t.outcome === 'TRAILING_STOP_WIN';
-    const isBE = t.outcome === 'BE_EXIT' || t.outcome === 'BREAKEVEN_DEFENSE';
+    const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : round((t.net_r || 0) * 1.0, 2);
+    const isWin = (t.net_r > 0) || (pnlUsd > 0) || (t.outcome && t.outcome.includes('WIN'));
+    const isBE = (!isWin && (t.net_r === 0 || pnlUsd === 0)) || (t.outcome && (t.outcome.includes('BE') || t.outcome.includes('BREAKEVEN')));
     const badgeBg = isWin ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' : (isBE ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30' : 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30');
-    const rColor = t.net_r > 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (t.net_r === 0 ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold');
-    const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : round(t.net_r * 1.0, 2);
+    const rColor = isWin ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (isBE ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold');
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
     const tf = t.timeframe || t.pre_trade_context?.timeframe || '15m';
     const exitTimeStr = t.exit_time_str || (t.exit_time ? new Date(t.exit_time * 1000).toISOString().replace('T', ' ').substring(0, 19) : (t.entry_time_str || '-'));
@@ -1137,13 +1137,15 @@ function renderBotJournal(trades) {
 
   feed.innerHTML = pageItems.map(t => {
     const tradeId = t.trade_id || 1;
-    const isWin = t.outcome === 'WIN' || t.outcome === 'TRAILING_STOP_WIN' || t.outcome === 'UNLIMITED_RUNNER_WIN';
-    const isBE = t.outcome === 'BE_EXIT' || t.outcome === 'BREAKEVEN_DEFENSE';
-    const cardBg = isWin ? 'border-emerald-500/20 bg-emerald-50/30 dark:bg-emerald-950/10' : (isBE ? 'border-indigo-500/20 bg-indigo-50/30 dark:bg-indigo-950/10' : 'border-rose-500/20 bg-rose-50/30 dark:bg-rose-950/10');
-    const badgeBg = isWin ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' : (isBE ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30' : 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30');
-    const rColor = t.net_r > 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (t.net_r === 0 ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold');
-    const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : round(t.net_r * 1.0, 2);
+    const isLong = t.direction === 'LONG';
+    const dirColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-500/30' : 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/50 border-purple-300 dark:border-purple-500/30';
+    const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : round((t.net_r || 0) * 1.0, 2);
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
+    const isWin = (t.net_r > 0) || (pnlUsd > 0) || (t.outcome && t.outcome.includes('WIN'));
+    const isBE = (!isWin && (t.net_r === 0 || pnlUsd === 0)) || (t.outcome && (t.outcome.includes('BE') || t.outcome.includes('BREAKEVEN')));
+    const cardBg = isWin ? 'border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20' : (isBE ? 'border-indigo-500/30 bg-indigo-50/30 dark:bg-indigo-950/15' : 'border-rose-500/30 bg-rose-50/30 dark:bg-rose-950/15');
+    const badgeBg = isWin ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' : (isBE ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30' : 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30');
+    const rColor = isWin ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (isBE ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold');
 
     const ctx = t.pre_trade_context || {
       reason: isWin ? 'Clean squeeze momentum expansion with volume confirmation' : 'Squeeze breakout attempt into key level',
@@ -1155,17 +1157,23 @@ function renderBotJournal(trades) {
 
     let diag = t.diagnostic || {};
     if (!diag.catalyst_type) {
-      if (t.outcome === 'WIN') {
+      if (isWin && t.outcome === 'WIN') {
         diag = {
           catalyst_type: "Impulsive Momentum Expansion",
           summary: `Rapid target hit in ${t.bars_held || 1} bars. Strong order flow propelled price directly to target without significant drawdown.`,
           key_factors: ["High institutional velocity", "Low adverse excursion (MAE)", "Clean technical extension"]
         };
-      } else if (t.outcome === 'TRAILING_STOP_WIN') {
+      } else if (isWin && t.outcome === 'TRAILING_STOP_WIN') {
         diag = {
           catalyst_type: "ATR Trailing Stop Protected Profit",
           summary: `Dynamic trailing stop locked in +${t.net_r}R profit as momentum cooled off after favorable extension.`,
           key_factors: ["Dynamic stop protection prevented giving back gains", "Secured runner profit"]
+        };
+      } else if (t.outcome === 'TIME_EXIT' || (t.outcome && t.outcome.includes('TIME'))) {
+        diag = {
+          catalyst_type: isWin ? "Time Stagnation Exit (Profitable)" : "Time Stagnation Invalidation",
+          summary: `Position held for maximum ${t.bars_held || 1} bars without hitting full stop or target. Released capital with ${pnlUsdStr} (${t.net_r}R).`,
+          key_factors: ["Max bars held threshold reached", isWin ? "Secured positive price progression" : "Freed risk capacity for new setups"]
         };
       } else if (isBE) {
         diag = {
@@ -1191,7 +1199,7 @@ function renderBotJournal(trades) {
           <div class="flex items-center gap-2 flex-wrap">
             <span class="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] font-bold border border-indigo-200 dark:border-indigo-800/40">#${tradeId}</span>
             <span class="font-bold text-slate-900 dark:text-white text-sm">${t.symbol}</span>
-            <span class="px-2 py-0.5 rounded text-[10px] font-semibold border ${badgeBg}">${t.direction}</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-semibold border ${dirColor}">${t.direction}</span>
             <span class="text-slate-400 text-[10px] hidden sm:inline">${t.exit_time_str || ''} (${t.bars_held || 1}b)</span>
             <span class="text-[10px] px-2 py-0.5 rounded-full font-medium ${isWin ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : (isBE ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400')}">
               ${diag.catalyst_type}
