@@ -727,13 +727,42 @@ function setupViewNavigation() {
       }
     });
   }
-  if (nextEvoBtn) {
-    nextEvoBtn.addEventListener('click', () => {
-      const totalPages = Math.ceil(cachedEvoOptimizations.length / EVO_PER_PAGE);
-      if (currentEvoPage < totalPages) {
-        currentEvoPage++;
-        renderBotEvolution(cachedEvoOptimizations.slice().reverse());
+  // Trade Diagnostic Journal Feed Pagination & Collapse All
+  const prevJournalBtn = document.getElementById('btn-journal-prev');
+  const nextJournalBtn = document.getElementById('btn-journal-next');
+  const toggleAllJournalBtn = document.getElementById('btn-toggle-all-journal');
+  const toggleAllJournalText = document.getElementById('toggle-all-journal-text');
+
+  if (prevJournalBtn) {
+    prevJournalBtn.addEventListener('click', () => {
+      if (currentJournalPage > 1) {
+        currentJournalPage--;
+        renderBotJournal(cachedJournalTrades);
       }
+    });
+  }
+
+  if (nextJournalBtn) {
+    nextJournalBtn.addEventListener('click', () => {
+      const totalPages = Math.ceil(cachedJournalTrades.length / JOURNAL_PER_PAGE);
+      if (currentJournalPage < totalPages) {
+        currentJournalPage++;
+        renderBotJournal(cachedJournalTrades);
+      }
+    });
+  }
+
+  if (toggleAllJournalBtn) {
+    toggleAllJournalBtn.addEventListener('click', () => {
+      isAllJournalCollapsed = !isAllJournalCollapsed;
+      if (isAllJournalCollapsed) {
+        cachedJournalTrades.forEach(t => collapsedJournalCards.add(t.trade_id || 1));
+        if (toggleAllJournalText) toggleAllJournalText.innerText = 'Expand All';
+      } else {
+        collapsedJournalCards.clear();
+        if (toggleAllJournalText) toggleAllJournalText.innerText = 'Collapse All';
+      }
+      renderBotJournal(cachedJournalTrades);
     });
   }
 
@@ -1037,9 +1066,19 @@ function renderBotClosedHistory(trades) {
   }
 }
 
+let currentJournalPage = 1;
+const JOURNAL_PER_PAGE = 3;
+let cachedJournalTrades = [];
+let collapsedJournalCards = new Set();
+let isAllJournalCollapsed = false;
+
 function renderBotJournal(trades) {
   const feed = document.getElementById('bot-journal-feed');
   const countBadge = document.getElementById('bot-journal-count');
+  const paginationBar = document.getElementById('bot-journal-pagination');
+  const pageIndicator = document.getElementById('journal-page-indicator');
+  const prevBtn = document.getElementById('btn-journal-prev');
+  const nextBtn = document.getElementById('btn-journal-next');
   
   if (countBadge) countBadge.innerText = `${trades.length} Logged`;
   if (!feed) return;
@@ -1051,11 +1090,22 @@ function renderBotJournal(trades) {
         Waiting for trade closures. Each closed trade will automatically appear here with full pre-entry context, dollar PnL, and post-trade root-cause diagnosis.
       </div>
     `;
+    if (paginationBar) paginationBar.classList.add('hidden');
     return;
   }
 
-  feed.innerHTML = trades.map(t => {
-    const isWin = t.outcome === 'WIN' || t.outcome === 'TRAILING_STOP_WIN';
+  cachedJournalTrades = trades;
+  const totalItems = cachedJournalTrades.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / JOURNAL_PER_PAGE));
+  if (currentJournalPage > totalPages) currentJournalPage = totalPages;
+  if (currentJournalPage < 1) currentJournalPage = 1;
+
+  const startIndex = (currentJournalPage - 1) * JOURNAL_PER_PAGE;
+  const pageItems = cachedJournalTrades.slice(startIndex, startIndex + JOURNAL_PER_PAGE);
+
+  feed.innerHTML = pageItems.map(t => {
+    const tradeId = t.trade_id || 1;
+    const isWin = t.outcome === 'WIN' || t.outcome === 'TRAILING_STOP_WIN' || t.outcome === 'UNLIMITED_RUNNER_WIN';
     const isBE = t.outcome === 'BE_EXIT' || t.outcome === 'BREAKEVEN_DEFENSE';
     const cardBg = isWin ? 'border-emerald-500/20 bg-emerald-50/30 dark:bg-emerald-950/10' : (isBE ? 'border-indigo-500/20 bg-indigo-50/30 dark:bg-indigo-950/10' : 'border-rose-500/20 bg-rose-50/30 dark:bg-rose-950/10');
     const badgeBg = isWin ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' : (isBE ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30' : 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30');
@@ -1065,67 +1115,100 @@ function renderBotJournal(trades) {
 
     const ctx = t.pre_trade_context || {};
     const diag = t.diagnostic || {};
+    const isCollapsed = collapsedJournalCards.has(tradeId);
 
     return `
       <div class="border ${cardBg} rounded-xl p-4 text-xs transition-all shadow-sm">
-        <!-- Top Bar -->
-        <div class="flex items-center justify-between gap-2 mb-2 pb-2 border-b border-slate-200/60 dark:border-gray-800">
+        <!-- Interactive Collapsible Header -->
+        <div class="journal-card-header flex items-center justify-between gap-2 cursor-pointer select-none ${isCollapsed ? '' : 'mb-2.5 pb-2 border-b border-slate-200/60 dark:border-gray-800'}" data-trade-id="${tradeId}">
           <div class="flex items-center gap-2">
-            <span class="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] font-bold border border-indigo-200 dark:border-indigo-800/40">#${t.trade_id || 1}</span>
+            <span class="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] font-bold border border-indigo-200 dark:border-indigo-800/40">#${tradeId}</span>
             <span class="font-bold text-slate-900 dark:text-white text-sm">${t.symbol}</span>
             <span class="px-2 py-0.5 rounded text-[10px] font-semibold border ${badgeBg}">${t.direction}</span>
-            <span class="text-slate-400 text-[10px]">${t.exit_time_str || ''} (${t.bars_held || 1} bars held)</span>
+            <span class="text-slate-400 text-[10px] hidden sm:inline">${t.exit_time_str || ''} (${t.bars_held || 1} bars held)</span>
           </div>
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-2 sm:gap-3">
             <span class="px-2.5 py-0.5 rounded text-[10px] font-bold ${badgeBg}">${t.outcome.replace(/_/g, ' ')}</span>
             <div class="text-right">
               <span class="font-mono text-sm ${rColor}">${pnlUsdStr}</span>
               <span class="text-[10px] font-mono block text-slate-400">(${t.net_r > 0 ? '+' : ''}${t.net_r} R)</span>
             </div>
+            <button class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 transition-transform duration-200" style="transform: ${isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)'}">
+              <i class="fa-solid fa-chevron-down text-[11px]"></i>
+            </button>
           </div>
         </div>
 
-        <!-- Prices & Sizing Strip -->
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-2.5 bg-white/70 dark:bg-black/20 p-2.5 rounded-lg border border-slate-200/50 dark:border-gray-800 text-[11px]">
-          <div><span class="text-slate-400 text-[10px] block">Entry ➔ Exit</span><span class="font-mono font-medium">$${t.entry_price} ➔ $${t.exit_price}</span></div>
-          <div><span class="text-slate-400 text-[10px] block">Stop Loss (1R)</span><span class="font-mono font-medium text-rose-500">$${t.sl_price}</span></div>
-          <div><span class="text-slate-400 text-[10px] block">Take Profit (1:${t.target_rr} RR)</span><span class="font-mono font-medium text-emerald-500">$${t.tp_price}</span></div>
-          <div><span class="text-slate-400 text-[10px] block">MFE / MAE Excursion</span><span class="font-mono font-medium text-indigo-500">+${t.mfe_r || 0}R / -${t.mae_r || 0}R</span></div>
-        </div>
+        <!-- Collapsible Body Details -->
+        <div id="journal-body-${tradeId}" class="${isCollapsed ? 'hidden' : 'space-y-2.5'}">
+          <!-- Prices & Sizing Strip -->
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2 bg-white/70 dark:bg-black/20 p-2.5 rounded-lg border border-slate-200/50 dark:border-gray-800 text-[11px]">
+            <div><span class="text-slate-400 text-[10px] block">Entry ➔ Exit</span><span class="font-mono font-medium">$${t.entry_price} ➔ $${t.exit_price}</span></div>
+            <div><span class="text-slate-400 text-[10px] block">Stop Loss (1R)</span><span class="font-mono font-medium text-rose-500">$${t.sl_price}</span></div>
+            <div><span class="text-slate-400 text-[10px] block">Take Profit (1:${t.target_rr} RR)</span><span class="font-mono font-medium text-emerald-500">$${t.tp_price}</span></div>
+            <div><span class="text-slate-400 text-[10px] block">MFE / MAE Excursion</span><span class="font-mono font-medium text-indigo-500">+${t.mfe_r || 0}R / -${t.mae_r || 0}R</span></div>
+          </div>
 
-        <!-- Pre-Trade Context -->
-        <div class="mb-2 bg-slate-50 dark:bg-[#1e293b]/50 p-2.5 rounded-lg border border-slate-200/40 dark:border-gray-800/40">
-          <div class="font-semibold text-slate-700 dark:text-gray-300 flex items-center gap-1.5 text-[11px] mb-1">
-            <i class="fa-solid fa-magnifying-glass-chart text-indigo-500"></i> Pre-Trade Analysis (Why Entered):
-          </div>
-          <p class="text-slate-600 dark:text-gray-400 text-[11px]">${ctx.reason || 'Squeeze compression breakout with volume confluence'}</p>
-          <div class="flex flex-wrap gap-3 text-[10px] text-slate-500 dark:text-gray-400 mt-1 font-mono">
-            <span>RVOL: <b>${ctx.rvol || 'N/A'}x</b></span>
-            <span>RSI(14): <b>${ctx.rsi || 'N/A'}</b></span>
-            <span>ATR14: <b>$${ctx.volatility_atr || 'N/A'}</b></span>
-            <span>Regime: <b>${ctx.regime || 'Bullish'}</b></span>
-          </div>
-        </div>
-
-        <!-- Post-Trade Root Cause Diagnostic -->
-        <div class="bg-slate-50 dark:bg-[#1e293b]/50 p-2.5 rounded-lg border border-slate-200/40 dark:border-gray-800/40">
-          <div class="font-semibold text-slate-700 dark:text-gray-300 flex items-center justify-between text-[11px] mb-1">
-            <span class="flex items-center gap-1.5">
-              <i class="fa-solid fa-stethoscope ${isWin ? 'text-emerald-500' : 'text-rose-500'}"></i> Post-Trade Root Cause Diagnostic:
-              <b class="${isWin ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}">(${diag.catalyst_type || 'Standard Flow'})</b>
-            </span>
-            <span class="text-slate-400 font-mono text-[10px]">Balance: $${t.account_balance || 100}</span>
-          </div>
-          <p class="text-slate-600 dark:text-gray-400 text-[11px]">${diag.summary || 'Trade resolved according to plan.'}</p>
-          ${diag.key_factors && diag.key_factors.length ? `
-            <div class="flex flex-wrap gap-1.5 mt-2">
-              ${diag.key_factors.map(f => `<span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-gray-800 text-[10px] text-slate-700 dark:text-gray-300 font-medium">${f}</span>`).join('')}
+          <!-- Pre-Trade Context -->
+          <div class="bg-slate-50 dark:bg-[#1e293b]/50 p-2.5 rounded-lg border border-slate-200/40 dark:border-gray-800/40">
+            <div class="font-semibold text-slate-700 dark:text-gray-300 flex items-center gap-1.5 text-[11px] mb-1">
+              <i class="fa-solid fa-magnifying-glass-chart text-indigo-500"></i> Pre-Trade Analysis (Why Entered):
             </div>
-          ` : ''}
+            <p class="text-slate-600 dark:text-gray-400 text-[11px]">${ctx.reason || 'Squeeze compression breakout with volume confluence'}</p>
+            <div class="flex flex-wrap gap-3 text-[10px] text-slate-500 dark:text-gray-400 mt-1 font-mono">
+              <span>RVOL: <b>${ctx.rvol || 'N/A'}x</b></span>
+              <span>RSI(14): <b>${ctx.rsi || 'N/A'}</b></span>
+              <span>ATR14: <b>$${ctx.volatility_atr || 'N/A'}</b></span>
+              <span>Regime: <b>${ctx.regime || 'Bullish'}</b></span>
+            </div>
+          </div>
+
+          <!-- Post-Trade Root Cause Diagnostic -->
+          <div class="bg-slate-50 dark:bg-[#1e293b]/50 p-2.5 rounded-lg border border-slate-200/40 dark:border-gray-800/40">
+            <div class="font-semibold text-slate-700 dark:text-gray-300 flex items-center justify-between text-[11px] mb-1">
+              <span class="flex items-center gap-1.5">
+                <i class="fa-solid fa-stethoscope ${isWin ? 'text-emerald-500' : 'text-rose-500'}"></i> Post-Trade Root Cause Diagnostic:
+                <b class="${isWin ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}">(${diag.catalyst_type || 'Standard Flow'})</b>
+              </span>
+              <span class="text-slate-400 font-mono text-[10px]">Balance: $${t.account_balance || 100}</span>
+            </div>
+            <p class="text-slate-600 dark:text-gray-400 text-[11px]">${diag.summary || 'Trade resolved according to plan.'}</p>
+            ${diag.key_factors && diag.key_factors.length ? `
+              <div class="flex flex-wrap gap-1.5 mt-2">
+                ${diag.key_factors.map(f => `<span class="px-2 py-0.5 rounded bg-slate-200 dark:bg-gray-800 text-[10px] text-slate-700 dark:text-gray-300 font-medium">${f}</span>`).join('')}
+              </div>
+            ` : ''}
+          </div>
         </div>
       </div>
     `;
   }).join('');
+
+  // Attach interactive click handlers for each collapsible card
+  const headers = feed.querySelectorAll('.journal-card-header');
+  headers.forEach(h => {
+    h.addEventListener('click', () => {
+      const tid = parseInt(h.getAttribute('data-trade-id'));
+      if (collapsedJournalCards.has(tid)) {
+        collapsedJournalCards.delete(tid);
+      } else {
+        collapsedJournalCards.add(tid);
+      }
+      renderBotJournal(cachedJournalTrades);
+    });
+  });
+
+  // Update Pagination Controls
+  if (paginationBar) {
+    if (totalItems > JOURNAL_PER_PAGE) {
+      paginationBar.classList.remove('hidden');
+      if (pageIndicator) pageIndicator.innerText = `Page ${currentJournalPage} of ${totalPages} (${totalItems} trades)`;
+      if (prevBtn) prevBtn.disabled = (currentJournalPage <= 1);
+      if (nextBtn) nextBtn.disabled = (currentJournalPage >= totalPages);
+    } else {
+      paginationBar.classList.add('hidden');
+    }
+  }
 }
 
 function renderBotParams(params) {
