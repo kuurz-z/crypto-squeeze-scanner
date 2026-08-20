@@ -1,10 +1,19 @@
 import os
+import mimetypes
 import aiohttp
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional
+
+# Ensure standard MIME types are registered on Linux cloud instances
+mimetypes.init()
+mimetypes.add_type("application/javascript", ".js")
+mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("text/css", ".css")
+mimetypes.add_type("image/x-icon", ".ico")
+mimetypes.add_type("text/html", ".html")
 
 from scanner import scan_market, fetch_klines, compute_indicators, calculate_rr_levels, fetch_top_usdt_pairs
 from backtester import backtest_symbol, backtest_portfolio
@@ -22,9 +31,31 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static folder
-STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+# Resolve and mount static directory
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+
+# Explicit static file routes to guarantee correct MIME types across all cloud providers
+@app.get("/static/js/{file_path:path}")
+async def serve_js(file_path: str):
+    p = os.path.join(STATIC_DIR, "js", file_path)
+    if os.path.exists(p):
+        return FileResponse(p, media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="File not found")
+
+@app.get("/static/css/{file_path:path}")
+async def serve_css(file_path: str):
+    p = os.path.join(STATIC_DIR, "css", file_path)
+    if os.path.exists(p):
+        return FileResponse(p, media_type="text/css")
+    raise HTTPException(status_code=404, detail="File not found")
+
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
+
+if os.path.exists(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/")
 async def serve_index():
@@ -33,6 +64,7 @@ async def serve_index():
     if os.path.exists(index_path):
         return FileResponse(
             index_path,
+            media_type="text/html",
             headers={
                 "Cache-Control": "no-cache, no-store, must-revalidate",
                 "Pragma": "no-cache",
