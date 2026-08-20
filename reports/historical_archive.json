@@ -1,0 +1,334 @@
+{
+  "created_at": "2026-08-20 18:48:56",
+  "total_trades_archived": 4,
+  "trades": [
+    {
+      "trade_id": 999,
+      "symbol": "BTCUSDT",
+      "direction": "LONG",
+      "entry_price": 60000.0,
+      "exit_price": 62000.0,
+      "net_r": 2.0,
+      "pnl_usd": 2.0,
+      "outcome": "WIN"
+    },
+    {
+      "trade_id": 1,
+      "symbol": "BTCUSDT",
+      "strategy": "Squeeze_Momentum_Breakout",
+      "direction": "LONG",
+      "entry_time": 1700000000,
+      "entry_time_str": "2026-08-20 12:00:00",
+      "exit_time": 1700002700,
+      "exit_time_str": "2026-08-20 18:48:56",
+      "entry_price": 100.0,
+      "exit_price": 109.5,
+      "sl_price": 109.5,
+      "tp_price": 120.0,
+      "target_rr": 2.0,
+      "risk_amount_usd": 1.0,
+      "position_qty": 1.0,
+      "position_value_usd": 0.0,
+      "outcome": "TRAILING_STOP_WIN",
+      "raw_r": 0.95,
+      "net_r": 0.87,
+      "pnl_usd": 0.87,
+      "account_balance": 1.37,
+      "mfe_r": 1.65,
+      "mae_r": 0.0,
+      "bars_held": 3,
+      "friction_breakdown": "Gross: +0.95R | Friction: -0.08R | Net: +0.87R ($+0.87 USD)",
+      "trade_efficiency": "MFE: +1.65R | MAE: -0.0R",
+      "pre_trade_context": {
+        "reason": "Test setup"
+      },
+      "diagnostic": {
+        "summary": "Dynamic trailing stop locked in +0.87R profit as momentum cooled off after peaking at +1.65R MFE.",
+        "catalyst_type": "ATR Trailing Stop Protected Profit",
+        "key_factors": [
+          "Dynamic stop protection prevented giving back gains",
+          "MFE reached +1.65R before trailing SL secured profit"
+        ],
+        "risk_management_quality": "High"
+      },
+      "report_file": "reports\\trade_journal_#1_BTCUSDT_TRAILING_STOP_WIN.md"
+    },
+    {
+      "trade_id": 999,
+      "symbol": "BTCUSDT",
+      "direction": "LONG",
+      "entry_price": 60000.0,
+      "exit_price": 62000.0,
+      "net_r": 2.0,
+      "pnl_usd": 2.0,
+      "outcome": "WIN"
+    },
+    {
+      "trade_id": 1,
+      "symbol": "BTCUSDT",
+      "strategy": "Squeeze_Momentum_Breakout",
+      "direction": "LONG",
+      "entry_time": 1700000000,
+      "entry_time_str": "2026-08-20 12:00:00",
+      "exit_time": 1700002700,
+      "exit_time_str": "2026-08-20 18:49:39",
+      "entry_price": 100.0,
+      "exit_price": 109.5,
+      "sl_price": 109.5,
+      "tp_price": 120.0,
+      "target_rr": 2.0,
+      "risk_amount_usd": 1.0,
+      "position_qty": 1.0,
+      "position_value_usd": 0.0,
+      "outcome": "TRAILING_STOP_WIN",
+      "raw_r": 0.95,
+      "net_r": 0.87,
+      "pnl_usd": 0.87,
+      "account_balance": 1.37,
+      "mfe_r": 1.65,
+      "mae_r": 0.0,
+      "bars_held": 3,
+      "friction_breakdown": "Gross: +0.95R | Friction: -0.08R | Net: +0.87R ($+0.87 USD)",
+      "trade_efficiency": "MFE: +1.65R | MAE: -0.0R",
+      "pre_trade_context": {
+        "reason": "Test setup"
+      },
+      "diagnostic": {
+        "summary": "Dynamic trailing stop locked in +0.87R profit as momentum cooled off after peaking at +1.65R MFE.",
+        "catalyst_type": "ATR Trailing Stop Protected Profit",
+        "key_factors": [
+          "Dynamic stop protection prevented giving back gains",
+          "MFE reached +1.65R before trailing SL secured profit"
+        ],
+        "risk_management_quality": "High"
+      },
+      "report_file": "reports\\trade_journal_#1_BTCUSDT_TRAILING_STOP_WIN.md"
+    }
+  ],
+  "micro_optimizations": [],
+  "weekly_macro_optimizations": [
+    {
+      "period": "WEEKLY",
+      "timestamp": "2026-08-20 18:48:56",
+      "lookback_bars": 500,
+      "timeframes_tested": [
+        "1h",
+        "4h"
+      ],
+      "optimal_timeframe": "1h",
+      "optimal_params": {
+        "rvol_min": 1.3,
+        "atr_sl_mult": 1.35,
+        "target_rr": 3.0,
+        "rsi_min_long": 52.0,
+        "rsi_max_short": 48.0
+      },
+      "metrics": {
+        "timeframe": "1h",
+        "tested_trades": 36,
+        "win_rate_pct": 69.44,
+        "total_net_r": 61.12,
+        "expectancy_r": 1.698,
+        "profit_factor": 6.14,
+        "params": {
+          "rvol_min": 1.3,
+          "atr_sl_mult": 1.35,
+          "target_rr": 3.0,
+          "rsi_min_long": 52.0,
+          "rsi_max_short": 48.0
+        }
+      },
+      "sector_breakdown": {
+        "LAYER_1": {
+          "trades": 26,
+          "win_rate_pct": 76.9,
+          "net_r": 51.92
+        },
+        "MEMES": {
+          "trades": 6,
+          "win_rate_pct": 50.0,
+          "net_r": 5.52
+        },
+        "AI_COMPUTE": {
+          "trades": 2,
+          "win_rate_pct": 50.0,
+          "net_r": 1.84
+        },
+        "DEFI": {
+          "trades": 2,
+          "win_rate_pct": 50.0,
+          "net_r": 1.84
+        }
+      },
+      "report_file": "reports\\weekly_optimization_report_2026_W34_0820_184856.md"
+    },
+    {
+      "period": "WEEKLY",
+      "timestamp": "2026-08-20 18:49:39",
+      "lookback_bars": 500,
+      "timeframes_tested": [
+        "1h",
+        "4h"
+      ],
+      "optimal_timeframe": "1h",
+      "optimal_params": {
+        "rvol_min": 1.3,
+        "atr_sl_mult": 1.35,
+        "target_rr": 3.0,
+        "rsi_min_long": 52.0,
+        "rsi_max_short": 48.0
+      },
+      "metrics": {
+        "timeframe": "1h",
+        "tested_trades": 36,
+        "win_rate_pct": 69.44,
+        "total_net_r": 61.12,
+        "expectancy_r": 1.698,
+        "profit_factor": 6.14,
+        "params": {
+          "rvol_min": 1.3,
+          "atr_sl_mult": 1.35,
+          "target_rr": 3.0,
+          "rsi_min_long": 52.0,
+          "rsi_max_short": 48.0
+        }
+      },
+      "sector_breakdown": {
+        "LAYER_1": {
+          "trades": 26,
+          "win_rate_pct": 76.9,
+          "net_r": 51.92
+        },
+        "MEMES": {
+          "trades": 6,
+          "win_rate_pct": 50.0,
+          "net_r": 5.52
+        },
+        "AI_COMPUTE": {
+          "trades": 2,
+          "win_rate_pct": 50.0,
+          "net_r": 1.84
+        },
+        "DEFI": {
+          "trades": 2,
+          "win_rate_pct": 50.0,
+          "net_r": 1.84
+        }
+      },
+      "report_file": "reports\\weekly_optimization_report_2026_W34_0820_184939.md"
+    }
+  ],
+  "monthly_macro_audits": [
+    {
+      "period": "MONTHLY",
+      "timestamp": "2026-08-20 18:49:04",
+      "lookback_bars": 1000,
+      "timeframes_tested": [
+        "1h",
+        "4h"
+      ],
+      "optimal_timeframe": "1h",
+      "optimal_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "metrics": {
+        "timeframe": "1h",
+        "tested_trades": 70,
+        "win_rate_pct": 48.57,
+        "total_net_r": 43.4,
+        "expectancy_r": 0.62,
+        "profit_factor": 2.12,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "sector_breakdown": {
+        "LAYER_1": {
+          "trades": 45,
+          "win_rate_pct": 53.3,
+          "net_r": 35.4
+        },
+        "MEMES": {
+          "trades": 13,
+          "win_rate_pct": 30.8,
+          "net_r": -0.04
+        },
+        "AI_COMPUTE": {
+          "trades": 8,
+          "win_rate_pct": 50.0,
+          "net_r": 5.36
+        },
+        "DEFI": {
+          "trades": 4,
+          "win_rate_pct": 50.0,
+          "net_r": 2.68
+        }
+      },
+      "report_file": "reports\\monthly_optimization_report_2026_08.md"
+    },
+    {
+      "period": "MONTHLY",
+      "timestamp": "2026-08-20 18:49:46",
+      "lookback_bars": 1000,
+      "timeframes_tested": [
+        "1h",
+        "4h"
+      ],
+      "optimal_timeframe": "1h",
+      "optimal_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "metrics": {
+        "timeframe": "1h",
+        "tested_trades": 70,
+        "win_rate_pct": 48.57,
+        "total_net_r": 43.4,
+        "expectancy_r": 0.62,
+        "profit_factor": 2.12,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "sector_breakdown": {
+        "LAYER_1": {
+          "trades": 45,
+          "win_rate_pct": 53.3,
+          "net_r": 35.4
+        },
+        "MEMES": {
+          "trades": 13,
+          "win_rate_pct": 30.8,
+          "net_r": -0.04
+        },
+        "AI_COMPUTE": {
+          "trades": 8,
+          "win_rate_pct": 50.0,
+          "net_r": 5.36
+        },
+        "DEFI": {
+          "trades": 4,
+          "win_rate_pct": 50.0,
+          "net_r": 2.68
+        }
+      },
+      "report_file": "reports\\monthly_optimization_report_2026_08.md"
+    }
+  ],
+  "last_updated": "2026-08-20 18:50:00"
+}

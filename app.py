@@ -271,6 +271,35 @@ async def restart_bot_with_capital(payload: RestartBotRequest):
         "fixed_risk_usd": risk
     }
 
+@app.post("/api/bot/macro_optimize_now")
+async def trigger_macro_optimization(period: str = Query("WEEKLY", description="WEEKLY or MONTHLY")):
+    """Trigger an on-demand extended weekly or monthly macro optimization & portfolio audit."""
+    p = period.upper()
+    if p not in ["WEEKLY", "MONTHLY"]:
+        p = "WEEKLY"
+    result = await bot_instance.run_macro_optimization(period=p)
+    return {"message": f"{p} Macro Strategy Optimization completed.", "result": result}
+
+@app.get("/api/bot/historical_archive")
+async def get_historical_archive_api():
+    """Return the permanent structured historical archive of all trades, micro, and macro optimizations."""
+    archive_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports", "historical_archive.json")
+    if os.path.exists(archive_file):
+        try:
+            import json
+            with open(archive_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            return {"error": f"Failed to read archive: {e}"}
+    return {
+        "created_at": None,
+        "total_trades_archived": 0,
+        "trades": [],
+        "micro_optimizations": [],
+        "weekly_macro_optimizations": [],
+        "monthly_macro_audits": []
+    }
+
 if __name__ == "__main__":
     import uvicorn
     print("[*] Starting Quant Squeeze & Pattern Scanner on http://127.0.0.1:8000 ...")

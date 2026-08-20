@@ -23,6 +23,7 @@ LIVE_TRADES_FILE = "live_trades.json"
 LIVE_POSITIONS_FILE = "live_positions.json"
 BOT_STATE_FILE = "bot_state.json"
 REPORTS_DIR = "reports"
+HISTORICAL_ARCHIVE_FILE = os.path.join(REPORTS_DIR, "historical_archive.json")
 
 CRYPTO_SECTOR_MAP = {
     "AI_COMPUTE": ["FETUSDT", "RENDERUSDT", "TAOUSDT", "NEARUSDT", "ICPUSDT", "AGIXUSDT", "WLDUSDT", "ARKMUSDT", "IOUSDT", "ATHUSDT"],
@@ -35,7 +36,7 @@ CRYPTO_SECTOR_MAP = {
 }
 
 def get_crypto_sector(symbol: str) -> str:
-    """Return institutional market sector classification for a symbol."""
+    """Return the categorized sector for a given crypto symbol."""
     for sector, coins in CRYPTO_SECTOR_MAP.items():
         if symbol in coins:
             return sector
@@ -44,7 +45,8 @@ def get_crypto_sector(symbol: str) -> str:
 class LiveCryptoBot:
     """
     Continuous automated paper-trading bot with fixed $1.00 USD risk per trade,
-    strict >= 1:2 RR targets, real-time trade diagnosis, BTC Macro Gatekeeper, and Sector Correlation Limits.
+    strict >= 1:2 RR targets, real-time trade diagnosis, BTC Macro Gatekeeper, Sector Correlation Limits,
+    and Automated Weekly/Monthly Macro Strategy Optimization & Permanent Historical Data Archiving.
     """
     def __init__(
         self,
@@ -76,6 +78,7 @@ class LiveCryptoBot:
         self.open_positions: Dict[str, Dict[str, Any]] = {}
         self.closed_trades: List[Dict[str, Any]] = []
         self.optimization_logs: List[Dict[str, Any]] = []
+        self.macro_audits: List[Dict[str, Any]] = []
         self.btc_macro_status: Dict[str, Any] = {
             "regime": "BULLISH",
             "trend": "Bullish Trend Alignment",
@@ -97,6 +100,8 @@ class LiveCryptoBot:
         self.started_at = datetime.now()
         self.last_scan_time: Optional[datetime] = None
         self.last_optimization_time: Optional[datetime] = None
+        self.last_weekly_optimization_time: Optional[datetime] = None
+        self.last_monthly_optimization_time: Optional[datetime] = None
         
         self.load_state()
 
@@ -151,6 +156,11 @@ class LiveCryptoBot:
                     self.active_params = state.get("active_params", self.active_params)
                     self.target_rr = self.active_params.get("target_rr", self.target_rr)
                     self.optimization_logs = state.get("optimization_logs", [])
+                    self.macro_audits = state.get("macro_audits", [])
+                    if state.get("last_weekly_opt"):
+                        self.last_weekly_optimization_time = datetime.strptime(state["last_weekly_opt"], "%Y-%m-%d %H:%M:%S")
+                    if state.get("last_monthly_opt"):
+                        self.last_monthly_optimization_time = datetime.strptime(state["last_monthly_opt"], "%Y-%m-%d %H:%M:%S")
             except Exception:
                 pass
 
@@ -171,6 +181,9 @@ class LiveCryptoBot:
                     "active_strategy_name": self.active_strategy_name,
                     "active_params": self.active_params,
                     "optimization_logs": self.optimization_logs[-20:],
+                    "macro_audits": self.macro_audits[-10:],
+                    "last_weekly_opt": self.last_weekly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_weekly_optimization_time else None,
+                    "last_monthly_opt": self.last_monthly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_monthly_optimization_time else None,
                     "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }, f, indent=2)
         except Exception as e:
@@ -233,6 +246,13 @@ class LiveCryptoBot:
             # 4. Scan for new trade setups if capital and capacity permit
             if not self.is_depleted and self.current_balance >= self.fixed_risk_usd and len(self.open_positions) < self.max_open_positions:
                 await self._scan_new_entries(data_map)
+
+            # 5. Check if scheduled Weekly or Monthly Macro Optimization is due
+            now = datetime.now()
+            if self.last_weekly_optimization_time is None or (now - self.last_weekly_optimization_time).total_seconds() >= 7 * 86400:
+                asyncio.create_task(self.run_macro_optimization("WEEKLY"))
+            if self.last_monthly_optimization_time is None or (now - self.last_monthly_optimization_time).total_seconds() >= 30 * 86400:
+                asyncio.create_task(self.run_macro_optimization("MONTHLY"))
 
     def _evaluate_btc_macro(self, btc_df: Optional[pd.DataFrame]):
         """Evaluate Bitcoin real-time momentum and macro trend to act as safety gatekeeper for Altcoin trades."""
@@ -675,11 +695,238 @@ class LiveCryptoBot:
             print(f"[LiveBot] Notice: Could not write trade journal markdown: {e}")
 
         self.closed_trades.append(closed_record)
+        self._archive_entry("trades", closed_record)
         print(f"[LiveBot] CLOSED {pos['direction']} on {symbol}: {outcome} ({net_r}R | ${pnl_usd:+.2f} USD) | Balance: ${self.current_balance:.2f} USD")
 
         # Trigger Continuous Self-Evolution loop if threshold reached
         if len(self.closed_trades) % self.optimize_every_n_trades == 0:
             asyncio.create_task(self.run_self_optimization())
+
+    def _archive_entry(self, category: str, entry: Dict[str, Any]):
+        """Persist structured records into the permanent historical archive JSON file."""
+        try:
+            os.makedirs(REPORTS_DIR, exist_ok=True)
+            archive_data = {
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "total_trades_archived": 0,
+                "trades": [],
+                "micro_optimizations": [],
+                "weekly_macro_optimizations": [],
+                "monthly_macro_audits": []
+            }
+            if os.path.exists(HISTORICAL_ARCHIVE_FILE):
+                try:
+                    with open(HISTORICAL_ARCHIVE_FILE, "r", encoding="utf-8") as f:
+                        archive_data = json.load(f)
+                except Exception:
+                    pass
+
+            if category not in archive_data:
+                archive_data[category] = []
+
+            archive_data[category].append(entry)
+            if category == "trades":
+                archive_data["total_trades_archived"] = len(archive_data["trades"])
+            archive_data["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            with open(HISTORICAL_ARCHIVE_FILE, "w", encoding="utf-8") as f:
+                json.dump(archive_data, f, indent=2)
+        except Exception as e:
+            print(f"[LiveBot:Archive] Notice: Error archiving data: {e}")
+
+    async def run_macro_optimization(self, period: str = "WEEKLY") -> Dict[str, Any]:
+        """
+        Extended Multi-Week / Multi-Month Macro Strategy Optimization & Portfolio Audit.
+        Pulls deep historical data (500-1000 bars on 1h and 4h), tests parameter durability,
+        computes sector-by-sector metrics, and records audit reports.
+        """
+        period_upper = period.upper()
+        now = datetime.now()
+        print(f"[LiveBot:Macro Audit] Initiating {period_upper} Macro Strategy Optimization & Portfolio Audit...")
+
+        if period_upper == "MONTHLY":
+            self.last_monthly_optimization_time = now
+            lookback_bars = 1000
+            target_timeframes = ["1h", "4h"]
+            report_code = now.strftime("%Y_%m")
+            report_filename = os.path.join(REPORTS_DIR, f"monthly_optimization_report_{report_code}.md")
+        else:
+            self.last_weekly_optimization_time = now
+            lookback_bars = 500
+            target_timeframes = ["1h", "4h"]
+            report_code = f"{now.strftime('%Y')}_W{now.isocalendar()[1]:02d}_{now.strftime('%m%d_%H%M%S')}"
+            report_filename = os.path.join(REPORTS_DIR, f"weekly_optimization_report_{report_code}.md")
+
+        param_candidates = [
+            {"rvol_min": 1.10, "atr_sl_mult": 1.30, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_short": 50.0},
+            {"rvol_min": 1.20, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 52.0, "rsi_max_short": 48.0},
+            {"rvol_min": 1.25, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 50.0, "rsi_max_short": 50.0},
+            {"rvol_min": 1.15, "atr_sl_mult": 1.50, "target_rr": 2.0, "rsi_min_long": 48.0, "rsi_max_short": 52.0},
+            {"rvol_min": 1.30, "atr_sl_mult": 1.35, "target_rr": 3.0, "rsi_min_long": 52.0, "rsi_max_short": 48.0}
+        ]
+
+        best_score = -999.0
+        best_params = self.active_params
+        best_tf = self.timeframe
+        best_summary: Dict[str, Any] = {
+            "timeframe": best_tf,
+            "tested_trades": 0,
+            "win_rate_pct": 0.0,
+            "total_net_r": 0.0,
+            "expectancy_r": 0.0,
+            "profit_factor": 0.0,
+            "params": best_params
+        }
+        sector_results: Dict[str, Dict[str, Any]] = {}
+
+        symbols_to_test = self.symbols[:25] if self.symbols else ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT", "NEARUSDT", "FETUSDT", "PEPEUSDT", "LINKUSDT", "AVAXUSDT", "SUIUSDT"]
+
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=16)) as session:
+            for tf in target_timeframes:
+                dataset: Dict[str, pd.DataFrame] = {}
+                tasks = [fetch_symbol_klines(session, sym, interval=tf, limit=lookback_bars) for sym in symbols_to_test]
+                results = await asyncio.gather(*tasks, return_exceptions=True)
+                for sym, res in zip(symbols_to_test, results):
+                    if isinstance(res, pd.DataFrame) and len(res) >= 60:
+                        dataset[sym] = res
+
+                for params in param_candidates:
+                    tf_trades = []
+                    sec_trades: Dict[str, List[float]] = {}
+
+                    for sym, df in dataset.items():
+                        sec = get_crypto_sector(sym)
+                        if sec not in sec_trades:
+                            sec_trades[sec] = []
+
+                        _, test_df = split_train_test(df, train_ratio=0.5)
+                        test_df = compute_crypto_indicators(test_df)
+                        n = len(test_df)
+
+                        for i in range(50, n - 2):
+                            curr = test_df.iloc[i]
+                            recent_sq = test_df['squeeze_on'].iloc[max(0, i-5):i].sum()
+                            if recent_sq >= 2 and (not curr['squeeze_on']):
+                                close = float(curr['close'])
+                                atr = float(curr['atr14'])
+                                rvol = float(curr['rvol'])
+                                rsi = float(curr['rsi14'])
+                                mom = float(curr['momentum'])
+                                ema50 = float(curr['ema50'])
+
+                                if close > curr['bb_upper'] and mom > 0 and rvol >= params['rvol_min'] and close > ema50 and rsi >= params['rsi_min_long']:
+                                    risk = params['atr_sl_mult'] * atr
+                                    sl = close - risk
+                                    tp = close + (params['target_rr'] * risk)
+                                    outcome = "LOSS"
+                                    for j in range(i+1, min(i+50, n)):
+                                        bar = test_df.iloc[j]
+                                        if bar['low'] <= sl: outcome = "LOSS"; break
+                                        elif bar['high'] >= tp: outcome = "WIN"; break
+                                    trade_net_r = params['target_rr'] - 0.08 if outcome == "WIN" else -1.08
+                                    tf_trades.append(trade_net_r)
+                                    sec_trades[sec].append(trade_net_r)
+
+                    total_t = len(tf_trades)
+                    if total_t >= 8:
+                        wins = [r for r in tf_trades if r > 0]
+                        win_rate = (len(wins) / total_t) * 100.0
+                        total_net_r = sum(tf_trades)
+                        exp_r = total_net_r / total_t
+                        score = exp_r * np.sqrt(total_t)
+
+                        if score > best_score and win_rate >= 33.0 and exp_r > 0.05:
+                            best_score = score
+                            best_params = params
+                            best_tf = tf
+                            loss_sum = abs(sum(r for r in tf_trades if r <= 0))
+                            best_summary = {
+                                "timeframe": tf,
+                                "tested_trades": total_t,
+                                "win_rate_pct": round(win_rate, 2),
+                                "total_net_r": round(total_net_r, 2),
+                                "expectancy_r": round(exp_r, 3),
+                                "profit_factor": round(sum(wins) / loss_sum, 2) if loss_sum > 0 else 999.0,
+                                "params": params
+                            }
+                            # Record sector performance breakdown
+                            for sec, s_trades in sec_trades.items():
+                                if s_trades:
+                                    s_wins = [r for r in s_trades if r > 0]
+                                    s_wr = round((len(s_wins) / len(s_trades)) * 100.0, 1)
+                                    s_net = round(sum(s_trades), 2)
+                                    sector_results[sec] = {"trades": len(s_trades), "win_rate_pct": s_wr, "net_r": s_net}
+
+        audit_entry = {
+            "period": period_upper,
+            "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
+            "lookback_bars": lookback_bars,
+            "timeframes_tested": target_timeframes,
+            "optimal_timeframe": best_tf,
+            "optimal_params": best_params,
+            "metrics": best_summary,
+            "sector_breakdown": sector_results,
+            "report_file": report_filename
+        }
+
+        # Generate Rich Markdown Audit Report
+        try:
+            os.makedirs(REPORTS_DIR, exist_ok=True)
+            lines = [
+                f"# 🏛️ {period_upper} Macro Strategy Optimization & Portfolio Audit Report",
+                f"*Generated on: {now.strftime('%Y-%m-%d %H:%M:%S')} (Lookback Horizon: {lookback_bars} bars on 1h/4h)*",
+                "",
+                "## 1. Executive Performance Summary",
+                f"- **Audit Period**: `{period_upper}`",
+                f"- **Optimal Macro Timeframe**: `{best_tf}`",
+                f"- **Macro Win Rate**: `{best_summary.get('win_rate_pct', 'N/A')}%`",
+                f"- **Net Mathematical Expectancy**: `+{best_summary.get('expectancy_r', 'N/A')} R / trade`",
+                f"- **Cumulative Out-of-Sample Net Return**: `+{best_summary.get('total_net_r', 'N/A')} R`",
+                f"- **Profit Factor**: `{best_summary.get('profit_factor', 'N/A')}`",
+                f"- **Sample Size Tested**: `{best_summary.get('tested_trades', 'N/A')} simulated macro trades`",
+                "",
+                "## 2. Calibrated Optimal Parameter Suite",
+                "| Parameter | Calibrated Value | Quantitative Rationale |",
+                "| :--- | :--- | :--- |",
+                f"| **Target Risk-to-Reward (RR)** | `1:{best_params.get('target_rr', 2.0):.1f} RR` | Asymmetric reward floor ensures net positive expectancy |",
+                f"| **Relative Volume (RVOL)** | `≥ {best_params.get('rvol_min', 1.1):.2f}x` | Eliminates false breakouts during low institutional participation |",
+                f"| **ATR Stop Loss Distance** | `{best_params.get('atr_sl_mult', 1.3):.2f} × ATR14` | Volatility-scaled breathing room avoiding market noise wicks |",
+                f"| **ATR Take Profit Distance** | `{(best_params.get('atr_sl_mult', 1.3) * best_params.get('target_rr', 2.0)):.2f} × ATR14` | Volatility-scaled mathematical profit objective |",
+                f"| **RSI Momentum Filter** | `Long ≥ {best_params.get('rsi_min_long', 50):.0f} \\| Short ≤ {best_params.get('rsi_max_short', 50):.0f}` | Directional momentum confluence filter |",
+                "",
+                "## 3. Sector Correlation & Performance Breakdown",
+                "| Sector | Tested Trades | Win Rate % | Total Net R | Cluster Risk Status |",
+                "| :--- | :--- | :--- | :--- | :--- |"
+            ]
+
+            if sector_results:
+                for sec, s_data in sector_results.items():
+                    lines.append(
+                        f"| **{sec.replace('_', ' ')}** | {s_data.get('trades', 0)} | {s_data.get('win_rate_pct', 0)}% | {s_data.get('net_r', 0):+.2f}R | Strict 1-Position Cap Enforced |"
+                    )
+            else:
+                lines.append("| **GENERAL ALT** | - | - | - | Strict 1-Position Cap Enforced |")
+
+            lines.extend([
+                "",
+                "## 4. Archival & Historical Logging",
+                f"- **Permanent JSON Archive**: Stored in `reports/historical_archive.json`",
+                f"- **Next Scheduled {period_upper} Audit**: in {'7' if period_upper == 'WEEKLY' else '30'} days."
+            ])
+
+            with open(report_filename, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+        except Exception as e:
+            print(f"[LiveBot:Macro Audit] Notice: Could not write markdown report: {e}")
+
+        # Archive to JSON historical database
+        archive_category = "weekly_macro_optimizations" if period_upper == "WEEKLY" else "monthly_macro_audits"
+        self._archive_entry(archive_category, audit_entry)
+
+        self.macro_audits.append(audit_entry)
+        self.save_state()
+        print(f"[LiveBot:Macro Audit] {period_upper} Optimization completed and saved to {report_filename}")
+        return audit_entry
 
     async def _handle_capital_depleted(self):
         """
@@ -898,6 +1145,7 @@ class LiveCryptoBot:
             print(f"[LiveBot:AI Optimizer] Upgraded Strategy Parameters: {best_params} (Expectancy: +{best_summary.get('expectancy_r')}R)")
         
         self.optimization_logs.append(opt_entry)
+        self._archive_entry("micro_optimizations", opt_entry)
         self.save_state()
         return opt_entry
 
@@ -950,7 +1198,10 @@ class LiveCryptoBot:
             "expectancy_r": expectancy_r,
             "last_scan_time": self.last_scan_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_scan_time else None,
             "last_optimization_time": self.last_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_optimization_time else None,
+            "last_weekly_optimization_time": self.last_weekly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_weekly_optimization_time else None,
+            "last_monthly_optimization_time": self.last_monthly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_monthly_optimization_time else None,
             "recent_optimizations": self.optimization_logs[-5:],
+            "macro_audits": self.macro_audits[-5:],
             "recent_journal": self.closed_trades[-20:][::-1]
         }
 

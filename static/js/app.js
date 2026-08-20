@@ -589,6 +589,46 @@ function setupViewNavigation() {
     });
   }
 
+  // Macro Optimization Triggers (Weekly & Monthly)
+  const weeklyMacroBtn = document.getElementById('btn-trigger-weekly-macro');
+  const monthlyMacroBtn = document.getElementById('btn-trigger-monthly-macro');
+
+  if (weeklyMacroBtn) {
+    weeklyMacroBtn.addEventListener('click', async () => {
+      weeklyMacroBtn.disabled = true;
+      weeklyMacroBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-[10px]"></i> Optimizing (1h/4h)...';
+      try {
+        const res = await fetch('/api/bot/macro_optimize_now?period=WEEKLY', { method: 'POST' });
+        const data = await res.json();
+        alert(`Weekly Macro Optimization Complete!\nOptimal Timeframe: ${data.result?.optimal_timeframe || '1h'}\nTested: ${data.result?.metrics?.tested_trades || 0} trades (${data.result?.metrics?.win_rate_pct || 0}% Win Rate)\nReport saved to: ${data.result?.report_file || 'reports/'}`);
+        fetchBotTelemetry();
+      } catch (e) {
+        alert('Weekly optimization failed. Please check network.');
+      } finally {
+        weeklyMacroBtn.disabled = false;
+        weeklyMacroBtn.innerHTML = '<i class="fa-solid fa-bolt text-amber-500 text-[10px]"></i> Run Weekly (1h/4h)';
+      }
+    });
+  }
+
+  if (monthlyMacroBtn) {
+    monthlyMacroBtn.addEventListener('click', async () => {
+      monthlyMacroBtn.disabled = true;
+      monthlyMacroBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-[10px]"></i> Auditing Month...';
+      try {
+        const res = await fetch('/api/bot/macro_optimize_now?period=MONTHLY', { method: 'POST' });
+        const data = await res.json();
+        alert(`Monthly Macro Audit Complete!\nOptimal Timeframe: ${data.result?.optimal_timeframe || '4h'}\nProfit Factor: ${data.result?.metrics?.profit_factor || 'N/A'}\nReport saved to: ${data.result?.report_file || 'reports/'}`);
+        fetchBotTelemetry();
+      } catch (e) {
+        alert('Monthly audit failed. Please check network.');
+      } finally {
+        monthlyMacroBtn.disabled = false;
+        monthlyMacroBtn.innerHTML = '<i class="fa-solid fa-calendar-check text-purple-500 text-[10px]"></i> Run Monthly Audit';
+      }
+    });
+  }
+
   // Tab Switcher for Active Positions vs Closed Trade History
   const tabActivePosBtn = document.getElementById('tab-btn-active-pos');
   const tabClosedHistBtn = document.getElementById('tab-btn-closed-history');
@@ -793,6 +833,12 @@ function renderBotMetrics(t) {
       btcText.innerHTML = `BTC Gate: <b>Neutral</b> ($${ms.btc_price || 0})`;
     }
   }
+
+  // Macro Weekly / Monthly Audit Badges
+  const macroWeeklyLast = document.getElementById('macro-weekly-last');
+  const macroMonthlyLast = document.getElementById('macro-monthly-last');
+  if (macroWeeklyLast) macroWeeklyLast.innerText = `Last: ${t.last_weekly_optimization_time || 'Awaiting Cycle'}`;
+  if (macroMonthlyLast) macroMonthlyLast.innerText = `Last: ${t.last_monthly_optimization_time || 'Awaiting Cycle'}`;
 }
 
 function renderBotPositions(positions) {

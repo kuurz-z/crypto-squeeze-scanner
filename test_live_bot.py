@@ -1,6 +1,7 @@
 import unittest
 import asyncio
 import os
+import json
 import pandas as pd
 import numpy as np
 from live_bot import LiveCryptoBot
@@ -216,6 +217,39 @@ class TestLiveBotEngine(unittest.TestCase):
         asyncio.run(self.bot._scan_new_entries({"FETUSDT": mock_df}))
         self.assertIn("FETUSDT", self.bot.open_positions)
         self.assertEqual(self.bot.open_positions["FETUSDT"]["sector"], "AI_COMPUTE")
+
+    def test_archive_entry_and_persistence(self):
+        """Verify that trade and optimization data are permanently archived in JSON format."""
+        mock_trade = {
+            "trade_id": 999,
+            "symbol": "BTCUSDT",
+            "direction": "LONG",
+            "entry_price": 60000.0,
+            "exit_price": 62000.0,
+            "net_r": 2.0,
+            "pnl_usd": 2.0,
+            "outcome": "WIN"
+        }
+        self.bot._archive_entry("trades", mock_trade)
+        
+        archive_path = os.path.join("reports", "historical_archive.json")
+        self.assertTrue(os.path.exists(archive_path))
+        with open(archive_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            self.assertIn("trades", data)
+            self.assertTrue(any(t.get("trade_id") == 999 for t in data["trades"]))
+
+    def test_run_macro_optimization_weekly_and_monthly(self):
+        """Verify that Weekly and Monthly Macro Optimizations generate markdown reports and record archives."""
+        res_weekly = asyncio.run(self.bot.run_macro_optimization("WEEKLY"))
+        self.assertEqual(res_weekly["period"], "WEEKLY")
+        self.assertTrue(os.path.exists(res_weekly["report_file"]))
+        self.assertIsNotNone(self.bot.last_weekly_optimization_time)
+
+        res_monthly = asyncio.run(self.bot.run_macro_optimization("MONTHLY"))
+        self.assertEqual(res_monthly["period"], "MONTHLY")
+        self.assertTrue(os.path.exists(res_monthly["report_file"]))
+        self.assertIsNotNone(self.bot.last_monthly_optimization_time)
 
 if __name__ == '__main__':
     unittest.main()
