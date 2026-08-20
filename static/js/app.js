@@ -974,31 +974,33 @@ function renderBotPositions(positions) {
 
     return `
       <tr class="hover:bg-slate-50 dark:hover:bg-gray-800/40 text-[11px]">
-        <td class="py-2 px-2.5 font-bold text-slate-900 dark:text-white flex items-center gap-1.5 whitespace-nowrap">
-          <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-          ${pos.symbol}
-          ${pos.exit_status ? `<span class="px-1.5 py-0.5 text-[9px] rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-500/20">${pos.exit_status}</span>` : ''}
+        <td class="py-3 px-3 font-bold text-slate-900 dark:text-white whitespace-nowrap align-middle">
+          <div class="flex items-center gap-1.5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+            ${pos.symbol}
+            ${pos.exit_status ? `<span class="px-1.5 py-0.5 text-[9px] rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-500/20">${pos.exit_status}</span>` : ''}
+          </div>
         </td>
-        <td class="py-2 px-1.5 whitespace-nowrap">
-          <span class="px-1.5 py-0.5 rounded font-mono text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">${(pos.sector || 'ALT').replace(/_/g, ' ')}</span>
+        <td class="py-3 px-2 whitespace-nowrap align-middle">
+          <span class="px-2 py-0.5 rounded font-mono text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">${(pos.sector || 'ALT').replace(/_/g, ' ')}</span>
         </td>
-        <td class="py-2 px-1.5 whitespace-nowrap">
+        <td class="py-3 px-2 text-center whitespace-nowrap align-middle">
           <span class="px-2 py-0.5 rounded font-semibold text-[10px] border ${typeColor}">${pos.direction}</span>
         </td>
-        <td class="py-2 px-1.5 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
+        <td class="py-3 px-3 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap align-middle">
           <div class="font-medium">$${pos.entry_price}</div>
           <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
             ${tf} TF
           </span>
         </td>
-        <td class="py-2 px-1.5 font-mono font-semibold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">$${pos.current_price}</td>
-        <td class="py-2 px-1.5 font-mono text-rose-600 dark:text-rose-400 whitespace-nowrap">$${pos.sl_price}</td>
-        <td class="py-2 px-1.5 font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+        <td class="py-3 px-2 font-mono font-semibold text-indigo-600 dark:text-indigo-400 whitespace-nowrap align-middle">$${pos.current_price}</td>
+        <td class="py-3 px-2 font-mono text-rose-600 dark:text-rose-400 whitespace-nowrap align-middle">$${pos.sl_price}</td>
+        <td class="py-3 px-2 font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap align-middle">
           <div>$${pos.tp_price}</div>
           <span class="text-[9px] text-slate-400 font-sans">(1:${pos.target_rr})</span>
         </td>
-        <td class="py-2 px-2.5 text-right font-mono ${rColor} whitespace-nowrap">
-          <div class="text-xs">${pnlUsdStr}</div>
+        <td class="py-3 px-3 text-right font-mono ${rColor} whitespace-nowrap align-middle">
+          <div class="text-xs font-bold">${pnlUsdStr}</div>
           <div class="text-[10px] opacity-80">${pos.unrealized_r > 0 ? '+' : ''}${pos.unrealized_r} R</div>
         </td>
       </tr>
@@ -1053,32 +1055,33 @@ function renderBotClosedHistory(trades) {
     const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : round(t.net_r * 1.0, 2);
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
     const tf = t.timeframe || t.pre_trade_context?.timeframe || '15m';
+    const exitTimeStr = t.exit_time_str || (t.exit_time ? new Date(t.exit_time * 1000).toISOString().replace('T', ' ').substring(0, 19) : (t.entry_time_str || '-'));
 
     return `
       <tr class="hover:bg-slate-50 dark:hover:bg-gray-800/40 text-[11px]">
-        <td class="py-2 px-2 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap">#${t.trade_id || 1}</td>
-        <td class="py-2 px-1.5 font-bold text-slate-900 dark:text-white whitespace-nowrap">${t.symbol}</td>
-        <td class="py-2 px-1.5 whitespace-nowrap">
-          <span class="px-1.5 py-0.5 rounded font-mono text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">${(t.sector || 'ALT').replace(/_/g, ' ')}</span>
+        <td class="py-3 px-3 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap align-middle">#${t.trade_id || 1}</td>
+        <td class="py-3 px-2 font-bold text-slate-900 dark:text-white whitespace-nowrap align-middle">${t.symbol}</td>
+        <td class="py-3 px-2 whitespace-nowrap align-middle">
+          <span class="px-2 py-0.5 rounded font-mono text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">${(t.sector || 'ALT').replace(/_/g, ' ')}</span>
         </td>
-        <td class="py-2 px-1.5 whitespace-nowrap">
+        <td class="py-3 px-2 text-center whitespace-nowrap align-middle">
           <span class="px-2 py-0.5 rounded font-semibold text-[10px] border ${typeColor}">${t.direction}</span>
         </td>
-        <td class="py-2 px-1.5 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">
-          <div>$${t.entry_price} ➔ $${t.exit_price}</div>
+        <td class="py-3 px-3 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap align-middle">
+          <div class="font-medium">$${t.entry_price} ➔ $${t.exit_price}</div>
           <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
             ${tf} TF
           </span>
         </td>
-        <td class="py-2 px-1.5 font-mono text-slate-500 whitespace-nowrap">${t.bars_held || 1}b</td>
-        <td class="py-2 px-1.5 whitespace-nowrap">
-          <span class="px-2 py-0.5 rounded text-[10px] font-bold border ${badgeBg}">${t.outcome.replace(/_/g, ' ')}</span>
+        <td class="py-3 px-2 text-center font-mono text-slate-500 whitespace-nowrap align-middle">${t.bars_held || 1}b</td>
+        <td class="py-3 px-3 text-center whitespace-nowrap align-middle">
+          <span class="inline-block px-2.5 py-0.5 rounded text-[10px] font-bold border ${badgeBg}">${t.outcome.replace(/_/g, ' ')}</span>
         </td>
-        <td class="py-2 px-2 text-right font-mono ${rColor} whitespace-nowrap">
-          <div>${pnlUsdStr}</div>
+        <td class="py-3 px-3 text-right font-mono ${rColor} whitespace-nowrap align-middle">
+          <div class="text-xs font-bold">${pnlUsdStr}</div>
           <div class="text-[10px] opacity-80">(${t.net_r > 0 ? '+' : ''}${t.net_r} R)</div>
         </td>
-        <td class="py-2 px-2.5 text-right text-[10px] text-slate-400 font-mono whitespace-nowrap">${t.exit_time_str || ''}</td>
+        <td class="py-3 px-3 text-right text-[10px] text-slate-400 font-mono whitespace-nowrap align-middle">${exitTimeStr}</td>
       </tr>
     `;
   }).join('');
