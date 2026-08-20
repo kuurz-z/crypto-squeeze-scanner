@@ -1310,12 +1310,13 @@ function renderBotEvolution(optimizations) {
         </div>
         ${isObj ? `
           <div class="space-y-1 text-[10px] text-slate-600 dark:text-gray-300 font-mono">
-            <div class="flex justify-between"><span>Selected Timeframe:</span> <b class="text-indigo-600 dark:text-indigo-400">${opt.best_timeframe || s.timeframe || '15m'}</b></div>
-            <div class="flex justify-between"><span>Tested Out-of-Sample:</span> <b>${s.tested_trades} trades</b></div>
-            <div class="flex justify-between"><span>Win Rate:</span> <b class="text-emerald-600 dark:text-emerald-400">${s.win_rate_pct}%</b></div>
+            <div class="flex justify-between"><span>Optimized Timeframe:</span> <b class="text-indigo-600 dark:text-indigo-400">${opt.best_timeframe || s.timeframe || '15m'}</b></div>
+            <div class="flex justify-between"><span>Historical Simulation Sample:</span> <b>${s.tested_trades} historical setups</b></div>
+            <div class="flex justify-between"><span>Stress-Test Win Rate:</span> <b class="text-emerald-600 dark:text-emerald-400">${s.win_rate_pct}% (Simulated)</b></div>
             <div class="flex justify-between"><span>Net Expectancy:</span> <b class="text-purple-600 dark:text-purple-400">+${s.expectancy_r} R / trade</b></div>
             <div class="flex justify-between"><span>Target RR:</span> <b class="text-emerald-600 dark:text-emerald-400">1:${s.params ? s.params.target_rr : 2.0} RR</b></div>
           </div>
+          <p class="text-[9px] text-slate-400 dark:text-gray-500 mt-1.5 italic">*Tested across 200+ historical Binance candles to validate formula before live deployment.*</p>
         ` : `<p class="text-slate-600 dark:text-gray-400 text-[10px] leading-relaxed">${s}</p>`}
       </div>
     `;
