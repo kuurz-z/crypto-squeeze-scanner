@@ -448,5 +448,310 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertIsNotNone(state)
         self.assertEqual(state.get("current_balance"), 102.0)
 
+    def test_symbol_loss_cooldown_blocks_immediate_reentry(self):
+        """Verify that losing on a symbol sets a cooldown that blocks immediate repetitive re-entries."""
+        from datetime import timedelta
+        from live_bot import ph_now
+        
+        # 1. Open mock position on HOMEUSDT
+        self.bot.open_positions["HOMEUSDT"] = {
+            "trade_id": 101,
+            "symbol": "HOMEUSDT",
+            "strategy": "Squeeze_Momentum_Breakout",
+            "direction": "LONG",
+            "entry_time": 1700000000,
+            "entry_time_str": "2026-08-20 12:00:00",
+            "entry_price": 0.01,
+            "current_price": 0.01,
+            "sl_price": 0.009,
+            "tp_price": 0.012,
+            "risk_distance": 0.001,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.0,
+            "pre_trade_context": {"reason": "Test setup"}
+        }
+
+        # 2. Close with LOSS
+        mock_df = pd.DataFrame([{
+            'time': 1700000100,
+            'open': 0.01,
+            'high': 0.0101,
+            'low': 0.0089,
+            'close': 0.0089,
+            'volume': 1000,
+            'atr14': 0.001,
+            'momentum': -1.0,
+            'rsi14': 40.0
+        }])
+        asyncio.run(self.bot._close_position("HOMEUSDT", exit_price=0.0089, exit_time=1700000100, outcome="LOSS", df=mock_df))
+
+        # Check that HOMEUSDT is now under cooldown
+        self.assertIn("HOMEUSDT", self.bot.symbol_loss_cooldowns)
+        self.assertGreater(self.bot.symbol_loss_cooldowns["HOMEUSDT"], ph_now())
+
+        # 3. Simulate another scan immediately with breakout signal
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        df_entry = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": np.linspace(0.009, 0.019, 60),
+            "high": np.linspace(0.0105, 0.021, 60),
+            "low": np.linspace(0.0085, 0.0185, 60),
+            "close": np.linspace(0.01, 0.02, 60),
+            "volume": np.full(60, 5000.0),
+            "squeeze_on": [True] * 58 + [False, False],
+            "bb_upper": [0.018] * 60,
+            "bb_lower": [0.010] * 60,
+            "ema50": [0.014] * 60,
+            "atr14": [0.001] * 60,
+            "rsi14": [65.0] * 60,
+            "momentum": [1.0] * 60,
+            "rvol": [2.5] * 60
+        })
+        asyncio.run(self.bot._scan_new_entries({"HOMEUSDT": df_entry}))
+        # Must be blocked by anti-churn quarantine
+        self.assertNotIn("HOMEUSDT", self.bot.open_positions)
+
+        # 4. Fast-forward past cooldown
+        self.bot.symbol_loss_cooldowns["HOMEUSDT"] = ph_now() - timedelta(seconds=1)
+        asyncio.run(self.bot._scan_new_entries({"HOMEUSDT": df_entry}))
+        # Now allowed to re-enter
+        self.assertIn("HOMEUSDT", self.bot.open_positions)
+
+    def test_failure_diagnostics_and_defensive_adaptation(self):
+        """Verify that systemic wick trap failures trigger defensive biasing and quarantine."""
+        # Inject 6 consecutive fast wick losses
+        for i in range(1, 7):
+            self.bot.closed_trades.append({
+                "trade_id": i,
+                "symbol": "SNXXBUSDT",
+                "outcome": "LOSS",
+                "net_r": -1.08,
+                "bars_held": 1,
+                "diagnostic": {"catalyst_type": "Immediate Liquidity Wick / Trap"}
+            })
+
+        diag = self.bot._analyze_recent_trade_failures()
+        self.assertTrue(diag["wick_defense_active"])
+        self.assertGreaterEqual(diag["min_atr_mult"], 1.60)
+        self.assertIn("SNXXBUSDT", diag["quarantined_symbols"])
+
+        # Check candidate parameters reflect defensive minimums
+        candidates = self.bot._generate_candidate_parameters(diag)
+        self.assertGreater(len(candidates), 5)
+        for c in candidates:
+            self.assertGreaterEqual(c["atr_sl_mult"], 1.60)
+            self.assertGreaterEqual(c["rvol_min"], 1.30)
+
+    def test_dynamic_walk_forward_optimization_run(self):
+        """Verify that run_self_optimization completes with structured diagnostic reporting."""
+        # Mock symbols
+        self.bot.symbols = ["BTCUSDT", "ETHUSDT"]
+        
+        opt_entry = asyncio.run(self.bot.run_self_optimization())
+        self.assertIsNotNone(opt_entry)
+        self.assertIn("status", opt_entry)
+        self.assertIn("champion_stats", opt_entry)
+        self.assertIn("challenger_summary", opt_entry)
+        self.assertIn("failure_diagnostic", opt_entry)
+        self.assertIn("summary", opt_entry)
+        self.assertIn("report_file", opt_entry)
+        self.assertTrue(os.path.exists(opt_entry["report_file"]))
+
+    def test_timeframe_profiles_and_switching(self):
+        """Verify that timeframe profiles load correctly and set_timeframe updates all properties."""
+        # 1. Default profile on 15m
+        self.assertEqual(self.bot.timeframe, "15m")
+        self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 64)
+        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 24)
+        self.assertEqual(self.bot.cooldown_minutes, 45)
+
+        # 2. Switch to 1h
+        res = self.bot.set_timeframe("1h")
+        self.assertTrue(res)
+        self.assertEqual(self.bot.timeframe, "1h")
+        self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 96)
+        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 30)
+        self.assertEqual(self.bot.cooldown_minutes, 180)
+
+        # 3. Switch to 4h
+        res = self.bot.set_timeframe("4h")
+        self.assertTrue(res)
+        self.assertEqual(self.bot.timeframe, "4h")
+        self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 84)
+        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 24)
+        self.assertEqual(self.bot.cooldown_minutes, 720)
+
+        # 4. Switch to 1d
+        res = self.bot.set_timeframe("1d")
+        self.assertTrue(res)
+        self.assertEqual(self.bot.timeframe, "1d")
+        self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 60)
+        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 20)
+        self.assertEqual(self.bot.cooldown_minutes, 2880)
+
+        # 5. Invalid timeframe rejected
+        res = self.bot.set_timeframe("99m")
+        self.assertFalse(res)
+
+    def test_timeframe_stagnation_and_horizon_exit(self):
+        """Verify that time stagnation and max horizon exits trigger at timeframe-specific bar thresholds."""
+        self.bot.set_timeframe("15m")
+        self.bot.open_positions["ETHUSDT"] = {
+            "trade_id": 99,
+            "symbol": "ETHUSDT",
+            "strategy": "Squeeze_Momentum_Breakout",
+            "timeframe": "15m",
+            "direction": "LONG",
+            "entry_time": 1700000000,
+            "entry_time_str": "2026-08-20 12:00:00",
+            "entry_price": 2000.0,
+            "current_price": 2002.0,
+            "sl_price": 1950.0,
+            "tp_price": 2100.0,
+            "risk_distance": 50.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.0,
+            "bars_held": 23,
+            "pre_trade_context": {"reason": "Test stagnation"}
+        }
+
+        # Mock candle with negligible progress (< 0.4R = < $20 move)
+        df_chop = pd.DataFrame([{
+            'time': 1700000900,
+            'close': 2003.0,
+            'high': 2005.0,
+            'low': 1995.0,
+            'volume': 500,
+            'atr14': 30.0,
+            'momentum': 0.1,
+            'rsi14': 50.0
+        }])
+
+        # Advance to 24 bars held -> should trigger stagnation exit on 15m
+        asyncio.run(self.bot._update_open_positions({"ETHUSDT": df_chop}))
+        self.assertNotIn("ETHUSDT", self.bot.open_positions)
+        self.assertEqual(len(self.bot.closed_trades), 1)
+        self.assertEqual(self.bot.closed_trades[-1]['outcome'], "TIME_EXIT")
+
+    def test_force_close_position_long_profit(self):
+        """Verify manual forced closing of a profitable LONG position."""
+        self.bot.open_positions["BTCUSDT"] = {
+            "trade_id": 101,
+            "symbol": "BTCUSDT",
+            "sector": "LAYER_1",
+            "strategy": "Squeeze_Momentum_Breakout",
+            "timeframe": "15m",
+            "direction": "LONG",
+            "entry_time": 1700000000,
+            "entry_time_str": "2026-08-20 12:00:00",
+            "entry_price": 50000.0,
+            "current_price": 51000.0,
+            "sl_price": 49000.0,
+            "tp_price": 52000.0,
+            "risk_distance": 1000.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.0,
+            "bars_held": 5,
+            "pre_trade_context": {"reason": "Test setup"}
+        }
+
+        # Force close at 51000 (+1.0R gross, -0.08R friction = +0.92R net)
+        trade = asyncio.run(self.bot.force_close_position("BTCUSDT", exit_price=51000.0))
+
+        self.assertIsNotNone(trade)
+        self.assertNotIn("BTCUSDT", self.bot.open_positions)
+        self.assertEqual(len(self.bot.closed_trades), 1)
+        self.assertEqual(trade['outcome'], "FORCED_CLOSE")
+        self.assertEqual(trade['exit_price'], 51000.0)
+        self.assertEqual(trade['raw_r'], 1.0)
+        self.assertEqual(trade['net_r'], 0.92)
+        self.assertEqual(trade['pnl_usd'], 0.92)
+        self.assertEqual(self.bot.current_balance, 100.92)
+        self.assertIn("Manual Forced Close", trade['diagnostic']['catalyst_type'])
+
+    def test_force_close_position_short_loss(self):
+        """Verify manual forced closing of a losing SHORT position."""
+        self.bot.open_positions["SOLUSDT"] = {
+            "trade_id": 102,
+            "symbol": "SOLUSDT",
+            "sector": "LAYER_1",
+            "strategy": "Squeeze_Momentum_Breakout",
+            "timeframe": "15m",
+            "direction": "SHORT",
+            "entry_time": 1700000000,
+            "entry_time_str": "2026-08-20 12:00:00",
+            "entry_price": 100.0,
+            "current_price": 105.0,
+            "sl_price": 110.0,
+            "tp_price": 80.0,
+            "risk_distance": 10.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.0,
+            "bars_held": 3,
+            "pre_trade_context": {"reason": "Test short setup"}
+        }
+
+        # Short entered at 100, price rose to 105 (-0.5R gross, -0.08R friction = -0.58R net)
+        trade = asyncio.run(self.bot.force_close_position("SOLUSDT", exit_price=105.0))
+
+        self.assertIsNotNone(trade)
+        self.assertNotIn("SOLUSDT", self.bot.open_positions)
+        self.assertEqual(len(self.bot.closed_trades), 1)
+        self.assertEqual(trade['outcome'], "FORCED_CLOSE")
+        self.assertEqual(trade['exit_price'], 105.0)
+        self.assertEqual(trade['raw_r'], -0.5)
+        self.assertEqual(trade['net_r'], -0.58)
+        self.assertEqual(trade['pnl_usd'], -0.58)
+        self.assertEqual(self.bot.current_balance, 99.42)
+
+    def test_force_close_nonexistent_position(self):
+        """Verify attempting to force close a position that does not exist returns None safely."""
+        trade = asyncio.run(self.bot.force_close_position("NONEXISTENT"))
+        self.assertIsNone(trade)
+
+    def test_force_close_position_api_endpoint(self):
+        """Verify the FastAPI HTTP POST /api/bot/positions/{symbol}/close endpoint."""
+        from fastapi.testclient import TestClient
+        from app import app
+        from live_bot import bot_instance
+
+        # Seed an open position in the global bot_instance
+        bot_instance.open_positions["TESTUSDT"] = {
+            "trade_id": 999,
+            "symbol": "TESTUSDT",
+            "sector": "MEMES",
+            "strategy": "Squeeze_Momentum_Breakout",
+            "timeframe": "15m",
+            "direction": "LONG",
+            "entry_time": 1700000000,
+            "entry_time_str": "2026-08-20 12:00:00",
+            "entry_price": 1.0,
+            "current_price": 1.10,
+            "sl_price": 0.90,
+            "tp_price": 1.20,
+            "risk_distance": 0.10,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.0,
+            "bars_held": 2,
+            "pre_trade_context": {"reason": "API test"}
+        }
+
+        client = TestClient(app)
+
+        # 1. Close active position
+        response = client.post("/api/bot/positions/TESTUSDT/close", json={"exit_price": 1.10})
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["trade"]["symbol"], "TESTUSDT")
+        self.assertEqual(data["trade"]["outcome"], "FORCED_CLOSE")
+        self.assertNotIn("TESTUSDT", bot_instance.open_positions)
+
+        # 2. 404 when closing again
+        response_404 = client.post("/api/bot/positions/TESTUSDT/close", json={})
+        self.assertEqual(response_404.status_code, 404)
+
 if __name__ == '__main__':
     unittest.main()
+
+

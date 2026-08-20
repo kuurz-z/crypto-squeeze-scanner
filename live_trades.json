@@ -2,7 +2,9 @@
   {
     "trade_id": 1,
     "symbol": "HOMEUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "LONG",
     "entry_time": 1787220900,
     "entry_time_str": "2026-08-20 18:23:36",
@@ -26,15 +28,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.0R | MAE: -1.11R",
-    "pre_trade_context": {
-      "regime": "Bullish Trend & Volatility Expansion",
-      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
-      "rvol": 1.3,
-      "rsi": 67.5,
-      "momentum": 0.0,
-      "ema_alignment": "Close > EMA50",
-      "volatility_atr": 0.0001
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -44,12 +37,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#1_HOMEUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.3,
+      "rsi": 67.5,
+      "momentum": 0.0,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0001
+    }
   },
   {
     "trade_id": 2,
     "symbol": "HOMEUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "LONG",
     "entry_time": 1787220900,
     "entry_time_str": "2026-08-20 18:25:07",
@@ -73,15 +76,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.0R | MAE: -1.11R",
-    "pre_trade_context": {
-      "regime": "Bullish Trend & Volatility Expansion",
-      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
-      "rvol": 1.42,
-      "rsi": 67.5,
-      "momentum": 0.0,
-      "ema_alignment": "Close > EMA50",
-      "volatility_atr": 0.0001
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -91,12 +85,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#2_HOMEUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.42,
+      "rsi": 67.5,
+      "momentum": 0.0,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0001
+    }
   },
   {
     "trade_id": 3,
     "symbol": "HOMEUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "LONG",
     "entry_time": 1787220900,
     "entry_time_str": "2026-08-20 18:25:29",
@@ -120,15 +124,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.0R | MAE: -1.11R",
-    "pre_trade_context": {
-      "regime": "Bullish Trend & Volatility Expansion",
-      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
-      "rvol": 1.47,
-      "rsi": 67.5,
-      "momentum": 0.0,
-      "ema_alignment": "Close > EMA50",
-      "volatility_atr": 0.0001
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -138,12 +133,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#3_HOMEUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.47,
+      "rsi": 67.5,
+      "momentum": 0.0,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0001
+    }
   },
   {
     "trade_id": 4,
     "symbol": "HOMEUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "LONG",
     "entry_time": 1787220900,
     "entry_time_str": "2026-08-20 18:25:52",
@@ -167,15 +172,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.0R | MAE: -1.11R",
-    "pre_trade_context": {
-      "regime": "Bullish Trend & Volatility Expansion",
-      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
-      "rvol": 1.48,
-      "rsi": 67.5,
-      "momentum": 0.0,
-      "ema_alignment": "Close > EMA50",
-      "volatility_atr": 0.0001
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -185,12 +181,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#4_HOMEUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.48,
+      "rsi": 67.5,
+      "momentum": 0.0,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0001
+    }
   },
   {
     "trade_id": 5,
     "symbol": "HOMEUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "LONG",
     "entry_time": 1787220900,
     "entry_time_str": "2026-08-20 18:26:14",
@@ -214,15 +220,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.14R | MAE: -1.11R",
-    "pre_trade_context": {
-      "regime": "Bullish Trend & Volatility Expansion",
-      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
-      "rvol": 1.5,
-      "rsi": 67.5,
-      "momentum": 0.0,
-      "ema_alignment": "Close > EMA50",
-      "volatility_atr": 0.0001
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -232,12 +229,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#5_HOMEUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.5,
+      "rsi": 67.5,
+      "momentum": 0.0,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0001
+    }
   },
   {
     "trade_id": 6,
     "symbol": "HOMEUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "LONG",
     "entry_time": 1787220900,
     "entry_time_str": "2026-08-20 18:26:37",
@@ -261,15 +268,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.27R | MAE: -1.37R",
-    "pre_trade_context": {
-      "regime": "Bullish Trend & Volatility Expansion",
-      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
-      "rvol": 1.66,
-      "rsi": 68.3,
-      "momentum": 0.0,
-      "ema_alignment": "Close > EMA50",
-      "volatility_atr": 0.0001
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -279,12 +277,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#6_HOMEUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.66,
+      "rsi": 68.3,
+      "momentum": 0.0,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0001
+    }
   },
   {
     "trade_id": 7,
     "symbol": "SNDKBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787223600,
     "entry_time_str": "2026-08-20 19:46:54",
@@ -308,15 +316,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.07R | MAE: -1.2R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 1.59,
-      "rsi": 40.9,
-      "momentum": -11.1078,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 22.9793
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -326,12 +325,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#7_SNDKBUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 1.59,
+      "rsi": 40.9,
+      "momentum": -11.1078,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 22.9793
+    }
   },
   {
     "trade_id": 8,
     "symbol": "SNXXBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787223600,
     "entry_time_str": "2026-08-20 19:47:17",
@@ -355,15 +364,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.02R | MAE: -1.27R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 2.27,
-      "rsi": 39.9,
-      "momentum": -0.2225,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 0.4171
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -373,12 +373,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#8_SNXXBUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 2.27,
+      "rsi": 39.9,
+      "momentum": -0.2225,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 0.4171
+    }
   },
   {
     "trade_id": 9,
     "symbol": "SNXXBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787223600,
     "entry_time_str": "2026-08-20 19:47:40",
@@ -402,15 +412,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.09R | MAE: -1.2R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 2.28,
-      "rsi": 40.4,
-      "momentum": -0.2192,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 0.4171
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -420,12 +421,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#9_SNXXBUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 2.28,
+      "rsi": 40.4,
+      "momentum": -0.2192,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 0.4171
+    }
   },
   {
     "trade_id": 10,
     "symbol": "SNXXBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787223600,
     "entry_time_str": "2026-08-20 19:48:02",
@@ -449,15 +460,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.09R | MAE: -1.2R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 2.28,
-      "rsi": 40.4,
-      "momentum": -0.2192,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 0.4171
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -467,12 +469,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#10_SNXXBUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 2.28,
+      "rsi": 40.4,
+      "momentum": -0.2192,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 0.4171
+    }
   },
   {
     "trade_id": 11,
     "symbol": "SNXXBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787223600,
     "entry_time_str": "2026-08-20 19:48:48",
@@ -496,15 +508,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.1R | MAE: -1.18R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 2.3,
-      "rsi": 40.5,
-      "momentum": -0.2184,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 0.4171
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -514,12 +517,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#11_SNXXBUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 2.3,
+      "rsi": 40.5,
+      "momentum": -0.2184,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 0.4171
+    }
   },
   {
     "trade_id": 12,
     "symbol": "SNXXBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787223600,
     "entry_time_str": "2026-08-20 19:51:26",
@@ -543,15 +556,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.1R | MAE: -1.18R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 2.4,
-      "rsi": 40.5,
-      "momentum": -0.2184,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 0.4171
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -561,12 +565,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#12_SNXXBUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 2.4,
+      "rsi": 40.5,
+      "momentum": -0.2184,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 0.4171
+    }
   },
   {
     "trade_id": 13,
     "symbol": "SNXXBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787223600,
     "entry_time_str": "2026-08-20 19:51:49",
@@ -590,15 +604,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.1R | MAE: -1.18R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 2.4,
-      "rsi": 40.5,
-      "momentum": -0.2184,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 0.4171
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -608,12 +613,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#13_SNXXBUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 2.4,
+      "rsi": 40.5,
+      "momentum": -0.2184,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 0.4171
+    }
   },
   {
     "trade_id": 14,
     "symbol": "SNXXBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787223600,
     "entry_time_str": "2026-08-20 19:56:42",
@@ -637,15 +652,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.1R | MAE: -1.18R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 2.61,
-      "rsi": 40.5,
-      "momentum": -0.2184,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 0.4171
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -655,12 +661,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#14_SNXXBUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 2.61,
+      "rsi": 40.5,
+      "momentum": -0.2184,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 0.4171
+    }
   },
   {
     "trade_id": 15,
     "symbol": "SNXXBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787223600,
     "entry_time_str": "2026-08-20 19:57:05",
@@ -684,15 +700,6 @@
     "bars_held": 1,
     "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
     "trade_efficiency": "MFE: +0.1R | MAE: -1.18R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 2.61,
-      "rsi": 40.5,
-      "momentum": -0.2184,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 0.4171
-    },
     "diagnostic": {
       "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
       "catalyst_type": "Immediate Liquidity Wick / Trap",
@@ -702,12 +709,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#15_SNXXBUSDT_LOSS.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 2.61,
+      "rsi": 40.5,
+      "momentum": -0.2184,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 0.4171
+    }
   },
   {
     "trade_id": 16,
     "symbol": "SNDKBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787227200,
     "entry_time_str": "2026-08-20 20:14:24",
@@ -731,15 +748,6 @@
     "bars_held": 30,
     "friction_breakdown": "Gross: +0.12R | Friction: -0.08R | Net: +0.04R ($+0.04 USD)",
     "trade_efficiency": "MFE: +0.27R | MAE: -0.77R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 1.28,
-      "rsi": 29.8,
-      "momentum": -13.9381,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 23.4479
-    },
     "diagnostic": {
       "summary": "Trade stagnated in low-volatility consolidation for 30 bars without momentum expansion. Exited early to free up capital.",
       "catalyst_type": "Time Stagnation Invalidation",
@@ -749,12 +757,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#16_SNDKBUSDT_TIME_EXIT.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 1.28,
+      "rsi": 29.8,
+      "momentum": -13.9381,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 23.4479
+    }
   },
   {
     "trade_id": 17,
     "symbol": "SNDKBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787227200,
     "entry_time_str": "2026-08-20 20:25:44",
@@ -778,15 +796,6 @@
     "bars_held": 30,
     "friction_breakdown": "Gross: +0.11R | Friction: -0.08R | Net: +0.03R ($+0.03 USD)",
     "trade_efficiency": "MFE: +0.32R | MAE: -0.86R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 1.99,
-      "rsi": 29.1,
-      "momentum": -14.0975,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 23.9629
-    },
     "diagnostic": {
       "summary": "Trade stagnated in low-volatility consolidation for 30 bars without momentum expansion. Exited early to free up capital.",
       "catalyst_type": "Time Stagnation Invalidation",
@@ -796,12 +805,22 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#17_SNDKBUSDT_TIME_EXIT.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 1.99,
+      "rsi": 29.1,
+      "momentum": -14.0975,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 23.9629
+    }
   },
   {
     "trade_id": 18,
     "symbol": "SNDKBUSDT",
+    "sector": "ALT",
     "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
     "direction": "SHORT",
     "entry_time": 1787227200,
     "entry_time_str": "2026-08-20 20:37:01",
@@ -825,15 +844,6 @@
     "bars_held": 62,
     "friction_breakdown": "Gross: -0.39R | Friction: -0.08R | Net: -0.47R ($-0.47 USD)",
     "trade_efficiency": "MFE: +0.2R | MAE: -0.96R",
-    "pre_trade_context": {
-      "regime": "Bearish Trend & Volatility Breakdown",
-      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 2.91,
-      "rsi": 28.5,
-      "momentum": -14.2955,
-      "ema_alignment": "Close < EMA50",
-      "volatility_atr": 24.3536
-    },
     "diagnostic": {
       "summary": "Trade stagnated in low-volatility consolidation for 62 bars without momentum expansion. Exited early to free up capital.",
       "catalyst_type": "Time Stagnation Invalidation",
@@ -843,6 +853,915 @@
       ],
       "risk_management_quality": "High"
     },
-    "report_file": "reports\\trade_journal_#18_SNDKBUSDT_TIME_EXIT.md"
+    "pre_trade_context": {
+      "regime": "Bearish Trend & Volatility Breakdown",
+      "reason": "Squeeze fired bearishly below BB lower band with volume surge",
+      "rvol": 2.91,
+      "rsi": 28.5,
+      "momentum": -14.2955,
+      "ema_alignment": "Close < EMA50",
+      "volatility_atr": 24.3536
+    }
+  },
+  {
+    "trade_id": 19,
+    "symbol": "BICOUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787230800,
+    "entry_time_str": "2026-08-20 21:24:55",
+    "exit_time": 1787230800,
+    "exit_time_str": "2026-08-20 21:25:17",
+    "entry_price": 0.01847,
+    "exit_price": 0.017717,
+    "sl_price": 0.017717,
+    "tp_price": 0.020352,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1328.0212,
+    "position_value_usd": 24.53,
+    "outcome": "LOSS",
+    "raw_r": -1.0,
+    "net_r": -1.08,
+    "pnl_usd": -1.08,
+    "account_balance": 82.32,
+    "mfe_r": 0.29,
+    "mae_r": 1.05,
+    "bars_held": 1,
+    "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
+    "trade_efficiency": "MFE: +0.29R | MAE: -1.05R",
+    "diagnostic": {
+      "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
+      "catalyst_type": "Immediate Liquidity Wick / Trap",
+      "key_factors": [
+        "Fast hostile volume against entry position",
+        "Possible false breakout or front-running liquidity sweep"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.25,
+      "rsi": 74.1,
+      "momentum": 0.0002,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0005
+    }
+  },
+  {
+    "trade_id": 20,
+    "symbol": "BICOUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787230800,
+    "entry_time_str": "2026-08-20 21:25:17",
+    "exit_time": 1787230800,
+    "exit_time_str": "2026-08-20 21:25:40",
+    "entry_price": 0.01849,
+    "exit_price": 0.017737,
+    "sl_price": 0.017737,
+    "tp_price": 0.020372,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1328.0212,
+    "position_value_usd": 24.56,
+    "outcome": "LOSS",
+    "raw_r": -1.0,
+    "net_r": -1.08,
+    "pnl_usd": -1.08,
+    "account_balance": 81.24,
+    "mfe_r": 0.27,
+    "mae_r": 1.08,
+    "bars_held": 1,
+    "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
+    "trade_efficiency": "MFE: +0.27R | MAE: -1.08R",
+    "diagnostic": {
+      "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
+      "catalyst_type": "Immediate Liquidity Wick / Trap",
+      "key_factors": [
+        "Fast hostile volume against entry position",
+        "Possible false breakout or front-running liquidity sweep"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.26,
+      "rsi": 74.2,
+      "momentum": 0.0002,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0005
+    }
+  },
+  {
+    "trade_id": 21,
+    "symbol": "BICOUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787230800,
+    "entry_time_str": "2026-08-20 21:25:40",
+    "exit_time": 1787230800,
+    "exit_time_str": "2026-08-20 21:26:03",
+    "entry_price": 0.01849,
+    "exit_price": 0.017737,
+    "sl_price": 0.017737,
+    "tp_price": 0.020372,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1328.0212,
+    "position_value_usd": 24.56,
+    "outcome": "LOSS",
+    "raw_r": -1.0,
+    "net_r": -1.08,
+    "pnl_usd": -1.08,
+    "account_balance": 80.16,
+    "mfe_r": 0.27,
+    "mae_r": 1.08,
+    "bars_held": 1,
+    "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
+    "trade_efficiency": "MFE: +0.27R | MAE: -1.08R",
+    "diagnostic": {
+      "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
+      "catalyst_type": "Immediate Liquidity Wick / Trap",
+      "key_factors": [
+        "Fast hostile volume against entry position",
+        "Possible false breakout or front-running liquidity sweep"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.26,
+      "rsi": 74.2,
+      "momentum": 0.0002,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0005
+    }
+  },
+  {
+    "trade_id": 22,
+    "symbol": "BICOUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787230800,
+    "entry_time_str": "2026-08-20 21:26:03",
+    "exit_time": 1787230800,
+    "exit_time_str": "2026-08-20 21:26:25",
+    "entry_price": 0.01847,
+    "exit_price": 0.017717,
+    "sl_price": 0.017717,
+    "tp_price": 0.020352,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1328.0212,
+    "position_value_usd": 24.53,
+    "outcome": "LOSS",
+    "raw_r": -1.0,
+    "net_r": -1.08,
+    "pnl_usd": -1.08,
+    "account_balance": 79.08,
+    "mfe_r": 0.29,
+    "mae_r": 1.05,
+    "bars_held": 1,
+    "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
+    "trade_efficiency": "MFE: +0.29R | MAE: -1.05R",
+    "diagnostic": {
+      "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
+      "catalyst_type": "Immediate Liquidity Wick / Trap",
+      "key_factors": [
+        "Fast hostile volume against entry position",
+        "Possible false breakout or front-running liquidity sweep"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.26,
+      "rsi": 74.1,
+      "momentum": 0.0002,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0005
+    }
+  },
+  {
+    "trade_id": 23,
+    "symbol": "BICOUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787230800,
+    "entry_time_str": "2026-08-20 21:26:25",
+    "exit_time": 1787230800,
+    "exit_time_str": "2026-08-20 21:26:48",
+    "entry_price": 0.01847,
+    "exit_price": 0.017717,
+    "sl_price": 0.017717,
+    "tp_price": 0.020352,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1328.0212,
+    "position_value_usd": 24.53,
+    "outcome": "LOSS",
+    "raw_r": -1.0,
+    "net_r": -1.08,
+    "pnl_usd": -1.08,
+    "account_balance": 78.0,
+    "mfe_r": 0.29,
+    "mae_r": 1.05,
+    "bars_held": 1,
+    "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
+    "trade_efficiency": "MFE: +0.29R | MAE: -1.05R",
+    "diagnostic": {
+      "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
+      "catalyst_type": "Immediate Liquidity Wick / Trap",
+      "key_factors": [
+        "Fast hostile volume against entry position",
+        "Possible false breakout or front-running liquidity sweep"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.27,
+      "rsi": 74.1,
+      "momentum": 0.0002,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0005
+    }
+  },
+  {
+    "trade_id": 24,
+    "symbol": "BICOUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787230800,
+    "entry_time_str": "2026-08-20 21:26:48",
+    "exit_time": 1787230800,
+    "exit_time_str": "2026-08-20 21:27:10",
+    "entry_price": 0.01848,
+    "exit_price": 0.017727,
+    "sl_price": 0.017727,
+    "tp_price": 0.020362,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1328.0212,
+    "position_value_usd": 24.54,
+    "outcome": "LOSS",
+    "raw_r": -1.0,
+    "net_r": -1.08,
+    "pnl_usd": -1.08,
+    "account_balance": 76.92,
+    "mfe_r": 0.28,
+    "mae_r": 1.06,
+    "bars_held": 1,
+    "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
+    "trade_efficiency": "MFE: +0.28R | MAE: -1.06R",
+    "diagnostic": {
+      "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
+      "catalyst_type": "Immediate Liquidity Wick / Trap",
+      "key_factors": [
+        "Fast hostile volume against entry position",
+        "Possible false breakout or front-running liquidity sweep"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.29,
+      "rsi": 74.1,
+      "momentum": 0.0002,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0005
+    }
+  },
+  {
+    "trade_id": 25,
+    "symbol": "BICOUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787230800,
+    "entry_time_str": "2026-08-20 21:27:10",
+    "exit_time": 1787230800,
+    "exit_time_str": "2026-08-20 21:27:33",
+    "entry_price": 0.01848,
+    "exit_price": 0.017727,
+    "sl_price": 0.017727,
+    "tp_price": 0.020362,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1328.0212,
+    "position_value_usd": 24.54,
+    "outcome": "LOSS",
+    "raw_r": -1.0,
+    "net_r": -1.08,
+    "pnl_usd": -1.08,
+    "account_balance": 75.84,
+    "mfe_r": 0.28,
+    "mae_r": 1.06,
+    "bars_held": 1,
+    "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
+    "trade_efficiency": "MFE: +0.28R | MAE: -1.06R",
+    "diagnostic": {
+      "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
+      "catalyst_type": "Immediate Liquidity Wick / Trap",
+      "key_factors": [
+        "Fast hostile volume against entry position",
+        "Possible false breakout or front-running liquidity sweep"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.32,
+      "rsi": 74.1,
+      "momentum": 0.0002,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0005
+    }
+  },
+  {
+    "trade_id": 26,
+    "symbol": "BICOUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787230800,
+    "entry_time_str": "2026-08-20 21:27:33",
+    "exit_time": 1787230800,
+    "exit_time_str": "2026-08-20 21:27:55",
+    "entry_price": 0.0185,
+    "exit_price": 0.017747,
+    "sl_price": 0.017747,
+    "tp_price": 0.020382,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1328.0212,
+    "position_value_usd": 24.57,
+    "outcome": "LOSS",
+    "raw_r": -1.0,
+    "net_r": -1.08,
+    "pnl_usd": -1.08,
+    "account_balance": 74.76,
+    "mfe_r": 0.25,
+    "mae_r": 1.09,
+    "bars_held": 1,
+    "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
+    "trade_efficiency": "MFE: +0.25R | MAE: -1.09R",
+    "diagnostic": {
+      "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
+      "catalyst_type": "Immediate Liquidity Wick / Trap",
+      "key_factors": [
+        "Fast hostile volume against entry position",
+        "Possible false breakout or front-running liquidity sweep"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.33,
+      "rsi": 74.3,
+      "momentum": 0.0002,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0005
+    }
+  },
+  {
+    "trade_id": 27,
+    "symbol": "BICOUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787230800,
+    "entry_time_str": "2026-08-20 21:27:55",
+    "exit_time": 1787230800,
+    "exit_time_str": "2026-08-20 21:42:54",
+    "entry_price": 0.01838,
+    "exit_price": 0.01844,
+    "sl_price": 0.01844,
+    "tp_price": 0.020262,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1328.0212,
+    "position_value_usd": 24.41,
+    "outcome": "BE_EXIT",
+    "raw_r": 0.08,
+    "net_r": 0.0,
+    "pnl_usd": 0.0,
+    "account_balance": 74.76,
+    "mfe_r": 1.13,
+    "mae_r": 0.93,
+    "bars_held": 40,
+    "friction_breakdown": "Gross: +0.08R | Friction: -0.08R | Net: +0.00R ($+0.00 USD)",
+    "trade_efficiency": "MFE: +1.13R | MAE: -0.93R",
+    "diagnostic": {
+      "summary": "Position reached +1.13R MFE, triggering the automated breakeven shield. Price subsequently retraced, exiting with 0.00R loss and zero capital drawdown.",
+      "catalyst_type": "Breakeven Shield De-risking",
+      "key_factors": [
+        "Automated de-risking prevented a full -1.0R loss",
+        "Exchange trading fees fully covered"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.33,
+      "rsi": 73.2,
+      "momentum": 0.0002,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0005
+    }
+  },
+  {
+    "trade_id": 28,
+    "symbol": "ACEUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787230800,
+    "entry_time_str": "2026-08-20 21:42:55",
+    "exit_time": 1787230800,
+    "exit_time_str": "2026-08-20 21:54:16",
+    "entry_price": 0.238,
+    "exit_price": 0.2391,
+    "sl_price": 0.22029,
+    "tp_price": 0.282275,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 56.4653,
+    "position_value_usd": 13.44,
+    "outcome": "TIME_EXIT",
+    "raw_r": 0.06,
+    "net_r": -0.02,
+    "pnl_usd": -0.02,
+    "account_balance": 74.74,
+    "mfe_r": 0.46,
+    "mae_r": 0.89,
+    "bars_held": 30,
+    "friction_breakdown": "Gross: +0.06R | Friction: -0.08R | Net: -0.02R ($-0.02 USD)",
+    "trade_efficiency": "MFE: +0.46R | MAE: -0.89R",
+    "diagnostic": {
+      "summary": "Trade stagnated in low-volatility consolidation for 30 bars without momentum expansion. Exited early to free up capital.",
+      "catalyst_type": "Time Stagnation Invalidation",
+      "key_factors": [
+        "Capital recycled out of dead chop",
+        "Realized PnL: -0.02R"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.32,
+      "rsi": 76.4,
+      "momentum": 0.0011,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0126
+    }
+  },
+  {
+    "trade_id": 29,
+    "symbol": "ACEUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787230800,
+    "entry_time_str": "2026-08-20 21:54:16",
+    "exit_time": 1787234400,
+    "exit_time_str": "2026-08-20 22:05:37",
+    "entry_price": 0.2391,
+    "exit_price": 0.2409,
+    "sl_price": 0.22078,
+    "tp_price": 0.2849,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 54.5852,
+    "position_value_usd": 13.05,
+    "outcome": "TIME_EXIT",
+    "raw_r": 0.1,
+    "net_r": 0.02,
+    "pnl_usd": 0.02,
+    "account_balance": 74.76,
+    "mfe_r": 0.38,
+    "mae_r": 0.92,
+    "bars_held": 30,
+    "friction_breakdown": "Gross: +0.10R | Friction: -0.08R | Net: +0.02R ($+0.02 USD)",
+    "trade_efficiency": "MFE: +0.38R | MAE: -0.92R",
+    "diagnostic": {
+      "summary": "Trade stagnated in low-volatility consolidation for 30 bars without momentum expansion. Exited early to free up capital.",
+      "catalyst_type": "Time Stagnation Invalidation",
+      "key_factors": [
+        "Capital recycled out of dead chop",
+        "Realized PnL: +0.02R"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.75,
+      "rsi": 76.7,
+      "momentum": 0.0011,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0131
+    }
+  },
+  {
+    "trade_id": 30,
+    "symbol": "BICOUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787234400,
+    "entry_time_str": "2026-08-20 22:23:07",
+    "exit_time": 1787234400,
+    "exit_time_str": "2026-08-20 22:34:25",
+    "entry_price": 0.01931,
+    "exit_price": 0.01938,
+    "sl_price": 0.018416,
+    "tp_price": 0.021545,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1118.5682,
+    "position_value_usd": 21.6,
+    "outcome": "TIME_EXIT",
+    "raw_r": 0.08,
+    "net_r": 0.0,
+    "pnl_usd": 0.0,
+    "account_balance": 74.76,
+    "mfe_r": 0.49,
+    "mae_r": 0.54,
+    "bars_held": 30,
+    "friction_breakdown": "Gross: +0.08R | Friction: -0.08R | Net: +0.00R ($+0.00 USD)",
+    "trade_efficiency": "MFE: +0.49R | MAE: -0.54R",
+    "diagnostic": {
+      "summary": "Trade stagnated in low-volatility consolidation for 30 bars without momentum expansion. Exited early to free up capital.",
+      "catalyst_type": "Time Stagnation Invalidation",
+      "key_factors": [
+        "Capital recycled out of dead chop",
+        "Realized PnL: +0.00R"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.26,
+      "rsi": 81.9,
+      "momentum": 0.0004,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0006
+    }
+  },
+  {
+    "trade_id": 31,
+    "symbol": "ACEUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787234400,
+    "entry_time_str": "2026-08-20 22:34:25",
+    "exit_time": 1787234400,
+    "exit_time_str": "2026-08-20 22:45:46",
+    "entry_price": 0.2475,
+    "exit_price": 0.2468,
+    "sl_price": 0.22774,
+    "tp_price": 0.2969,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 50.6073,
+    "position_value_usd": 12.53,
+    "outcome": "TIME_EXIT",
+    "raw_r": -0.04,
+    "net_r": -0.12,
+    "pnl_usd": -0.12,
+    "account_balance": 74.64,
+    "mfe_r": 0.32,
+    "mae_r": 0.99,
+    "bars_held": 30,
+    "friction_breakdown": "Gross: -0.04R | Friction: -0.08R | Net: -0.12R ($-0.12 USD)",
+    "trade_efficiency": "MFE: +0.32R | MAE: -0.99R",
+    "diagnostic": {
+      "summary": "Trade stagnated in low-volatility consolidation for 30 bars without momentum expansion. Exited early to free up capital.",
+      "catalyst_type": "Time Stagnation Invalidation",
+      "key_factors": [
+        "Capital recycled out of dead chop",
+        "Realized PnL: -0.12R"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.51,
+      "rsi": 78.2,
+      "momentum": 0.0054,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0141
+    }
+  },
+  {
+    "trade_id": 32,
+    "symbol": "ACEUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787234400,
+    "entry_time_str": "2026-08-20 22:45:46",
+    "exit_time": 1787234400,
+    "exit_time_str": "2026-08-20 22:57:04",
+    "entry_price": 0.2468,
+    "exit_price": 0.2511,
+    "sl_price": 0.22646,
+    "tp_price": 0.29765,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 49.1642,
+    "position_value_usd": 12.13,
+    "outcome": "TIME_EXIT",
+    "raw_r": 0.21,
+    "net_r": 0.13,
+    "pnl_usd": 0.13,
+    "account_balance": 74.77,
+    "mfe_r": 0.46,
+    "mae_r": 0.93,
+    "bars_held": 30,
+    "friction_breakdown": "Gross: +0.21R | Friction: -0.08R | Net: +0.13R ($+0.13 USD)",
+    "trade_efficiency": "MFE: +0.46R | MAE: -0.93R",
+    "diagnostic": {
+      "summary": "Trade stagnated in low-volatility consolidation for 30 bars without momentum expansion. Exited early to free up capital.",
+      "catalyst_type": "Time Stagnation Invalidation",
+      "key_factors": [
+        "Capital recycled out of dead chop",
+        "Realized PnL: +0.13R"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 2.62,
+      "rsi": 78.0,
+      "momentum": 0.0052,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0145
+    }
+  },
+  {
+    "trade_id": 33,
+    "symbol": "ACEUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787234400,
+    "entry_time_str": "2026-08-20 22:57:04",
+    "exit_time": 1787234400,
+    "exit_time_str": "2026-08-20 22:57:27",
+    "entry_price": 0.2511,
+    "exit_price": 0.23052,
+    "sl_price": 0.23052,
+    "tp_price": 0.30255,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 48.5909,
+    "position_value_usd": 12.2,
+    "outcome": "LOSS",
+    "raw_r": -1.0,
+    "net_r": -1.08,
+    "pnl_usd": -1.08,
+    "account_balance": 73.69,
+    "mfe_r": 0.25,
+    "mae_r": 1.13,
+    "bars_held": 1,
+    "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
+    "trade_efficiency": "MFE: +0.25R | MAE: -1.13R",
+    "diagnostic": {
+      "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
+      "catalyst_type": "Immediate Liquidity Wick / Trap",
+      "key_factors": [
+        "Fast hostile volume against entry position",
+        "Possible false breakout or front-running liquidity sweep"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 3.17,
+      "rsi": 79.0,
+      "momentum": 0.0055,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0147
+    }
+  },
+  {
+    "trade_id": 34,
+    "symbol": "ACEUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787234400,
+    "entry_time_str": "2026-08-20 22:57:27",
+    "exit_time": 1787234400,
+    "exit_time_str": "2026-08-20 22:57:50",
+    "entry_price": 0.2513,
+    "exit_price": 0.23072,
+    "sl_price": 0.23072,
+    "tp_price": 0.30275,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 48.5909,
+    "position_value_usd": 12.21,
+    "outcome": "LOSS",
+    "raw_r": -1.0,
+    "net_r": -1.08,
+    "pnl_usd": -1.08,
+    "account_balance": 72.61,
+    "mfe_r": 0.24,
+    "mae_r": 1.14,
+    "bars_held": 1,
+    "friction_breakdown": "Gross: -1.00R | Friction: -0.08R | Net: -1.08R ($-1.08 USD)",
+    "trade_efficiency": "MFE: +0.24R | MAE: -1.14R",
+    "diagnostic": {
+      "summary": "Quick stop-out within 1 bars. Invalidation level was breached almost immediately by aggressive counter-flow.",
+      "catalyst_type": "Immediate Liquidity Wick / Trap",
+      "key_factors": [
+        "Fast hostile volume against entry position",
+        "Possible false breakout or front-running liquidity sweep"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 3.19,
+      "rsi": 79.0,
+      "momentum": 0.0055,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0147
+    }
+  },
+  {
+    "trade_id": 35,
+    "symbol": "ACEUSDT",
+    "sector": "ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787234400,
+    "entry_time_str": "2026-08-20 22:57:50",
+    "exit_time": 1787238000,
+    "exit_time_str": "2026-08-20 23:09:22",
+    "entry_price": 0.2507,
+    "exit_price": 0.252346,
+    "sl_price": 0.252346,
+    "tp_price": 0.30215,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 48.5909,
+    "position_value_usd": 12.18,
+    "outcome": "BE_EXIT",
+    "raw_r": 0.08,
+    "net_r": 0.0,
+    "pnl_usd": 0.0,
+    "account_balance": 72.61,
+    "mfe_r": 1.02,
+    "mae_r": 0.0,
+    "bars_held": 24,
+    "friction_breakdown": "Gross: +0.08R | Friction: -0.08R | Net: +0.00R ($+0.00 USD)",
+    "trade_efficiency": "MFE: +1.02R | MAE: -0.0R",
+    "diagnostic": {
+      "summary": "Position reached +1.02R MFE, triggering the automated breakeven shield. Price subsequently retraced, exiting with 0.00R loss and zero capital drawdown.",
+      "catalyst_type": "Breakeven Shield De-risking",
+      "key_factors": [
+        "Automated de-risking prevented a full -1.0R loss",
+        "Exchange trading fees fully covered"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 3.19,
+      "rsi": 78.9,
+      "momentum": 0.0055,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 0.0147
+    }
+  },
+  {
+    "trade_id": 999,
+    "symbol": "TESTUSDT",
+    "sector": "MEMES",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1700000000,
+    "entry_time_str": "2026-08-20 12:00:00",
+    "exit_time": 1787240274,
+    "exit_time_str": "2026-08-20 23:37:54",
+    "entry_price": 1.0,
+    "exit_price": 1.1,
+    "sl_price": 0.9,
+    "tp_price": 1.2,
+    "target_rr": 2.0,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1.0,
+    "position_value_usd": 0.0,
+    "outcome": "FORCED_CLOSE",
+    "raw_r": 1.0,
+    "net_r": 0.92,
+    "pnl_usd": 0.92,
+    "account_balance": 100.92,
+    "mfe_r": 0.0,
+    "mae_r": 0.0,
+    "bars_held": 2,
+    "friction_breakdown": "Gross: +1.00R | Friction: -0.08R | Net: +0.92R ($+0.92 USD)",
+    "trade_efficiency": "MFE: +0.0R | MAE: -0.0R",
+    "diagnostic": {
+      "summary": "Position manually closed by trader at market price $1.1 (+0.92R PnL).",
+      "catalyst_type": "Manual Forced Close",
+      "key_factors": [
+        "User-initiated manual position termination",
+        "Exit Price: $1.1 (Net PnL: $+0.92 USD)"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "reason": "API test"
+    }
+  },
+  {
+    "trade_id": 999,
+    "symbol": "TESTUSDT",
+    "sector": "MEMES",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1700000000,
+    "entry_time_str": "2026-08-20 12:00:00",
+    "exit_time": 1787244345,
+    "exit_time_str": "2026-08-21 00:45:45",
+    "entry_price": 1.0,
+    "exit_price": 1.1,
+    "sl_price": 0.9,
+    "tp_price": 1.2,
+    "target_rr": 2.0,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1.0,
+    "position_value_usd": 0.0,
+    "outcome": "FORCED_CLOSE",
+    "raw_r": 1.0,
+    "net_r": 0.92,
+    "pnl_usd": 0.92,
+    "account_balance": 100.92,
+    "mfe_r": 0.0,
+    "mae_r": 0.0,
+    "bars_held": 2,
+    "friction_breakdown": "Gross: +1.00R | Friction: -0.08R | Net: +0.92R ($+0.92 USD)",
+    "trade_efficiency": "MFE: +0.0R | MAE: -0.0R",
+    "pre_trade_context": {
+      "reason": "API test"
+    },
+    "diagnostic": {
+      "summary": "Position manually closed by trader at market price $1.1 (+0.92R PnL).",
+      "catalyst_type": "Manual Forced Close",
+      "key_factors": [
+        "User-initiated manual position termination",
+        "Exit Price: $1.1 (Net PnL: $+0.92 USD)"
+      ],
+      "risk_management_quality": "High"
+    },
+    "report_file": "reports\\trade_journal_#999_TESTUSDT_FORCED_CLOSE.md"
   }
 ]

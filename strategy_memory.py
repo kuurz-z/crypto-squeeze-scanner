@@ -1,7 +1,14 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
+
+# Philippine Standard Time (PHT, UTC+8 / Asia/Manila)
+PHT = timezone(timedelta(hours=8))
+
+def ph_now() -> datetime:
+    """Return current timestamp in Philippine Standard Time (PHT, UTC+8)."""
+    return datetime.now(timezone.utc).astimezone(PHT).replace(tzinfo=None)
 
 SAVED_STRATEGIES_FILE = "saved_strategies.json"
 
@@ -80,7 +87,7 @@ def save_strategy_to_catalog(
     catalog[strategy_name] = {
         "strategy_name": strategy_name,
         "target_rr": eval_result.get("target_rr", 3.0),
-        "validated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "validated_at": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
         "metrics": {
             "out_of_sample_trades": eval_result.get("test_trades"),
             "win_rate_pct": eval_result.get("win_rate_pct"),

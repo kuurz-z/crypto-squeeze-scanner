@@ -1,12 +1,23 @@
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List
+
+# Philippine Standard Time (PHT, UTC+8 / Asia/Manila)
+PHT = timezone(timedelta(hours=8))
+
+def ph_now() -> datetime:
+    """Return current timestamp in Philippine Standard Time (PHT, UTC+8)."""
+    return datetime.now(timezone.utc).astimezone(PHT).replace(tzinfo=None)
+
+def ph_fromtimestamp(ts: float) -> datetime:
+    """Convert Unix epoch timestamp (seconds) to Philippine Standard Time (PHT, UTC+8)."""
+    return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(PHT).replace(tzinfo=None)
 
 def format_trade_markdown(trade: Dict[str, Any]) -> str:
     """Format a single trade record into structured Markdown with pre/post analysis."""
-    dt_entry = datetime.fromtimestamp(trade['entry_time']).strftime('%Y-%m-%d %H:%M')
-    dt_exit = datetime.fromtimestamp(trade['exit_time']).strftime('%Y-%m-%d %H:%M')
+    dt_entry = ph_fromtimestamp(trade['entry_time']).strftime('%Y-%m-%d %H:%M') if trade.get('entry_time') else (trade.get('entry_time_str') or 'N/A')
+    dt_exit = ph_fromtimestamp(trade['exit_time']).strftime('%Y-%m-%d %H:%M') if trade.get('exit_time') else (trade.get('exit_time_str') or 'N/A')
     
     status_icon = "🟢" if trade['outcome'] == "WIN" else "🔴"
     r_color = f"+{trade['net_r']}R" if trade['net_r'] > 0 else f"{trade['net_r']}R"
@@ -40,12 +51,12 @@ def generate_full_simulation_report(
 ) -> str:
     """Generate comprehensive Markdown simulation report and save to disk."""
     os.makedirs(output_dir, exist_ok=True)
-    timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp_str = ph_now().strftime("%Y%m%d_%H%M%S")
     report_filename = os.path.join(output_dir, f"simulation_report_{timestamp_str}.md")
 
     lines = [
         f"# Automated Crypto Simulation & Strategy Validation Report",
-        f"*Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
+        f"*Generated on: {ph_now().strftime('%Y-%m-%d %H:%M:%S')}*",
         "",
         "## 1. Strategy Performance Summary (Strict >= 1:3 RR)",
         "| Strategy | Target RR | Total Trades | Win Rate | Profit Factor | Net Return (R) | Expectancy / Trade | Max Drawdown |",

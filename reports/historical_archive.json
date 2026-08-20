@@ -1,8 +1,225 @@
 {
-  "created_at": "2026-08-20 20:30:00",
-  "total_trades_archived": 0,
-  "trades": [],
+  "created_at": "2026-08-20 22:53:35",
+  "total_trades_archived": 5,
+  "trades": [
+    {
+      "trade_id": 999,
+      "symbol": "TESTUSDT",
+      "sector": "MEMES",
+      "strategy": "Squeeze_Momentum_Breakout",
+      "timeframe": "15m",
+      "direction": "LONG",
+      "entry_time": 1700000000,
+      "entry_time_str": "2026-08-20 12:00:00",
+      "exit_time": 1787239249,
+      "exit_time_str": "2026-08-20 23:20:49",
+      "entry_price": 1.0,
+      "exit_price": 1.1,
+      "sl_price": 0.9,
+      "tp_price": 1.2,
+      "target_rr": 2.0,
+      "risk_amount_usd": 1.0,
+      "position_qty": 1.0,
+      "position_value_usd": 0.0,
+      "outcome": "FORCED_CLOSE",
+      "raw_r": 1.0,
+      "net_r": 0.92,
+      "pnl_usd": 0.92,
+      "account_balance": 73.53,
+      "mfe_r": 0.0,
+      "mae_r": 0.0,
+      "bars_held": 2,
+      "friction_breakdown": "Gross: +1.00R | Friction: -0.08R | Net: +0.92R ($+0.92 USD)",
+      "trade_efficiency": "MFE: +0.0R | MAE: -0.0R",
+      "pre_trade_context": {
+        "reason": "API test"
+      },
+      "diagnostic": {
+        "summary": "Position manually closed by trader at market price $1.1 (+0.92R PnL).",
+        "catalyst_type": "Manual Forced Close",
+        "key_factors": [
+          "User-initiated manual position termination",
+          "Exit Price: $1.1 (Net PnL: $+0.92 USD)"
+        ],
+        "risk_management_quality": "High"
+      },
+      "report_file": "reports\\trade_journal_#999_TESTUSDT_FORCED_CLOSE.md"
+    },
+    {
+      "trade_id": 999,
+      "symbol": "TESTUSDT",
+      "sector": "MEMES",
+      "strategy": "Squeeze_Momentum_Breakout",
+      "timeframe": "15m",
+      "direction": "LONG",
+      "entry_time": 1700000000,
+      "entry_time_str": "2026-08-20 12:00:00",
+      "exit_time": 1787239306,
+      "exit_time_str": "2026-08-20 23:21:46",
+      "entry_price": 1.0,
+      "exit_price": 1.1,
+      "sl_price": 0.9,
+      "tp_price": 1.2,
+      "target_rr": 2.0,
+      "risk_amount_usd": 1.0,
+      "position_qty": 1.0,
+      "position_value_usd": 0.0,
+      "outcome": "FORCED_CLOSE",
+      "raw_r": 1.0,
+      "net_r": 0.92,
+      "pnl_usd": 0.92,
+      "account_balance": 74.45,
+      "mfe_r": 0.0,
+      "mae_r": 0.0,
+      "bars_held": 2,
+      "friction_breakdown": "Gross: +1.00R | Friction: -0.08R | Net: +0.92R ($+0.92 USD)",
+      "trade_efficiency": "MFE: +0.0R | MAE: -0.0R",
+      "pre_trade_context": {
+        "reason": "API test"
+      },
+      "diagnostic": {
+        "summary": "Position manually closed by trader at market price $1.1 (+0.92R PnL).",
+        "catalyst_type": "Manual Forced Close",
+        "key_factors": [
+          "User-initiated manual position termination",
+          "Exit Price: $1.1 (Net PnL: $+0.92 USD)"
+        ],
+        "risk_management_quality": "High"
+      },
+      "report_file": "reports\\trade_journal_#999_TESTUSDT_FORCED_CLOSE.md"
+    },
+    {
+      "trade_id": 999,
+      "symbol": "TESTUSDT",
+      "sector": "MEMES",
+      "strategy": "Squeeze_Momentum_Breakout",
+      "timeframe": "15m",
+      "direction": "LONG",
+      "entry_time": 1700000000,
+      "entry_time_str": "2026-08-20 12:00:00",
+      "exit_time": 1787239353,
+      "exit_time_str": "2026-08-20 23:22:33",
+      "entry_price": 1.0,
+      "exit_price": 1.1,
+      "sl_price": 0.9,
+      "tp_price": 1.2,
+      "target_rr": 2.0,
+      "risk_amount_usd": 1.0,
+      "position_qty": 1.0,
+      "position_value_usd": 0.0,
+      "outcome": "FORCED_CLOSE",
+      "raw_r": 1.0,
+      "net_r": 0.92,
+      "pnl_usd": 0.92,
+      "account_balance": 75.37,
+      "mfe_r": 0.0,
+      "mae_r": 0.0,
+      "bars_held": 2,
+      "friction_breakdown": "Gross: +1.00R | Friction: -0.08R | Net: +0.92R ($+0.92 USD)",
+      "trade_efficiency": "MFE: +0.0R | MAE: -0.0R",
+      "pre_trade_context": {
+        "reason": "API test"
+      },
+      "diagnostic": {
+        "summary": "Position manually closed by trader at market price $1.1 (+0.92R PnL).",
+        "catalyst_type": "Manual Forced Close",
+        "key_factors": [
+          "User-initiated manual position termination",
+          "Exit Price: $1.1 (Net PnL: $+0.92 USD)"
+        ],
+        "risk_management_quality": "High"
+      },
+      "report_file": "reports\\trade_journal_#999_TESTUSDT_FORCED_CLOSE.md"
+    },
+    {
+      "trade_id": 999,
+      "symbol": "TESTUSDT",
+      "sector": "MEMES",
+      "strategy": "Squeeze_Momentum_Breakout",
+      "timeframe": "15m",
+      "direction": "LONG",
+      "entry_time": 1700000000,
+      "entry_time_str": "2026-08-20 12:00:00",
+      "exit_time": 1787240274,
+      "exit_time_str": "2026-08-20 23:37:54",
+      "entry_price": 1.0,
+      "exit_price": 1.1,
+      "sl_price": 0.9,
+      "tp_price": 1.2,
+      "target_rr": 2.0,
+      "risk_amount_usd": 1.0,
+      "position_qty": 1.0,
+      "position_value_usd": 0.0,
+      "outcome": "FORCED_CLOSE",
+      "raw_r": 1.0,
+      "net_r": 0.92,
+      "pnl_usd": 0.92,
+      "account_balance": 100.92,
+      "mfe_r": 0.0,
+      "mae_r": 0.0,
+      "bars_held": 2,
+      "friction_breakdown": "Gross: +1.00R | Friction: -0.08R | Net: +0.92R ($+0.92 USD)",
+      "trade_efficiency": "MFE: +0.0R | MAE: -0.0R",
+      "pre_trade_context": {
+        "reason": "API test"
+      },
+      "diagnostic": {
+        "summary": "Position manually closed by trader at market price $1.1 (+0.92R PnL).",
+        "catalyst_type": "Manual Forced Close",
+        "key_factors": [
+          "User-initiated manual position termination",
+          "Exit Price: $1.1 (Net PnL: $+0.92 USD)"
+        ],
+        "risk_management_quality": "High"
+      },
+      "report_file": "reports\\trade_journal_#999_TESTUSDT_FORCED_CLOSE.md"
+    },
+    {
+      "trade_id": 999,
+      "symbol": "TESTUSDT",
+      "sector": "MEMES",
+      "strategy": "Squeeze_Momentum_Breakout",
+      "timeframe": "15m",
+      "direction": "LONG",
+      "entry_time": 1700000000,
+      "entry_time_str": "2026-08-20 12:00:00",
+      "exit_time": 1787244345,
+      "exit_time_str": "2026-08-21 00:45:45",
+      "entry_price": 1.0,
+      "exit_price": 1.1,
+      "sl_price": 0.9,
+      "tp_price": 1.2,
+      "target_rr": 2.0,
+      "risk_amount_usd": 1.0,
+      "position_qty": 1.0,
+      "position_value_usd": 0.0,
+      "outcome": "FORCED_CLOSE",
+      "raw_r": 1.0,
+      "net_r": 0.92,
+      "pnl_usd": 0.92,
+      "account_balance": 100.92,
+      "mfe_r": 0.0,
+      "mae_r": 0.0,
+      "bars_held": 2,
+      "friction_breakdown": "Gross: +1.00R | Friction: -0.08R | Net: +0.92R ($+0.92 USD)",
+      "trade_efficiency": "MFE: +0.0R | MAE: -0.0R",
+      "pre_trade_context": {
+        "reason": "API test"
+      },
+      "diagnostic": {
+        "summary": "Position manually closed by trader at market price $1.1 (+0.92R PnL).",
+        "catalyst_type": "Manual Forced Close",
+        "key_factors": [
+          "User-initiated manual position termination",
+          "Exit Price: $1.1 (Net PnL: $+0.92 USD)"
+        ],
+        "risk_management_quality": "High"
+      },
+      "report_file": "reports\\trade_journal_#999_TESTUSDT_FORCED_CLOSE.md"
+    }
+  ],
   "micro_optimizations": [],
   "weekly_macro_optimizations": [],
-  "monthly_macro_audits": []
+  "monthly_macro_audits": [],
+  "last_updated": "2026-08-21 00:45:45"
 }

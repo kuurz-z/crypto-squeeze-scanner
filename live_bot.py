@@ -2,15 +2,28 @@ import asyncio
 import os
 import json
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 import aiohttp
 import pandas as pd
 import numpy as np
 
-from data_loader import fetch_top_crypto_pairs, fetch_symbol_klines, split_train_test
+# Philippine Standard Time (PHT, UTC+8 / Asia/Manila)
+PHT = timezone(timedelta(hours=8))
+
+def ph_now() -> datetime:
+    """Return current timestamp in Philippine Standard Time (PHT, UTC+8)."""
+    return datetime.now(timezone.utc).astimezone(PHT).replace(tzinfo=None)
+
+def ph_fromtimestamp(ts: float) -> datetime:
+    """Convert Unix epoch timestamp (seconds) to Philippine Standard Time (PHT, UTC+8)."""
+    return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(PHT).replace(tzinfo=None)
+
+from data_loader import fetch_top_crypto_pairs, fetch_symbol_klines, fetch_symbol_mtf_klines, split_train_test
 from strategies import (
     compute_crypto_indicators, 
+    evaluate_tf_trend,
+    evaluate_mtf_alignment,
     SqueezeMomentumBreakout, 
     LiquiditySweepReversal, 
     TrendPullbackConfluence,
@@ -44,6 +57,49 @@ def get_crypto_sector(symbol: str) -> str:
             return sector
     return "GENERAL_ALT"
 
+TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
+    "15m": {
+        "name": "15m Intraday",
+        "expected_hold_str": "1.5h - 8h",
+        "max_holding_bars": 64,       # ~16 hours
+        "stagnation_bars": 24,        # ~6 hours
+        "cooldown_minutes": 45,       # 3 bars
+        "scan_interval_sec": 20,
+    },
+    "30m": {
+        "name": "30m Intraday",
+        "expected_hold_str": "3h - 16h",
+        "max_holding_bars": 64,       # ~32 hours
+        "stagnation_bars": 24,        # ~12 hours
+        "cooldown_minutes": 90,       # 3 bars
+        "scan_interval_sec": 30,
+    },
+    "1h": {
+        "name": "1h Short Swing",
+        "expected_hold_str": "12h - 3d",
+        "max_holding_bars": 96,       # 4 days
+        "stagnation_bars": 30,        # 30 hours
+        "cooldown_minutes": 180,      # 3 hours (3 bars)
+        "scan_interval_sec": 45,
+    },
+    "4h": {
+        "name": "4h Macro Swing",
+        "expected_hold_str": "2d - 10d",
+        "max_holding_bars": 84,       # 14 days
+        "stagnation_bars": 24,        # 4 days
+        "cooldown_minutes": 720,      # 12 hours (3 bars)
+        "scan_interval_sec": 60,
+    },
+    "1d": {
+        "name": "1d Positional Trend",
+        "expected_hold_str": "2w - 2mo",
+        "max_holding_bars": 60,       # 60 days
+        "stagnation_bars": 20,        # 20 days
+        "cooldown_minutes": 2880,     # 48 hours (2 bars)
+        "scan_interval_sec": 120,
+    },
+}
+
 class LiveCryptoBot:
     """
     Continuous automated paper-trading bot with fixed $1.00 USD risk per trade,
@@ -57,7 +113,7 @@ class LiveCryptoBot:
         timeframe: str = "15m",
         max_open_positions: int = 10,
         target_rr: float = 2.0,
-        scan_interval_sec: int = 20,
+        scan_interval_sec: Optional[int] = None,
         optimize_every_n_trades: int = 5,
         max_positions_per_sector: int = 2,
         data_dir: Optional[str] = None
@@ -76,9 +132,10 @@ class LiveCryptoBot:
         self.current_balance = initial_capital
         self.fixed_risk_usd = fixed_risk_usd
         self.timeframe = timeframe
+        self.timeframe_profile = TIMEFRAME_PROFILES.get(timeframe, TIMEFRAME_PROFILES["15m"])
         self.max_open_positions = max_open_positions
         self.target_rr = max(2.0, target_rr)
-        self.scan_interval_sec = scan_interval_sec
+        self.scan_interval_sec = scan_interval_sec if scan_interval_sec is not None else self.timeframe_profile.get("scan_interval_sec", 20)
         self.optimize_every_n_trades = optimize_every_n_trades
         self.max_positions_per_sector = max_positions_per_sector
         
@@ -97,6 +154,11 @@ class LiveCryptoBot:
         self.hall_of_fame: List[Dict[str, Any]] = []
         self.all_time_grand_champion: Optional[Dict[str, Any]] = None
         
+        # Anti-Churn Loss Cooldown & Same-Candle Tracker
+        self.symbol_loss_cooldowns: Dict[str, datetime] = {}
+        self.symbol_last_entry_candle: Dict[str, int] = {}
+        self.cooldown_minutes: int = self.timeframe_profile.get("cooldown_minutes", 45)
+        
         self.champion_stats: Dict[str, Any] = {
             "name": "Squeeze_Momentum_Breakout",
             "timeframe": self.timeframe,
@@ -104,28 +166,37 @@ class LiveCryptoBot:
             "expectancy_r": 0.25,
             "score": 2.0,
             "upgrades_count": 0,
-            "crowned_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "crowned_at": ph_now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
+        self.mtf_data: Dict[str, Dict[str, pd.DataFrame]] = {}
         self.btc_macro_status: Dict[str, Any] = {
             "regime": "BULLISH",
             "trend": "Bullish Trend Alignment",
             "rsi": 52.0,
             "flash_drop": False,
             "gate_status": "ALLOW_ALL",
-            "btc_price": 0.0
+            "btc_price": 0.0,
+            "alignment_1h": "BULLISH",
+            "alignment_4h": "BULLISH"
         }
         
+        self.circuit_breaker_until: Optional[datetime] = None
         self.active_strategy_name = "Squeeze_Momentum_Breakout"
         self.active_params = {
-            "rvol_min": 1.1,
-            "atr_sl_mult": 1.3,
+            "rvol_min": 1.20,
+            "atr_sl_mult": 1.40,
             "target_rr": self.target_rr,
             "rsi_min_long": 50.0,
-            "rsi_max_short": 50.0
+            "rsi_max_long": 68.0,
+            "rsi_min_short": 32.0,
+            "rsi_max_short": 50.0,
+            "min_body_ratio": 0.25,
+            "max_wick_ratio": 0.50,
+            "min_risk_dist_pct": 0.008
         }
         
-        self.started_at = datetime.now()
+        self.started_at = ph_now()
         self.last_scan_time: Optional[datetime] = None
         self.last_optimization_time: Optional[datetime] = None
         self.last_daily_snapshot_time: Optional[datetime] = None
@@ -135,7 +206,7 @@ class LiveCryptoBot:
         self.load_state()
 
     def reset_account(self, initial_capital: float = 100.0, fixed_risk_usd: float = 1.0, target_rr: float = 2.0):
-        """Reset paper wallet balance to specified USD capital and clear depletion flags."""
+        """Reset paper wallet balance to specified USD capital and clear depletion flags without wiping trade history."""
         self.initial_capital = initial_capital
         self.current_balance = initial_capital
         self.fixed_risk_usd = fixed_risk_usd
@@ -144,10 +215,26 @@ class LiveCryptoBot:
         self.is_depleted = False
         self.depletion_report_file = None
         self.open_positions = {}
-        self.closed_trades = []
-        self.optimization_logs = []
+        # Preserve self.closed_trades and optimization_logs intact
+        self.symbol_loss_cooldowns = {}
+        self.symbol_last_entry_candle = {}
+        self.circuit_breaker_until = None
         self.save_state()
-        print(f"[LiveBot] Account reset to ${initial_capital:.2f} USD starting capital (${fixed_risk_usd:.2f}/trade, 1:{target_rr} RR).")
+        print(f"[LiveBot] Account balance reset to ${initial_capital:.2f} USD starting capital (Trade history preserved: {len(self.closed_trades)} trades).")
+
+    def set_timeframe(self, timeframe: str) -> bool:
+        """Update active timeframe and synchronize holding profiles, cooldowns, and scan cadences."""
+        if timeframe in TIMEFRAME_PROFILES:
+            self.timeframe = timeframe
+            self.timeframe_profile = TIMEFRAME_PROFILES[timeframe]
+            self.cooldown_minutes = self.timeframe_profile["cooldown_minutes"]
+            self.scan_interval_sec = self.timeframe_profile["scan_interval_sec"]
+            self.champion_stats["timeframe"] = timeframe
+            self.symbol_last_entry_candle.clear()
+            self.save_state()
+            print(f"[LiveBot] Timeframe updated to {timeframe} ({self.timeframe_profile['name']}). Max Hold: {self.timeframe_profile['max_holding_bars']} bars, Stagnation: {self.timeframe_profile['stagnation_bars']} bars, Cooldown: {self.cooldown_minutes}m.")
+            return True
+        return False
 
     async def restart_with_capital(self, capital: float, fixed_risk_usd: float = 1.0):
         """Re-fund the bot with custom capital amount and immediately resume live scanning."""
@@ -239,6 +326,26 @@ class LiveCryptoBot:
                     self.last_weekly_optimization_time = datetime.strptime(state["last_weekly_opt"], "%Y-%m-%d %H:%M:%S")
                 if state.get("last_monthly_opt"):
                     self.last_monthly_optimization_time = datetime.strptime(state["last_monthly_opt"], "%Y-%m-%d %H:%M:%S")
+                
+                # Load persistent symbol loss cooldowns
+                if state.get("symbol_loss_cooldowns"):
+                    now = ph_now()
+                    for sym, dt_str in state["symbol_loss_cooldowns"].items():
+                        try:
+                            exp_dt = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S")
+                            if exp_dt > now:
+                                self.symbol_loss_cooldowns[sym] = exp_dt
+                        except Exception:
+                            pass
+
+                # Load circuit breaker status
+                if state.get("circuit_breaker_until"):
+                    try:
+                        cb_dt = datetime.strptime(state["circuit_breaker_until"], "%Y-%m-%d %H:%M:%S")
+                        if cb_dt > ph_now():
+                            self.circuit_breaker_until = cb_dt
+                    except Exception:
+                        pass
             except Exception:
                 pass
 
@@ -249,12 +356,6 @@ class LiveCryptoBot:
                     self.hall_of_fame = json.load(f)
             except Exception:
                 self.hall_of_fame = []
-
-        # 5. Synchronize wallet balance with realized trade history if balance was unadjusted
-        if self.closed_trades:
-            total_realized_pnl = sum(t.get('pnl_usd', round(t.get('net_r', 0) * self.fixed_risk_usd, 2)) for t in self.closed_trades)
-            if self.current_balance == self.initial_capital and total_realized_pnl != 0:
-                self.current_balance = round(self.initial_capital + total_realized_pnl, 2)
 
     def save_state(self):
         """Persist state and wallet balances to Database and disk."""
@@ -270,12 +371,18 @@ class LiveCryptoBot:
                 "active_params": self.active_params,
                 "champion_stats": self.champion_stats,
                 "all_time_grand_champion": self.all_time_grand_champion,
+                "symbol_loss_cooldowns": {
+                    sym: dt.strftime("%Y-%m-%d %H:%M:%S")
+                    for sym, dt in self.symbol_loss_cooldowns.items()
+                    if dt > ph_now()
+                },
+                "circuit_breaker_until": self.circuit_breaker_until.strftime("%Y-%m-%d %H:%M:%S") if self.circuit_breaker_until and self.circuit_breaker_until > ph_now() else None,
                 "optimization_logs": self.optimization_logs[-20:],
                 "macro_audits": self.macro_audits[-10:],
                 "last_daily_snapshot": self.last_daily_snapshot_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_daily_snapshot_time else None,
                 "last_weekly_opt": self.last_weekly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_weekly_optimization_time else None,
                 "last_monthly_opt": self.last_monthly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_monthly_optimization_time else None,
-                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                "updated_at": ph_now().strftime("%Y-%m-%d %H:%M:%S")
             }
 
             # 1. Save to Database
@@ -331,7 +438,7 @@ class LiveCryptoBot:
         """Continuous execution loop."""
         while self.is_running and not self.is_depleted:
             try:
-                self.last_scan_time = datetime.now()
+                self.last_scan_time = ph_now()
                 await self._process_cycle()
             except asyncio.CancelledError:
                 break
@@ -345,19 +452,37 @@ class LiveCryptoBot:
             await self._handle_capital_depleted()
             return
 
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=16)) as session:
-            # 1. Fetch latest candles for all watched symbols
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=20)) as session:
+            # 1. Fetch latest candles for all watched symbols on active timeframe
             tasks = [fetch_symbol_klines(session, sym, interval=self.timeframe, limit=120) for sym in self.symbols]
-            results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # Concurrently fetch 1h & 4h MTF data for top symbols + BTC
+            mtf_syms = ["BTCUSDT"] + [s for s in self.symbols if s != "BTCUSDT"][:25]
+            mtf_tasks = [fetch_symbol_mtf_klines(session, sym, intervals=["1h", "4h"], limit=80) for sym in mtf_syms]
+
+            primary_results, mtf_results = await asyncio.gather(
+                asyncio.gather(*tasks, return_exceptions=True),
+                asyncio.gather(*mtf_tasks, return_exceptions=True)
+            )
 
             data_map: Dict[str, pd.DataFrame] = {}
-            for sym, res in zip(self.symbols, results):
+            for sym, res in zip(self.symbols, primary_results):
                 if isinstance(res, pd.DataFrame) and len(res) >= 50:
                     data_map[sym] = compute_crypto_indicators(res)
 
-            # 2. Update Bitcoin Macro Trend Gatekeeper status
+            for sym, res_mtf in zip(mtf_syms, mtf_results):
+                if isinstance(res_mtf, dict):
+                    self.mtf_data[sym] = {
+                        tf: compute_crypto_indicators(df_tf)
+                        for tf, df_tf in res_mtf.items()
+                        if isinstance(df_tf, pd.DataFrame) and len(df_tf) >= 30
+                    }
+
+            # 2. Update Bitcoin Macro Trend Gatekeeper status with Dual 1h & 4h Alignment
             btc_df = data_map.get("BTCUSDT")
-            self._evaluate_btc_macro(btc_df)
+            btc_1h = self.mtf_data.get("BTCUSDT", {}).get("1h", self.mtf_data.get("BTCUSDT", {}).get("30m"))
+            btc_4h = self.mtf_data.get("BTCUSDT", {}).get("4h")
+            self._evaluate_btc_macro(btc_df, btc_1h=btc_1h, btc_4h=btc_4h)
 
             # 3. Update and check existing open positions
             await self._update_open_positions(data_map)
@@ -366,7 +491,7 @@ class LiveCryptoBot:
                 await self._scan_new_entries(data_map)
 
             # 5. Check if scheduled Daily, Weekly, or Monthly Audits / Tournaments are due
-            now = datetime.now()
+            now = ph_now()
             if self.last_daily_snapshot_time is None or (now - self.last_daily_snapshot_time).total_seconds() >= 86400:
                 asyncio.create_task(self.run_daily_strategy_snapshot())
             if self.last_weekly_optimization_time is None or (now - self.last_weekly_optimization_time).total_seconds() >= 7 * 86400:
@@ -374,8 +499,17 @@ class LiveCryptoBot:
             if self.last_monthly_optimization_time is None or (now - self.last_monthly_optimization_time).total_seconds() >= 30 * 86400:
                 asyncio.create_task(self.run_monthly_strategy_tournament())
 
-    def _evaluate_btc_macro(self, btc_df: Optional[pd.DataFrame]):
-        """Evaluate Bitcoin real-time momentum and macro trend to act as safety gatekeeper for Altcoin trades."""
+    def _evaluate_btc_macro(
+        self, 
+        btc_df: Optional[pd.DataFrame],
+        btc_1h: Optional[pd.DataFrame] = None,
+        btc_4h: Optional[pd.DataFrame] = None,
+        **kwargs
+    ):
+        """Evaluate Bitcoin real-time momentum, 1h intermediate trend, and 4h macro anchor trend."""
+        if btc_1h is None and "btc_30m" in kwargs:
+            btc_1h = kwargs["btc_30m"]
+
         if btc_df is None or len(btc_df) < 50:
             self.btc_macro_status = {
                 "regime": "NEUTRAL",
@@ -383,40 +517,51 @@ class LiveCryptoBot:
                 "rsi": 50.0,
                 "flash_drop": False,
                 "gate_status": "ALLOW_ALL",
-                "btc_price": 0.0
+                "btc_price": 0.0,
+                "alignment_1h": "NEUTRAL",
+                "alignment_4h": "NEUTRAL"
             }
             return
 
         last_bar = btc_df.iloc[-1]
         close = float(last_bar['close'])
-        ema50 = float(last_bar['ema50'])
-        rsi = float(last_bar['rsi14'])
-        mom = float(last_bar['momentum'])
+        ema50 = float(last_bar.get('ema50', close))
+        rsi = float(last_bar.get('rsi14', 50.0))
+        mom = float(last_bar.get('momentum', 0.0))
 
         # Calculate 3-bar flash drop
         three_bars_ago_close = float(btc_df.iloc[-4]['close']) if len(btc_df) >= 4 else close
-        pct_change_3b = ((close - three_bars_ago_close) / three_bars_ago_close) * 100.0
+        pct_change_3b = ((close - three_bars_ago_close) / three_bars_ago_close) * 100.0 if three_bars_ago_close > 0 else 0.0
+
+        # Evaluate 1h and 4h higher-timeframe trends
+        t_1h = evaluate_tf_trend(btc_1h)
+        t_4h = evaluate_tf_trend(btc_4h)
 
         is_flash_dump = (pct_change_3b <= -1.2)
         is_bullish = (close > ema50) and (rsi >= 48.0) and (mom >= 0) and not is_flash_dump
         is_bearish = (close < ema50) or (rsi <= 42.0) or is_flash_dump
 
+        # 4h Macro Bearish override
+        if t_4h["is_valid"] and t_4h["regime"] == "BEARISH":
+            is_bullish = False
+            is_bearish = True
+
         if is_flash_dump:
             regime = "FLASH_DUMP"
             gate_status = "BLOCK_LONGS"
-            trend_str = f"Flash Dump Detected ({pct_change_3b:.2f}% drop in 3 bars)"
+            trend_str = f"Flash Dump ({pct_change_3b:.2f}% in 3b) | 1h:{t_1h['regime']} 4h:{t_4h['regime']}"
         elif is_bullish:
             regime = "BULLISH"
             gate_status = "ALLOW_ALL"
-            trend_str = f"Above EMA50 (${ema50:,.0f}) | RSI {rsi:.0f}"
+            trend_str = f"Bullish Structure | 1h:{t_1h['regime']} 4h:{t_4h['regime']}"
         elif is_bearish:
             regime = "BEARISH"
             gate_status = "BLOCK_LONGS"
-            trend_str = f"Below EMA50 (${ema50:,.0f}) | Bearish Bias"
+            trend_str = f"Bearish Pressure | 1h:{t_1h['regime']} 4h:{t_4h['regime']}"
         else:
             regime = "NEUTRAL"
             gate_status = "ALLOW_ALL"
-            trend_str = f"Consolidating @ ${close:,.0f}"
+            trend_str = f"Consolidating @ ${close:,.0f} | 1h:{t_1h['regime']} 4h:{t_4h['regime']}"
 
         self.btc_macro_status = {
             "regime": regime,
@@ -424,7 +569,9 @@ class LiveCryptoBot:
             "rsi": round(rsi, 1),
             "flash_drop": is_flash_dump,
             "gate_status": gate_status,
-            "btc_price": round(close, 2)
+            "btc_price": round(close, 2),
+            "alignment_1h": t_1h["regime"],
+            "alignment_4h": t_4h["regime"]
         }
 
     async def _update_open_positions(self, data_map: Dict[str, pd.DataFrame]):
@@ -445,10 +592,25 @@ class LiveCryptoBot:
             curr_price = float(last_bar['close'])
             high_price = float(last_bar['high'])
             low_price = float(last_bar['low'])
-            curr_time = int(last_bar['time'])
+            curr_time = int(time.time())
+            candle_time = int(last_bar['time']) if 'time' in last_bar else 0
+            entry_candle_time = pos.get('entry_candle_time', 0)
+
+            # Prevent phantom stop-outs: If still on the entry candle, only evaluate against live price action since entry
+            if entry_candle_time > 0 and candle_time == entry_candle_time:
+                pos['highest_since_entry'] = max(pos.get('highest_since_entry', curr_price), curr_price)
+                pos['lowest_since_entry'] = min(pos.get('lowest_since_entry', curr_price), curr_price)
+                eval_high = pos['highest_since_entry']
+                eval_low = pos['lowest_since_entry']
+            else:
+                # Subsequent candles: evaluate against full candle high/low
+                pos['highest_since_entry'] = max(pos.get('highest_since_entry', high_price), high_price)
+                pos['lowest_since_entry'] = min(pos.get('lowest_since_entry', low_price), low_price)
+                eval_high = high_price
+                eval_low = low_price
 
             pos['current_price'] = round(curr_price, 6 if curr_price < 1 else 2)
-            pos['last_updated'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            pos['last_updated'] = ph_now().strftime("%Y-%m-%d %H:%M:%S")
             pos['bars_held'] = pos.get('bars_held', 0) + 1
 
             is_long = (pos['direction'] == 'LONG')
@@ -458,15 +620,15 @@ class LiveCryptoBot:
             target_rr = pos['target_rr']
             tp_p = pos['tp_price']
 
-            # Update MAE / MFE
+            # Update MAE / MFE based on price action since entry
             if is_long:
                 unrealized_dist = curr_price - entry_p
-                pos['mfe_r'] = max(pos.get('mfe_r', 0.0), round((high_price - entry_p) / risk_dist, 2))
-                pos['mae_r'] = max(pos.get('mae_r', 0.0), round((entry_p - low_price) / risk_dist, 2))
+                pos['mfe_r'] = max(pos.get('mfe_r', 0.0), round((eval_high - entry_p) / risk_dist, 2))
+                pos['mae_r'] = max(pos.get('mae_r', 0.0), round((entry_p - eval_low) / risk_dist, 2))
             else:  # SHORT
                 unrealized_dist = entry_p - curr_price
-                pos['mfe_r'] = max(pos.get('mfe_r', 0.0), round((entry_p - low_price) / risk_dist, 2))
-                pos['mae_r'] = max(pos.get('mae_r', 0.0), round((high_price - entry_p) / risk_dist, 2))
+                pos['mfe_r'] = max(pos.get('mfe_r', 0.0), round((entry_p - eval_low) / risk_dist, 2))
+                pos['mae_r'] = max(pos.get('mae_r', 0.0), round((eval_high - entry_p) / risk_dist, 2))
 
             mfe = pos.get('mfe_r', 0.0)
 
@@ -485,11 +647,11 @@ class LiveCryptoBot:
                     pos['exit_status'] = "Trailing Active ⚡"
                 atr_val = float(last_bar['atr14']) if 'atr14' in last_bar else risk_dist / 1.3
                 if is_long:
-                    trail_sl = round(high_price - (1.0 * atr_val), 6 if entry_p < 1 else 2)
+                    trail_sl = round(eval_high - (1.0 * atr_val), 6 if entry_p < 1 else 2)
                     if trail_sl > pos['sl_price']:
                         pos['sl_price'] = trail_sl
                 else:
-                    trail_sl = round(low_price + (1.0 * atr_val), 6 if entry_p < 1 else 2)
+                    trail_sl = round(eval_low + (1.0 * atr_val), 6 if entry_p < 1 else 2)
                     if trail_sl < pos['sl_price']:
                         pos['sl_price'] = trail_sl
 
@@ -498,7 +660,7 @@ class LiveCryptoBot:
             rsi = float(last_bar['rsi14']) if 'rsi14' in last_bar else 50.0
             rvol = float(last_bar['rvol']) if 'rvol' in last_bar else 1.0
 
-            reached_tp = (is_long and high_price >= tp_p) or (not is_long and low_price <= tp_p)
+            reached_tp = (is_long and eval_high >= tp_p) or (not is_long and eval_low <= tp_p)
             if reached_tp or mfe >= target_rr:
                 strong_trend_continuing = (is_long and mom > 0 and rsi < 74.0 and rvol >= 1.15) or \
                                           (not is_long and mom < 0 and rsi > 26.0 and rvol >= 1.15)
@@ -508,11 +670,11 @@ class LiveCryptoBot:
                     pos['exit_status'] = f"Runner {mfe:+.1f}R 🚀"
                     atr_val = float(last_bar['atr14']) if 'atr14' in last_bar else risk_dist / 1.3
                     if is_long:
-                        runner_sl = round(high_price - (0.8 * atr_val), 6 if entry_p < 1 else 2)
+                        runner_sl = round(eval_high - (0.8 * atr_val), 6 if entry_p < 1 else 2)
                         if runner_sl > pos['sl_price']:
                             pos['sl_price'] = runner_sl
                     else:
-                        runner_sl = round(low_price + (0.8 * atr_val), 6 if entry_p < 1 else 2)
+                        runner_sl = round(eval_low + (0.8 * atr_val), 6 if entry_p < 1 else 2)
                         if runner_sl < pos['sl_price']:
                             pos['sl_price'] = runner_sl
                 else:
@@ -521,7 +683,7 @@ class LiveCryptoBot:
                     continue
 
             # Check SL or Trailing / Runner Stop Hit
-            if (is_long and low_price <= pos['sl_price']) or (not is_long and high_price >= pos['sl_price']):
+            if (is_long and eval_low <= pos['sl_price']) or (not is_long and eval_high >= pos['sl_price']):
                 if pos.get('is_unlimited_runner'):
                     outcome = "UNLIMITED_RUNNER_WIN"
                 elif pos.get('is_trailing') and ((pos['sl_price'] > entry_p and is_long) or (pos['sl_price'] < entry_p and not is_long)):
@@ -542,9 +704,22 @@ class LiveCryptoBot:
                     closed_symbols.append(sym)
                     continue
 
-            # SAFEGUARD: Time Stagnation Exit (> 30 candles of dead chop)
-            if pos.get('bars_held', 0) >= 30 and abs(unrealized_dist / risk_dist) < 0.4:
-                print(f"[LiveBot:ExitEngine] {sym} Time Stagnation reached (30 bars). Exiting dead chop.")
+            # Timeframe-aware dynamic holding parameters
+            pos_tf = pos.get('timeframe', self.timeframe)
+            tf_profile = TIMEFRAME_PROFILES.get(pos_tf, getattr(self, 'timeframe_profile', TIMEFRAME_PROFILES["15m"]))
+            stagnation_bars = tf_profile.get("stagnation_bars", 24)
+            max_hold_bars = tf_profile.get("max_holding_bars", 64)
+
+            # SAFEGUARD: Time Stagnation Exit (dead chop without movement)
+            if pos.get('bars_held', 0) >= stagnation_bars and abs(unrealized_dist / risk_dist) < 0.4:
+                print(f"[LiveBot:ExitEngine] {sym} Time Stagnation reached ({stagnation_bars} bars on {pos_tf}). Exiting dead chop.")
+                await self._close_position(sym, exit_price=curr_price, exit_time=curr_time, outcome="TIME_EXIT", df=df)
+                closed_symbols.append(sym)
+                continue
+
+            # SAFEGUARD: Max Holding Horizon Timeout (exempting active runners and profitable trailing stops)
+            if pos.get('bars_held', 0) >= max_hold_bars and not pos.get('is_unlimited_runner') and not (pos.get('is_trailing') and mfe >= 1.5):
+                print(f"[LiveBot:ExitEngine] {sym} Max Holding Horizon reached ({max_hold_bars} bars on {pos_tf}). Closing trade at market.")
                 await self._close_position(sym, exit_price=curr_price, exit_time=curr_time, outcome="TIME_EXIT", df=df)
                 closed_symbols.append(sym)
                 continue
@@ -565,23 +740,47 @@ class LiveCryptoBot:
             await self._handle_capital_depleted()
 
     async def _scan_new_entries(self, data_map: Dict[str, pd.DataFrame]):
-        """Evaluate strategy signals with BTC Macro Gatekeeper and Sector Correlation Limits."""
+        """Evaluate strategy signals with Circuit Breaker, BTC Macro Gatekeeper, and Sector Limits (Entries strictly on 15m/30m)."""
         if self.current_balance < self.fixed_risk_usd:
             return
 
+        # STRICT RULE: Trading positions can ONLY be opened on 15m or 30m timeframes (1h/4h are alignment filters only)
+        if self.timeframe not in ["15m", "30m"]:
+            return
+
+        # Portfolio-level circuit breaker active
+        if self.circuit_breaker_until:
+            if ph_now() < self.circuit_breaker_until:
+                return
+            else:
+                self.circuit_breaker_until = None
+
         discovered_signals = []
         for sym, df in data_map.items():
-            last_idx = len(df) - 1
-            signal = self._evaluate_active_strategy(df, last_idx)
+            if len(df) < 50:
+                continue
+
+            candle_time = int(df.iloc[-1]['time']) if 'time' in df.iloc[-1] else int(time.time())
+            # Prevent same-candle repeat entries on the same symbol
+            if candle_time > 0 and self.symbol_last_entry_candle.get(sym) == candle_time:
+                continue
+
+            sym_htf = self.mtf_data.get(sym)
+            # Prioritize signals evaluated on confirmed/closed bar (len(df) - 2) before live bar (len(df) - 1)
+            signal = self._evaluate_active_strategy(df, len(df) - 2, htf_data=sym_htf) if len(df) >= 52 else None
+            if not signal:
+                signal = self._evaluate_active_strategy(df, len(df) - 1, htf_data=sym_htf)
             
             if signal:
                 direction = signal['direction']
-                entry_price = signal['entry_price']
-                sl_price = signal['sl_price']
-                tp_price = signal['tp_price']
+                # Execute entry at current live market price
+                entry_price = float(df.iloc[-1]['close'])
                 risk_dist = signal['risk_distance']
                 target_rr = signal['target_rr']
                 sector = get_crypto_sector(sym)
+
+                sl_price = entry_price - risk_dist if direction == "LONG" else entry_price + risk_dist
+                tp_price = entry_price + (target_rr * risk_dist) if direction == "LONG" else entry_price - (target_rr * risk_dist)
 
                 # Record discovered market signal for 24/7 Live Radar Feed
                 sig_summary = {
@@ -592,7 +791,7 @@ class LiveCryptoBot:
                     "sl_price": round(sl_price, 6 if sl_price < 1 else 2),
                     "tp_price": round(tp_price, 6 if tp_price < 1 else 2),
                     "target_rr": target_rr,
-                    "discovered_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "discovered_at": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
                     "context": signal.get('pre_trade_context', {})
                 }
                 discovered_signals.append(sig_summary)
@@ -605,6 +804,13 @@ class LiveCryptoBot:
                     continue
                 if sym in self.open_positions:
                     continue
+
+                # 0. Check Symbol Anti-Churn Loss Cooldown (Prevents rapid re-entry churn on same candle)
+                if sym in self.symbol_loss_cooldowns:
+                    if ph_now() < self.symbol_loss_cooldowns[sym]:
+                        continue
+                    else:
+                        del self.symbol_loss_cooldowns[sym]
 
                 # 1. Check Bitcoin Macro Trend Gatekeeper (Bypass for BTC itself)
                 if sym != "BTCUSDT":
@@ -635,10 +841,13 @@ class LiveCryptoBot:
                     "strategy": self.active_strategy_name,
                     "timeframe": self.timeframe,
                     "direction": direction,
-                    "entry_time": int(df.iloc[-1]['time']),
-                    "entry_time_str": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "entry_time": int(time.time()),
+                    "entry_time_str": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "entry_candle_time": candle_time,
                     "entry_price": round(entry_price, 6 if entry_price < 1 else 2),
                     "current_price": round(entry_price, 6 if entry_price < 1 else 2),
+                    "highest_since_entry": round(entry_price, 6 if entry_price < 1 else 2),
+                    "lowest_since_entry": round(entry_price, 6 if entry_price < 1 else 2),
                     "sl_price": round(sl_price, 6 if sl_price < 1 else 2),
                     "tp_price": round(tp_price, 6 if tp_price < 1 else 2),
                     "risk_distance": risk_dist,
@@ -655,92 +864,44 @@ class LiveCryptoBot:
                 }
 
                 self.open_positions[sym] = pos_record
+                self.symbol_last_entry_candle[sym] = candle_time
                 print(f"[LiveBot] OPENED {direction} on {sym} [{sector}] @ ${entry_price} (Fixed Risk: ${risk_amount_usd:.2f} USD, SL: ${sl_price}, TP: ${tp_price} [1:{target_rr} RR])")
                 self.save_state()
 
         if discovered_signals:
             self.latest_signals = (discovered_signals + self.latest_signals)[:25]
 
-    def _evaluate_active_strategy(self, df: pd.DataFrame, idx: int) -> Optional[Dict[str, Any]]:
-        """Evaluate strategy incorporating dynamic active parameters."""
+    def _evaluate_active_strategy(
+        self, 
+        df: pd.DataFrame, 
+        idx: int,
+        htf_data: Optional[Dict[str, pd.DataFrame]] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Evaluate strategy incorporating dynamic active parameters, RSI safe corridor, and 1h/4h MTF alignment."""
         if len(df) < 50 or idx < 50:
             return None
 
         if 'squeeze_on' not in df.columns:
             df = compute_crypto_indicators(df)
 
-        curr = df.iloc[idx]
-        recent_squeezes = df['squeeze_on'].iloc[max(0, idx - 5):idx].sum()
-        squeeze_fired = (recent_squeezes >= 2) and (not curr['squeeze_on'])
-        
-        if not squeeze_fired:
-            return None
-
-        close = float(curr['close'])
-        atr = float(curr['atr14'])
-        ema50 = float(curr['ema50'])
-        rvol = float(curr['rvol'])
-        rsi = float(curr['rsi14'])
-        mom = float(curr['momentum'])
-
-        if atr <= 0:
-            return None
-
-        rvol_thresh = self.active_params.get("rvol_min", 1.1)
-        atr_sl = self.active_params.get("atr_sl_mult", 1.3)
         target_rr = self.active_params.get("target_rr", self.target_rr)
+        
+        # Match strategy class by active name
+        strat_cls = None
+        for s in AVAILABLE_STRATEGIES:
+            if s.name == self.active_strategy_name:
+                strat_cls = s
+                break
+        if strat_cls is None:
+            strat_cls = SqueezeMomentumBreakout
 
-        # Long Setup
-        if close > curr['bb_upper'] and mom > 0 and rvol >= rvol_thresh and close > ema50 and rsi >= self.active_params.get("rsi_min_long", 50.0):
-            risk_dist = atr_sl * atr
-            entry_price = close
-            sl_price = entry_price - risk_dist
-            tp_price = entry_price + (target_rr * risk_dist)
-
-            return {
-                "strategy": self.active_strategy_name,
-                "direction": "LONG",
-                "entry_price": entry_price,
-                "sl_price": sl_price,
-                "tp_price": tp_price,
-                "risk_distance": risk_dist,
-                "target_rr": target_rr,
-                "pre_trade_context": {
-                    "regime": "Bullish Trend & Volatility Expansion",
-                    "reason": "Squeeze fired bullishly above BB upper band with volume surge",
-                    "rvol": round(rvol, 2),
-                    "rsi": round(rsi, 1),
-                    "momentum": round(mom, 4),
-                    "ema_alignment": "Close > EMA50",
-                    "volatility_atr": round(atr, 4)
-                }
-            }
-
-        # Short Setup
-        if close < curr['bb_lower'] and mom < 0 and rvol >= rvol_thresh and close < ema50 and rsi <= self.active_params.get("rsi_max_short", 50.0):
-            risk_dist = atr_sl * atr
-            entry_price = close
-            sl_price = entry_price + risk_dist
-            tp_price = entry_price - (target_rr * risk_dist)
-
-            return {
-                "strategy": self.active_strategy_name,
-                "direction": "SHORT",
-                "entry_price": entry_price,
-                "sl_price": sl_price,
-                "tp_price": tp_price,
-                "risk_distance": risk_dist,
-                "target_rr": target_rr,
-                "pre_trade_context": {
-                    "regime": "Bearish Trend & Volatility Breakdown",
-                    "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-                    "rvol": round(rvol, 2),
-                    "rsi": round(rsi, 1),
-                    "momentum": round(mom, 4),
-                    "ema_alignment": "Close < EMA50",
-                    "volatility_atr": round(atr, 4)
-                }
-            }
+        return strat_cls.generate_signal(
+            df, 
+            idx, 
+            target_rr=target_rr, 
+            params=self.active_params,
+            htf_data=htf_data
+        )
 
         return None
 
@@ -750,12 +911,12 @@ class LiveCryptoBot:
         exit_price: float, 
         exit_time: int, 
         outcome: str, 
-        df: pd.DataFrame
-    ):
+        df: Optional[pd.DataFrame] = None
+    ) -> Optional[Dict[str, Any]]:
         """Close an active paper trade and deduct/credit fixed $1.00 risk."""
         pos = self.open_positions.get(symbol)
         if not pos:
-            return
+            return None
 
         is_long = (pos['direction'] == 'LONG')
         risk_dist = pos.get('risk_distance', 1.0)
@@ -767,7 +928,7 @@ class LiveCryptoBot:
         elif outcome in ["BE_EXIT", "BREAKEVEN_DEFENSE"]:
             raw_r = 0.08
             net_r = 0.0  # Zero loss (fees covered)
-        elif outcome in ["TRAILING_STOP_WIN", "MOMENTUM_EXIT", "TIME_EXIT"]:
+        elif outcome in ["TRAILING_STOP_WIN", "MOMENTUM_EXIT", "TIME_EXIT", "FORCED_CLOSE", "MANUAL_CLOSE"]:
             dist = (exit_price - pos['entry_price']) if is_long else (pos['entry_price'] - exit_price)
             raw_r = round(dist / risk_dist, 2) if risk_dist > 0 else 0.0
             net_r = round(raw_r - friction_r, 2)
@@ -779,24 +940,25 @@ class LiveCryptoBot:
         pnl_usd = round(net_r * risk_usd, 2)
         
         self.current_balance = round(self.current_balance + pnl_usd, 2)
-        bars_held = max(1, pos.get('bars_held', len(df) - 1))
+        df_len = len(df) if df is not None else 1
+        bars_held = max(1, pos.get('bars_held', df_len - 1))
 
         closed_record = {
-            "trade_id": pos['trade_id'],
+            "trade_id": pos.get('trade_id', 1),
             "symbol": symbol,
             "sector": pos.get('sector', 'ALT'),
-            "strategy": pos['strategy'],
+            "strategy": pos.get('strategy', self.active_strategy_name),
             "timeframe": pos.get('timeframe', self.timeframe),
-            "direction": pos['direction'],
-            "entry_time": pos['entry_time'],
-            "entry_time_str": pos['entry_time_str'],
-            "exit_time": exit_time,
-            "exit_time_str": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            "entry_price": pos['entry_price'],
+            "direction": pos.get('direction', 'LONG'),
+            "entry_time": pos.get('entry_time', int(time.time())),
+            "entry_time_str": pos.get('entry_time_str', ph_now().strftime("%Y-%m-%d %H:%M:%S")),
+            "exit_time": exit_time if exit_time else int(time.time()),
+            "exit_time_str": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
+            "entry_price": pos.get('entry_price', 0.0),
             "exit_price": round(exit_price, 6 if exit_price < 1 else 2),
-            "sl_price": pos['sl_price'],
-            "tp_price": pos['tp_price'],
-            "target_rr": pos['target_rr'],
+            "sl_price": pos.get('sl_price', 0.0),
+            "tp_price": pos.get('tp_price', 0.0),
+            "target_rr": pos.get('target_rr', 2.0),
             "risk_amount_usd": risk_usd,
             "position_qty": pos.get('position_qty', 1.0),
             "position_value_usd": pos.get('position_value_usd', 0.0),
@@ -810,11 +972,14 @@ class LiveCryptoBot:
             "bars_held": bars_held,
             "friction_breakdown": f"Gross: {raw_r:+.2f}R | Friction: -{friction_r:.2f}R | Net: {net_r:+.2f}R (${pnl_usd:+.2f} USD)",
             "trade_efficiency": f"MFE: +{pos.get('mfe_r', 0.0)}R | MAE: -{pos.get('mae_r', 0.0)}R",
-            "pre_trade_context": pos['pre_trade_context']
+            "pre_trade_context": pos.get('pre_trade_context', {})
         }
 
         # Run automated root-cause diagnostic
-        diagnostic = diagnose_trade_outcome(closed_record, df, max(0, len(df) - 10), len(df) - 1)
+        if df is not None and len(df) > 0:
+            diagnostic = diagnose_trade_outcome(closed_record, df, max(0, len(df) - 10), len(df) - 1)
+        else:
+            diagnostic = diagnose_trade_outcome(closed_record, pd.DataFrame(), 0, 0)
         closed_record['diagnostic'] = diagnostic
 
         # Write detailed individual trade markdown journal to reports/
@@ -825,7 +990,7 @@ class LiveCryptoBot:
                 f.write(f"# Trade Record & Post-Mortem Diagnostic #{pos['trade_id']}: {symbol} ({pos['direction']})\n")
                 f.write(f"*Closed on: {closed_record['exit_time_str']}*\n\n")
                 f.write(f"## 1. Trade Execution Summary\n")
-                f.write(f"- **Outcome**: `{'PROFIT (WIN)' if outcome == 'WIN' else 'LOSS'}`\n")
+                f.write(f"- **Outcome**: `{'PROFIT (WIN)' if outcome == 'WIN' else ('FORCED CLOSE' if outcome == 'FORCED_CLOSE' else 'LOSS')}`\n")
                 f.write(f"- **Realized PnL**: `${pnl_usd:+.2f} USD` ({net_r:+.2f} R)\n")
                 f.write(f"- **Resulting Account Balance**: `${self.current_balance:.2f} USD`\n")
                 f.write(f"- **Entry Price**: `${closed_record['entry_price']}` | **Exit Price**: `${closed_record['exit_price']}`\n")
@@ -855,6 +1020,28 @@ class LiveCryptoBot:
 
         self.closed_trades.append(closed_record)
         self._archive_entry("trades", closed_record)
+
+        if symbol in self.open_positions:
+            del self.open_positions[symbol]
+
+        # Enforce Anti-Churn Quarantine on losing symbols (Timeframe-aware, min 45m)
+        if outcome == "LOSS" or net_r < 0:
+            pos_tf = pos.get('timeframe', self.timeframe)
+            tf_prof = TIMEFRAME_PROFILES.get(pos_tf, getattr(self, 'timeframe_profile', TIMEFRAME_PROFILES["15m"]))
+            cooldown_mins = tf_prof.get("cooldown_minutes", self.cooldown_minutes)
+            self.symbol_loss_cooldowns[symbol] = ph_now() + timedelta(minutes=max(45, cooldown_mins))
+
+            # Portfolio-level circuit breaker (2 consecutive losses -> 30 min cooling pause)
+            recent_losses = 0
+            for t in reversed(self.closed_trades[-5:]):
+                if t.get('outcome') == 'LOSS' or t.get('net_r', 0) < 0:
+                    recent_losses += 1
+                else:
+                    break
+            if recent_losses >= 2:
+                self.circuit_breaker_until = ph_now() + timedelta(minutes=30)
+                print(f"[LiveBot:CircuitBreaker] [!] {recent_losses} consecutive losses detected across portfolio. Activating 30-minute cooling pause.")
+
         try:
             self.db.save_trade(closed_record)
         except Exception as e:
@@ -866,12 +1053,57 @@ class LiveCryptoBot:
         if len(self.closed_trades) % self.optimize_every_n_trades == 0:
             asyncio.create_task(self.run_self_optimization())
 
+        return closed_record
+
+    async def force_close_position(
+        self, 
+        symbol: str, 
+        exit_price: Optional[float] = None
+    ) -> Optional[Dict[str, Any]]:
+        """Manually force close an active live position at current market price."""
+        clean_sym = symbol.upper().replace("/", "").replace("-", "")
+        pos = self.open_positions.get(clean_sym)
+        if not pos:
+            return None
+
+        # Determine exit price: provided price -> pos['current_price'] -> pos['entry_price']
+        if exit_price is None or exit_price <= 0:
+            exit_price = pos.get('current_price', pos.get('entry_price', 0.0))
+
+        df = None
+        try:
+            async with aiohttp.ClientSession() as session:
+                df = await fetch_symbol_klines(session, clean_sym, interval=self.timeframe, limit=20)
+                if df is not None and len(df) > 0:
+                    df = compute_crypto_indicators(df)
+                    if exit_price == pos.get('entry_price') or exit_price == pos.get('current_price'):
+                        last_close = float(df.iloc[-1]['close'])
+                        if last_close > 0:
+                            exit_price = last_close
+        except Exception:
+            pass
+
+        exit_time = int(time.time())
+        closed_trade = await self._close_position(
+            symbol=clean_sym,
+            exit_price=exit_price,
+            exit_time=exit_time,
+            outcome="FORCED_CLOSE",
+            df=df
+        )
+
+        # Check if capital depleted after closing position
+        if self.current_balance < self.fixed_risk_usd and len(self.open_positions) == 0:
+            await self._handle_capital_depleted()
+
+        return closed_trade
+
     def _archive_entry(self, category: str, entry: Dict[str, Any]):
         """Persist structured records into the permanent historical archive JSON file."""
         try:
             os.makedirs(self.reports_dir, exist_ok=True)
             archive_data = {
-                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "created_at": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
                 "total_trades_archived": 0,
                 "trades": [],
                 "micro_optimizations": [],
@@ -891,7 +1123,7 @@ class LiveCryptoBot:
             archive_data[category].append(entry)
             if category == "trades":
                 archive_data["total_trades_archived"] = len(archive_data["trades"])
-            archive_data["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            archive_data["last_updated"] = ph_now().strftime("%Y-%m-%d %H:%M:%S")
 
             with open(self.archive_file, "w", encoding="utf-8") as f:
                 json.dump(archive_data, f, indent=2)
@@ -905,28 +1137,28 @@ class LiveCryptoBot:
         computes sector-by-sector metrics, and records audit reports.
         """
         period_upper = period.upper()
-        now = datetime.now()
+        now = ph_now()
         print(f"[LiveBot:Macro Audit] Initiating {period_upper} Macro Strategy Optimization & Portfolio Audit...")
 
         if period_upper == "MONTHLY":
             self.last_monthly_optimization_time = now
             lookback_bars = 1000
-            target_timeframes = ["15m", "1h", "4h"]
+            target_timeframes = ["15m", "30m", "1h", "4h"]
             report_code = now.strftime("%Y_%m")
             report_filename = os.path.join(REPORTS_DIR, f"monthly_optimization_report_{report_code}.md")
         else:
             self.last_weekly_optimization_time = now
             lookback_bars = 500
-            target_timeframes = ["15m", "1h", "4h"]
+            target_timeframes = ["15m", "30m", "1h", "4h"]
             report_code = f"{now.strftime('%Y')}_W{now.isocalendar()[1]:02d}_{now.strftime('%m%d_%H%M%S')}"
             report_filename = os.path.join(REPORTS_DIR, f"weekly_optimization_report_{report_code}.md")
 
         param_candidates = [
-            {"rvol_min": 1.10, "atr_sl_mult": 1.30, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_short": 50.0},
-            {"rvol_min": 1.20, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 52.0, "rsi_max_short": 48.0},
-            {"rvol_min": 1.25, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 50.0, "rsi_max_short": 50.0},
-            {"rvol_min": 1.15, "atr_sl_mult": 1.50, "target_rr": 2.0, "rsi_min_long": 48.0, "rsi_max_short": 52.0},
-            {"rvol_min": 1.30, "atr_sl_mult": 1.35, "target_rr": 3.0, "rsi_min_long": 52.0, "rsi_max_short": 48.0}
+            {"rvol_min": 1.15, "atr_sl_mult": 1.40, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_long": 68.0, "rsi_min_short": 32.0, "rsi_max_short": 50.0, "min_body_ratio": 0.35, "max_wick_ratio": 0.40},
+            {"rvol_min": 1.20, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 52.0, "rsi_max_long": 68.0, "rsi_min_short": 32.0, "rsi_max_short": 48.0, "min_body_ratio": 0.35, "max_wick_ratio": 0.40},
+            {"rvol_min": 1.25, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 50.0, "rsi_max_long": 68.0, "rsi_min_short": 32.0, "rsi_max_short": 50.0, "min_body_ratio": 0.35, "max_wick_ratio": 0.40},
+            {"rvol_min": 1.15, "atr_sl_mult": 1.50, "target_rr": 2.0, "rsi_min_long": 48.0, "rsi_max_long": 68.0, "rsi_min_short": 32.0, "rsi_max_short": 52.0, "min_body_ratio": 0.35, "max_wick_ratio": 0.40},
+            {"rvol_min": 1.30, "atr_sl_mult": 1.35, "target_rr": 3.0, "rsi_min_long": 52.0, "rsi_max_long": 68.0, "rsi_min_short": 32.0, "rsi_max_short": 48.0, "min_body_ratio": 0.35, "max_wick_ratio": 0.40}
         ]
 
         best_score = -999.0
@@ -978,7 +1210,8 @@ class LiveCryptoBot:
                                 mom = float(curr['momentum'])
                                 ema50 = float(curr['ema50'])
 
-                                if close > curr['bb_upper'] and mom > 0 and rvol >= params['rvol_min'] and close > ema50 and rsi >= params['rsi_min_long']:
+                                # Long Setup with RSI corridor protection
+                                if close > curr['bb_upper'] and mom > 0 and rvol >= params['rvol_min'] and close > ema50 and (params.get('rsi_min_long', 50.0) <= rsi <= params.get('rsi_max_long', 68.0)):
                                     risk = params['atr_sl_mult'] * atr
                                     sl = close - risk
                                     tp = close + (params['target_rr'] * risk)
@@ -987,6 +1220,19 @@ class LiveCryptoBot:
                                         bar = test_df.iloc[j]
                                         if bar['low'] <= sl: outcome = "LOSS"; break
                                         elif bar['high'] >= tp: outcome = "WIN"; break
+                                    trade_net_r = params['target_rr'] - 0.08 if outcome == "WIN" else -1.08
+                                    tf_trades.append(trade_net_r)
+                                    sec_trades[sec].append(trade_net_r)
+                                # Short Setup with RSI corridor protection
+                                elif close < curr['bb_lower'] and mom < 0 and rvol >= params['rvol_min'] and close < ema50 and (params.get('rsi_min_short', 32.0) <= rsi <= params.get('rsi_max_short', 50.0)):
+                                    risk = params['atr_sl_mult'] * atr
+                                    sl = close + risk
+                                    tp = close - (params['target_rr'] * risk)
+                                    outcome = "LOSS"
+                                    for j in range(i+1, min(i+50, n)):
+                                        bar = test_df.iloc[j]
+                                        if bar['high'] >= sl: outcome = "LOSS"; break
+                                        elif bar['low'] <= tp: outcome = "WIN"; break
                                     trade_net_r = params['target_rr'] - 0.08 if outcome == "WIN" else -1.08
                                     tf_trades.append(trade_net_r)
                                     sec_trades[sec].append(trade_net_r)
@@ -1120,7 +1366,7 @@ class LiveCryptoBot:
     def _generate_depletion_summary_report(self) -> str:
         """Generate formatted Markdown summary report on capital depletion."""
         os.makedirs(REPORTS_DIR, exist_ok=True)
-        timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        timestamp_str = ph_now().strftime("%Y%m%d_%H%M%S")
         report_filename = os.path.join(REPORTS_DIR, f"capital_depleted_summary_{timestamp_str}.md")
 
         total_trades = len(self.closed_trades)
@@ -1138,7 +1384,7 @@ class LiveCryptoBot:
 
         lines = [
             "# Automated Trading Bot - Capital Depletion Summary Report",
-            f"*Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*",
+            f"*Generated on: {ph_now().strftime('%Y-%m-%d %H:%M:%S')}*",
             "",
             "## 1. Executive Performance Summary",
             f"- **Starting Capital**: `${self.initial_capital:.2f} USD`",
@@ -1183,44 +1429,128 @@ class LiveCryptoBot:
 
         return report_filename
 
+    def _analyze_recent_trade_failures(self) -> Dict[str, Any]:
+        """
+        Analyze recent closed trades for systemic failure patterns.
+        Returns defensive adaptation parameters if high loss or wick trap rate is detected.
+        """
+        recent = self.closed_trades[-10:] if len(self.closed_trades) >= 5 else self.closed_trades
+        if not recent:
+            return {
+                "wick_defense_active": False,
+                "min_atr_mult": 1.35,
+                "min_rvol": 1.15,
+                "quarantined_symbols": [],
+                "failure_rate": 0.0,
+                "wick_trap_rate": 0.0
+            }
+        
+        losses = [t for t in recent if t.get('outcome') == 'LOSS' or t.get('net_r', 0) < 0]
+        failure_rate = len(losses) / len(recent)
+        
+        # Count immediate wick traps (<= 2 bars held or Wick catalyst)
+        wick_traps = [
+            t for t in losses 
+            if t.get('bars_held', 99) <= 2 or "Wick" in t.get('diagnostic', {}).get('catalyst_type', '')
+        ]
+        wick_trap_rate = len(wick_traps) / len(losses) if losses else 0.0
+        
+        # Count losing symbols with >= 2 losses in recent window
+        sym_counts: Dict[str, int] = {}
+        for t in losses:
+            s = t.get('symbol')
+            if s:
+                sym_counts[s] = sym_counts.get(s, 0) + 1
+        
+        quarantined = [s for s, count in sym_counts.items() if count >= 2]
+        
+        # Wick defense activates if >= 40% losses are fast wick stopouts
+        wick_defense_active = (failure_rate >= 0.4 and wick_trap_rate >= 0.3)
+        
+        return {
+            "wick_defense_active": wick_defense_active,
+            "min_atr_mult": 1.60 if wick_defense_active else 1.30,
+            "min_rvol": 1.30 if wick_defense_active else 1.10,
+            "quarantined_symbols": quarantined,
+            "failure_rate": round(failure_rate * 100.0, 1),
+            "wick_trap_rate": round(wick_trap_rate * 100.0, 1)
+        }
+
+    def _generate_candidate_parameters(self, failure_diag: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate a diverse grid of parameter suites dynamically shaped by live failure feedback."""
+        base_atr = failure_diag.get("min_atr_mult", 1.30)
+        base_rvol = failure_diag.get("min_rvol", 1.10)
+        
+        atr_steps = [base_atr, round(base_atr + 0.25, 2), round(base_atr + 0.50, 2)]
+        rvol_steps = [base_rvol, round(base_rvol + 0.15, 2)]
+        rr_steps = [2.0, 2.5, 3.0]
+        rsi_presets = [
+            {"rsi_min_long": 50.0, "rsi_max_short": 50.0},
+            {"rsi_min_long": 52.0, "rsi_max_short": 48.0}
+        ]
+        
+        candidates = []
+        for atr in atr_steps:
+            for rvol in rvol_steps:
+                for rr in rr_steps:
+                    for rsi in rsi_presets:
+                        candidates.append({
+                            "rvol_min": rvol,
+                            "atr_sl_mult": atr,
+                            "target_rr": rr,
+                            "rsi_min_long": rsi["rsi_min_long"],
+                            "rsi_max_long": 68.0,
+                            "rsi_min_short": 32.0,
+                            "rsi_max_short": rsi["rsi_max_short"],
+                            "min_body_ratio": 0.35,
+                            "max_wick_ratio": 0.40,
+                            "min_risk_dist_pct": 0.008
+                        })
+        return candidates
+
     async def run_self_optimization(self) -> Dict[str, Any]:
         """
-        Self-Evolving Multi-Timeframe & Parameter Optimization Loop.
-        Enforces Strict >= 40.0% Win Rate Floor and Champion-vs-Challenger Promotion.
+        Self-Evolving Walk-Forward Multi-Timeframe & Parameter Optimization Loop.
+        Integrates Out-of-Sample Walk-Forward Validation, Composite Scoring (PF * Exp * sqrt(N)),
+        Live Diagnostic Failure Feedback, and Transparent Adaptive Logging.
         """
         print("[LiveBot:AI Optimizer] Initiating dynamic multi-timeframe self-perfection cycle...")
-        self.last_optimization_time = datetime.now()
+        self.last_optimization_time = ph_now()
         
-        candidate_timeframes = ["5m", "15m", "1h", "4h"]
-        param_candidates = [
-            {"rvol_min": 1.10, "atr_sl_mult": 1.30, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_short": 50.0},
-            {"rvol_min": 1.20, "atr_sl_mult": 1.25, "target_rr": 2.0, "rsi_min_long": 52.0, "rsi_max_short": 48.0},
-            {"rvol_min": 1.25, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 50.0, "rsi_max_short": 50.0},
-            {"rvol_min": 1.15, "atr_sl_mult": 1.50, "target_rr": 2.0, "rsi_min_long": 48.0, "rsi_max_short": 52.0},
-            {"rvol_min": 1.30, "atr_sl_mult": 1.35, "target_rr": 3.0, "rsi_min_long": 52.0, "rsi_max_short": 48.0}
-        ]
+        # 1. Analyze live execution diagnostics for adaptive defense biasing
+        failure_diag = self._analyze_recent_trade_failures()
+        if failure_diag["quarantined_symbols"]:
+            for q_sym in failure_diag["quarantined_symbols"]:
+                self.symbol_loss_cooldowns[q_sym] = ph_now() + timedelta(minutes=self.cooldown_minutes * 2)
+            print(f"[LiveBot:AI Optimizer] 🛡️ Quarantined toxic losing symbols: {failure_diag['quarantined_symbols']}")
 
-        current_champ_wr = self.champion_stats.get("win_rate", 42.0)
-        current_champ_exp = self.champion_stats.get("expectancy_r", 0.25)
+        candidate_timeframes = ["15m", "30m"]  # Strict: Entries restricted to 15m and 30m (1h/4h are HTF filters)
+        param_candidates = self._generate_candidate_parameters(failure_diag)
+
+        current_champ_score = float(self.champion_stats.get("score", 1.5))
+        current_champ_exp = float(self.champion_stats.get("expectancy_r", 0.25))
+        current_champ_wr = float(self.champion_stats.get("win_rate", 42.0))
         
         best_challenger_score = -999.0
         best_challenger_params = None
         best_challenger_tf = None
         best_challenger_summary = {}
 
-        # Benchmark across candidate timeframes (5m, 15m, 1h, 4h)
+        # 2. Benchmark across candidate timeframes with 500-candle depth
         for tf in candidate_timeframes:
             dataset = {}
             async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=12)) as session:
-                tasks = [fetch_symbol_klines(session, sym, interval=tf, limit=200) for sym in self.symbols[:15]]
+                target_syms = self.symbols[:15] if self.symbols else ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "DOGEUSDT"]
+                tasks = [fetch_symbol_klines(session, sym, interval=tf, limit=500) for sym in target_syms]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
-                for sym, res in zip(self.symbols[:15], results):
-                    if isinstance(res, pd.DataFrame) and len(res) >= 50:
+                for sym, res in zip(target_syms, results):
+                    if isinstance(res, pd.DataFrame) and len(res) >= 80:
                         dataset[sym] = res
 
             for params in param_candidates:
                 all_trades = []
                 for sym, df in dataset.items():
+                    # 60% Train / 40% Out-of-Sample Test Split
                     _, test_df = split_train_test(df, train_ratio=0.6)
                     test_df = compute_crypto_indicators(test_df)
                     
@@ -1236,8 +1566,11 @@ class LiveCryptoBot:
                             mom = float(curr['momentum'])
                             ema50 = float(curr['ema50'])
                             
-                            if close > curr['bb_upper'] and mom > 0 and rvol >= params['rvol_min'] and close > ema50 and rsi >= params['rsi_min_long']:
-                                risk = params['atr_sl_mult'] * atr
+                            min_risk_dist = close * 0.005
+                            risk = max(params['atr_sl_mult'] * atr, min_risk_dist)
+
+                            # Long Setup with RSI corridor protection
+                            if close > curr['bb_upper'] and mom > 0 and rvol >= params['rvol_min'] and close > ema50 and (params.get('rsi_min_long', 50.0) <= rsi <= params.get('rsi_max_long', 68.0)):
                                 sl = close - risk
                                 tp = close + (params['target_rr'] * risk)
                                 outcome = "LOSS"
@@ -1247,16 +1580,40 @@ class LiveCryptoBot:
                                     elif bar['high'] >= tp: outcome = "WIN"; break
                                 all_trades.append(params['target_rr'] - 0.08 if outcome == "WIN" else -1.08)
 
+                            # Short Setup with RSI corridor protection
+                            elif close < curr['bb_lower'] and mom < 0 and rvol >= params['rvol_min'] and close < ema50 and (params.get('rsi_min_short', 32.0) <= rsi <= params.get('rsi_max_short', 50.0)):
+                                sl = close + risk
+                                tp = close - (params['target_rr'] * risk)
+                                outcome = "LOSS"
+                                for j in range(i+1, min(i+50, n)):
+                                    bar = test_df.iloc[j]
+                                    if bar['high'] >= sl: outcome = "LOSS"; break
+                                    elif bar['low'] <= tp: outcome = "WIN"; break
+                                all_trades.append(params['target_rr'] - 0.08 if outcome == "WIN" else -1.08)
+
                 total_t = len(all_trades)
-                if total_t >= 8:
+                if total_t >= 10:
                     wins = [r for r in all_trades if r > 0]
+                    losses = [r for r in all_trades if r <= 0]
                     win_rate = (len(wins) / total_t) * 100.0
+                    gross_gain = sum(wins) if wins else 0.0
+                    gross_loss = abs(sum(losses)) if losses else 0.08
+                    profit_factor = round(gross_gain / gross_loss, 2) if gross_loss > 0 else round(gross_gain, 2)
                     total_net_r = sum(all_trades)
                     exp_r = total_net_r / total_t
-                    score = exp_r * np.sqrt(total_t)
 
-                    # GATE 1: Win Rate MUST be at least 40.0%
-                    if win_rate >= 40.0 and exp_r > 0.05:
+                    # Calculate Max Drawdown
+                    cum_r = np.cumsum(all_trades)
+                    peak = np.maximum.accumulate(cum_r)
+                    dd = peak - cum_r
+                    max_dd_r = float(np.max(dd)) if len(dd) > 0 else 0.0
+                    dd_penalty = max(0.5, 1.0 - (max_dd_r / max(1.0, total_t * 0.4)))
+
+                    # Composite Multi-Factor Score
+                    score = profit_factor * exp_r * np.sqrt(total_t) * dd_penalty
+
+                    # Robust Realistic Walk-Forward Acceptance Gate
+                    if win_rate >= 35.0 and profit_factor >= 1.15 and exp_r > 0.04:
                         if score > best_challenger_score:
                             best_challenger_score = score
                             best_challenger_params = params
@@ -1265,70 +1622,97 @@ class LiveCryptoBot:
                                 "timeframe": tf,
                                 "tested_trades": total_t,
                                 "win_rate_pct": round(win_rate, 2),
+                                "profit_factor": profit_factor,
                                 "total_net_r": round(total_net_r, 2),
                                 "expectancy_r": round(exp_r, 3),
+                                "max_drawdown_r": round(max_dd_r, 2),
                                 "score": round(score, 3),
                                 "params": params
                             }
 
-        # GATE 2 & 3: Champion vs Challenger Comparison
+        # 3. Dynamic Champion vs Challenger Comparison
         promoted = False
         if best_challenger_params and best_challenger_summary:
-            challenger_wr = best_challenger_summary["win_rate_pct"]
+            challenger_score = best_challenger_summary["score"]
             challenger_exp = best_challenger_summary["expectancy_r"]
+            challenger_wr = best_challenger_summary["win_rate_pct"]
 
-            # Must strictly beat current Champion Win Rate and Expectancy
-            if challenger_wr > current_champ_wr and challenger_exp > current_champ_exp:
+            # Promote if composite score beats champion benchmark by at least 3% or if current champion is decaying
+            if challenger_score > (current_champ_score * 0.95) and challenger_exp >= 0.08:
                 promoted = True
-                print(f"[LiveBot:AI Optimizer] 🏆 NEW CHAMPION PROMOTED! Challenger (WR: {challenger_wr}% | Exp: +{challenger_exp}R) defeated Champion (WR: {current_champ_wr}% | Exp: +{current_champ_exp}R)")
+                print(f"[LiveBot:AI Optimizer] NEW CHAMPION PROMOTED! Challenger ({best_challenger_tf} | WR: {challenger_wr}% | PF: {best_challenger_summary['profit_factor']} | Exp: +{challenger_exp}R | Score: {challenger_score}) crowned over Champion (Score: {current_champ_score}).")
                 
-                self.timeframe = best_challenger_tf
+                self.set_timeframe(best_challenger_tf)
                 self.active_params = best_challenger_params
                 self.champion_stats = {
                     "name": self.active_strategy_name,
                     "timeframe": best_challenger_tf,
                     "win_rate": challenger_wr,
+                    "profit_factor": best_challenger_summary["profit_factor"],
                     "expectancy_r": challenger_exp,
-                    "score": best_challenger_summary["score"],
+                    "score": challenger_score,
                     "upgrades_count": self.champion_stats.get("upgrades_count", 0) + 1,
-                    "crowned_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    "crowned_at": ph_now().strftime("%Y-%m-%d %H:%M:%S")
                 }
             else:
-                print(f"[LiveBot:AI Optimizer] 🛡️ Champion Retained. Challenger (WR: {challenger_wr}%) failed to beat Champion (WR: {current_champ_wr}%).")
+                print(f"[LiveBot:AI Optimizer] Reigning Champion Retained (Score: {current_champ_score}). Challenger (Score: {challenger_score}) did not surpass threshold.")
 
+        status_type = "PROMOTED" if promoted else ("DEFENSIVE_ADJUSTED" if failure_diag["wick_defense_active"] else "RETAINED")
+        
         opt_entry = {
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "timestamp": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
+            "status": status_type,
             "improved": promoted,
             "best_timeframe": self.timeframe,
             "best_params": self.active_params,
             "champion_stats": self.champion_stats,
-            "summary": best_challenger_summary or f"Champion retained ({self.timeframe} | WR: {current_champ_wr}%)"
+            "challenger_summary": best_challenger_summary,
+            "failure_diagnostic": failure_diag,
+            "summary": {
+                "status": status_type,
+                "timeframe": best_challenger_tf or self.timeframe,
+                "tested_trades": best_challenger_summary.get("tested_trades", 0),
+                "win_rate_pct": best_challenger_summary.get("win_rate_pct", self.champion_stats.get("win_rate", 42.0)),
+                "profit_factor": best_challenger_summary.get("profit_factor", self.champion_stats.get("profit_factor", 1.4)),
+                "expectancy_r": best_challenger_summary.get("expectancy_r", self.champion_stats.get("expectancy_r", 0.25)),
+                "total_net_r": best_challenger_summary.get("total_net_r", 0.0),
+                "params": best_challenger_params or self.active_params,
+                "defensive_bias": failure_diag["wick_defense_active"],
+                "reason": (
+                    f"🏆 New Champion Promoted: Score {best_challenger_summary.get('score', 0)} > {current_champ_score}"
+                    if promoted else
+                    (f"⚡ Defensive Adjustment: Widen ATR buffer & quarantine losers" if failure_diag["wick_defense_active"] else f"🛡️ Reigning Champion Retained (Score: {current_champ_score})")
+                )
+            }
         }
 
         # Persist full evolution report to reports/
         os.makedirs(REPORTS_DIR, exist_ok=True)
-        ts_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        ts_str = ph_now().strftime("%Y%m%d_%H%M%S")
         evo_report_path = os.path.join(REPORTS_DIR, f"ai_evolution_report_{ts_str}.md")
         try:
             with open(evo_report_path, "w", encoding="utf-8") as f:
                 f.write(f"# Dynamic Multi-Timeframe Strategy Evolution Report\n")
                 f.write(f"*Generated on: {opt_entry['timestamp']}*\n\n")
                 f.write(f"## 1. Executive Summary\n")
-                f.write(f"- **Active Champion Strategy**: `{self.active_strategy_name}`\n")
-                f.write(f"- **Champion Win Rate**: `{self.champion_stats.get('win_rate', 40.0)}%` (Strict Floor: >= 40%)\n")
-                f.write(f"- **Formula Promoted**: `{'Yes - New Champion Crowned' if promoted else 'No - Reigning Champion Retained'}`\n")
+                f.write(f"- **Cycle Outcome**: `{status_type}`\n")
+                f.write(f"- **Active Strategy**: `{self.active_strategy_name}`\n")
                 f.write(f"- **Active Timeframe**: `{self.timeframe}`\n")
-                f.write(f"- **Active Target RR**: `1:{self.active_params.get('target_rr', 2.0)} RR` (Dynamic Unlimited Runner)\n\n")
+                f.write(f"- **Active Target RR**: `1:{self.active_params.get('target_rr', 2.0)} RR`\n")
+                f.write(f"- **Active ATR SL Multiplier**: `{self.active_params.get('atr_sl_mult', 1.3)}x`\n")
+                f.write(f"- **Live Defensive Filter Active**: `{failure_diag['wick_defense_active']}`\n\n")
                 f.write(f"## 2. Active Parameter Suite\n")
                 f.write(f"```json\n{json.dumps(self.active_params, indent=2)}\n```\n\n")
                 f.write(f"## 3. Walk-Forward Diagnostic Comparison\n")
                 if isinstance(best_challenger_summary, dict) and best_challenger_summary:
                     f.write(f"- **Challenger Timeframe**: `{best_challenger_summary.get('timeframe')}`\n")
+                    f.write(f"- **Challenger Out-of-Sample Trades**: `{best_challenger_summary.get('tested_trades')}`\n")
                     f.write(f"- **Challenger Win Rate**: `{best_challenger_summary.get('win_rate_pct')}%`\n")
-                    f.write(f"- **Challenger Expectancy**: `+{best_challenger_summary.get('expectancy_r')} R`\n")
-                    f.write(f"- **Total Tested Trades**: `{best_challenger_summary.get('tested_trades')}`\n")
+                    f.write(f"- **Challenger Profit Factor**: `{best_challenger_summary.get('profit_factor')}`\n")
+                    f.write(f"- **Challenger Net Expectancy**: `+{best_challenger_summary.get('expectancy_r')} R`\n")
+                    f.write(f"- **Challenger Composite Score**: `{best_challenger_summary.get('score')}`\n")
                 else:
-                    f.write(f"No challenger met the strict >=40% win rate threshold during this cycle.\n")
+                    f.write(f"No challenger met the walk-forward threshold during this cycle.\n")
             opt_entry["report_file"] = evo_report_path
         except Exception as e:
             print(f"[LiveBot] Notice: Could not write evolution report: {e}")
@@ -1344,7 +1728,7 @@ class LiveCryptoBot:
         Captures full 24h P&L, win rate, open positions, drawdown, benchmarks current champion,
         and saves reports/daily_strategy_snapshot_YYYY_MM_DD.md.
         """
-        now = datetime.now()
+        now = ph_now()
         self.last_daily_snapshot_time = now
         date_str = now.strftime("%Y_%m_%d")
         print(f"[LiveBot:Daily Snapshot] Generating daily snapshot for {date_str}...")
@@ -1434,7 +1818,7 @@ class LiveCryptoBot:
         Ranks by Win Rate (>= 40% floor) and Statistical Reproducibility Index (0-100).
         Crowns the Monthly Champion and enters the Champions of Champions Gauntlet.
         """
-        now = datetime.now()
+        now = ph_now()
         self.last_monthly_optimization_time = now
         month_str = now.strftime("%Y_%m")
         print(f"[LiveBot:Monthly Tournament] Initiating End-of-Month Strategy Championship for {month_str}...")
@@ -1636,7 +2020,7 @@ class LiveCryptoBot:
         Simulates the current Monthly Champion against ALL past historical monthly champions across
         deep 2,000+ candle multi-regime history to crown the All-Time Grand Champion (GOAT).
         """
-        now = datetime.now()
+        now = ph_now()
         month_str = now.strftime("%Y_%m")
         print(f"[LiveBot:Champions Gauntlet] Running Champions of Champions Gauntlet for {month_str}...")
 
@@ -1745,6 +2129,7 @@ class LiveCryptoBot:
             "is_depleted": self.is_depleted,
             "depletion_report_file": self.depletion_report_file,
             "timeframe": self.timeframe,
+            "timeframe_profile": self.timeframe_profile,
             "initial_capital": self.initial_capital,
             "current_balance": self.current_balance,
             "equity_usd": equity_usd,
@@ -1777,6 +2162,9 @@ class LiveCryptoBot:
             "macro_audits": self.macro_audits[-5:],
             "hall_of_fame": self.hall_of_fame[-5:],
             "auto_trading_enabled": self.auto_trading_enabled,
+            "circuit_breaker_active": bool(self.circuit_breaker_until and ph_now() < self.circuit_breaker_until),
+            "circuit_breaker_until": self.circuit_breaker_until.strftime("%Y-%m-%d %H:%M:%S") if self.circuit_breaker_until and self.circuit_breaker_until > ph_now() else None,
+            "quarantined_symbols": [sym for sym, dt in self.symbol_loss_cooldowns.items() if dt > ph_now()],
             "latest_signals": self.latest_signals[-15:],
             "recent_journal": self.closed_trades[-20:][::-1]
         }

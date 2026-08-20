@@ -35,6 +35,15 @@ function getChartTheme() {
       timeVisible: true,
       secondsVisible: false,
     },
+    localization: {
+      timeFormatter: (timestamp) => {
+        if (typeof formatPhDateTime === 'function') {
+          return formatPhDateTime(timestamp);
+        }
+        return new Date(timestamp * 1000).toLocaleString('en-US', { timeZone: 'Asia/Manila' });
+      },
+      dateFormat: 'yyyy-MM-dd',
+    },
     rightPriceScale: {
       borderColor: isDark ? '#1e293b' : '#e2e8f0',
       scaleMargins: {

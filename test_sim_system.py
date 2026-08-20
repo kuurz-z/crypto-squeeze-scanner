@@ -62,5 +62,14 @@ class TestCryptoSimulationSystem(unittest.TestCase):
         eval_bad = evaluate_reproducibility(good_train, bad_test)
         self.assertFalse(eval_bad['is_reproducible'])
 
+    def test_timeframe_aware_simulation(self):
+        # Test simulation on 15m vs 1h vs 4h
+        res_15m = simulate_strategy_on_dataframe(self.df, SqueezeMomentumBreakout, target_rr=3.0, timeframe="15m")
+        res_1h = simulate_strategy_on_dataframe(self.df, SqueezeMomentumBreakout, target_rr=3.0, timeframe="1h")
+        res_4h = simulate_strategy_on_dataframe(self.df, SqueezeMomentumBreakout, target_rr=3.0, timeframe="4h")
+        self.assertIn('trades', res_15m)
+        self.assertIn('trades', res_1h)
+        self.assertIn('trades', res_4h)
+
 if __name__ == '__main__':
     unittest.main()

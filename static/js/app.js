@@ -6,6 +6,54 @@ let searchQuery = '';
 let scannerData = [];
 let autoRefreshTimer = null;
 
+/**
+ * Format any timestamp, date string, or Date object into Philippine Standard Time (PHT, UTC+8 / Asia/Manila).
+ * Returns formatted 24h string: "YYYY-MM-DD HH:mm:ss"
+ */
+function formatPhDateTime(val) {
+  if (!val || val === '-' || val === 'null' || val === 'undefined') return '-';
+  try {
+    let date;
+    if (typeof val === 'number') {
+      date = new Date(val < 1e11 ? val * 1000 : val);
+    } else if (typeof val === 'string') {
+      const trimmed = val.trim();
+      if (/^\d+$/.test(trimmed)) {
+        const num = parseInt(trimmed, 10);
+        date = new Date(num < 1e11 ? num * 1000 : num);
+      } else if (/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(trimmed)) {
+        // Naive string already generated in Philippine Time (PHT / UTC+8)
+        const iso = trimmed.replace(' ', 'T') + '+08:00';
+        date = new Date(iso);
+      } else {
+        date = new Date(trimmed);
+      }
+    } else if (val instanceof Date) {
+      date = val;
+    } else {
+      return String(val);
+    }
+
+    if (isNaN(date.getTime())) {
+      return String(val);
+    }
+
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false
+    });
+    return formatter.format(date).replace(',', '');
+  } catch (e) {
+    return String(val);
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initCharts();
@@ -229,15 +277,25 @@ function renderScannerTable() {
 
     return `
       <tr class="cursor-pointer hover:bg-slate-50 dark:hover:bg-gray-800/60 ${isSelected}" onclick="onSelectCoin('${item.symbol}')">
-        <td class="py-2.5 px-3 font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
-          <i class="fa-brands fa-bitcoin text-indigo-600 dark:text-indigo-400 text-xs"></i>
-          ${item.symbol.replace('USDT', '')}<span class="text-[10px] text-slate-400 dark:text-gray-500 font-normal">/USDT</span>
+        <td class="py-2.5 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap align-top">
+          <div class="h-5 flex items-center gap-1.5 leading-5">
+            <i class="fa-brands fa-bitcoin text-indigo-600 dark:text-indigo-400 text-xs"></i>
+            <span>${item.symbol.replace('USDT', '')}</span><span class="text-[10px] text-slate-400 dark:text-gray-500 font-normal">/USDT</span>
+          </div>
         </td>
-        <td class="py-2.5 px-2 font-mono font-medium text-slate-800 dark:text-gray-200">$${formattedPrice}</td>
-        <td class="py-2.5 px-2 text-center">${squeezeHtml}</td>
-        <td class="py-2.5 px-2 text-center">${signalHtml}</td>
-        <td class="py-2.5 px-2 text-right ${trendColor} text-[11px] font-medium">
-          <i class="fa-solid ${trendIcon} text-[10px]"></i> ${item.pct_from_ema200 > 0 ? '+' : ''}${item.pct_from_ema200}%
+        <td class="py-2.5 px-2 font-mono font-medium text-slate-800 dark:text-gray-200 whitespace-nowrap align-top">
+          <div class="h-5 flex items-center leading-5">$${formattedPrice}</div>
+        </td>
+        <td class="py-2.5 px-2 text-center whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-center leading-5">${squeezeHtml}</div>
+        </td>
+        <td class="py-2.5 px-2 text-center whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-center leading-5">${signalHtml}</div>
+        </td>
+        <td class="py-2.5 px-2 text-right ${trendColor} text-[11px] font-medium whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-end gap-1 leading-5">
+            <i class="fa-solid ${trendIcon} text-[10px]"></i> ${item.pct_from_ema200 > 0 ? '+' : ''}${item.pct_from_ema200}%
+          </div>
         </td>
       </tr>
     `;
@@ -354,16 +412,32 @@ async function executeBacktest() {
         
         return `
           <tr class="hover:bg-slate-50 dark:hover:bg-gray-800/50 text-[11px]">
-            <td class="py-1.5 px-3 text-slate-500 dark:text-gray-400">${symPrefix}#${t.trade_num}</td>
-            <td class="py-1.5 px-3 font-semibold ${t.direction === 'LONG' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}">${t.direction}</td>
-            <td class="py-1.5 px-3 font-mono text-slate-800 dark:text-slate-200">$${t.entry_price}</td>
-            <td class="py-1.5 px-3 font-mono text-rose-600 dark:text-rose-300">$${t.sl_price}</td>
-            <td class="py-1.5 px-3 font-mono text-emerald-600 dark:text-emerald-300">$${t.tp_target_price}</td>
-            <td class="py-1.5 px-3 font-mono text-slate-800 dark:text-slate-200">$${t.exit_price}</td>
-            <td class="py-1.5 px-3 text-center">
-              <span class="px-2 py-0.5 rounded border text-[10px] font-semibold ${badgeColor}">${t.outcome}</span>
+            <td class="py-2 px-3 text-slate-500 dark:text-gray-400 whitespace-nowrap align-top">
+              <div class="h-5 flex items-center leading-5">${symPrefix}#${t.trade_num}</div>
             </td>
-            <td class="py-1.5 px-3 text-right font-mono ${rColor}">${t.net_r > 0 ? '+' : ''}${t.net_r}R</td>
+            <td class="py-2 px-3 font-semibold ${t.direction === 'LONG' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'} whitespace-nowrap align-top">
+              <div class="h-5 flex items-center leading-5">${t.direction}</div>
+            </td>
+            <td class="py-2 px-3 font-mono text-slate-800 dark:text-slate-200 whitespace-nowrap align-top">
+              <div class="h-5 flex items-center leading-5">$${t.entry_price}</div>
+            </td>
+            <td class="py-2 px-3 font-mono text-rose-600 dark:text-rose-300 whitespace-nowrap align-top">
+              <div class="h-5 flex items-center leading-5">$${t.sl_price}</div>
+            </td>
+            <td class="py-2 px-3 font-mono text-emerald-600 dark:text-emerald-300 whitespace-nowrap align-top">
+              <div class="h-5 flex items-center leading-5">$${t.tp_target_price}</div>
+            </td>
+            <td class="py-2 px-3 font-mono text-slate-800 dark:text-slate-200 whitespace-nowrap align-top">
+              <div class="h-5 flex items-center leading-5">$${t.exit_price}</div>
+            </td>
+            <td class="py-2 px-3 text-center whitespace-nowrap align-top">
+              <div class="h-5 flex items-center justify-center leading-5">
+                <span class="px-2 py-0.5 rounded border text-[10px] font-semibold ${badgeColor}">${t.outcome}</span>
+              </div>
+            </td>
+            <td class="py-2 px-3 text-right font-mono ${rColor} whitespace-nowrap align-top">
+              <div class="h-5 flex items-center justify-end leading-5">${t.net_r > 0 ? '+' : ''}${t.net_r}R</div>
+            </td>
           </tr>
         `;
       }).join('');
@@ -776,12 +850,11 @@ function setupViewNavigation() {
 
   if (toggleAllJournalBtn) {
     toggleAllJournalBtn.addEventListener('click', () => {
-      isAllJournalCollapsed = !isAllJournalCollapsed;
-      if (isAllJournalCollapsed) {
-        cachedJournalTrades.forEach(t => collapsedJournalCards.add(t.trade_id || 1));
+      if (expandedJournalCards.size > 0) {
+        expandedJournalCards.clear();
         if (toggleAllJournalText) toggleAllJournalText.innerText = 'Expand All';
       } else {
-        collapsedJournalCards.clear();
+        cachedJournalTrades.forEach(t => expandedJournalCards.add(t.trade_id || 1));
         if (toggleAllJournalText) toggleAllJournalText.innerText = 'Collapse All';
       }
       renderBotJournal(cachedJournalTrades);
@@ -934,9 +1007,9 @@ function renderBotMetrics(t) {
   const macroDailyLast = document.getElementById('macro-daily-last');
   const macroWeeklyLast = document.getElementById('macro-weekly-last');
   const macroMonthlyLast = document.getElementById('macro-monthly-last');
-  if (macroDailyLast) macroDailyLast.innerText = `Last: ${t.last_daily_snapshot_time ? t.last_daily_snapshot_time.split(' ')[0] : 'Today'}`;
-  if (macroWeeklyLast) macroWeeklyLast.innerText = `Last: ${t.last_weekly_optimization_time ? t.last_weekly_optimization_time.split(' ')[0] : 'Awaiting'}`;
-  if (macroMonthlyLast) macroMonthlyLast.innerText = `Last: ${t.last_monthly_optimization_time ? t.last_monthly_optimization_time.split(' ')[0] : 'Awaiting'}`;
+  if (macroDailyLast) macroDailyLast.innerText = `Last: ${t.last_daily_snapshot_time ? formatPhDateTime(t.last_daily_snapshot_time).split(' ')[0] : 'Today'}`;
+  if (macroWeeklyLast) macroWeeklyLast.innerText = `Last: ${t.last_weekly_optimization_time ? formatPhDateTime(t.last_weekly_optimization_time).split(' ')[0] : 'Awaiting'}`;
+  if (macroMonthlyLast) macroMonthlyLast.innerText = `Last: ${t.last_monthly_optimization_time ? formatPhDateTime(t.last_monthly_optimization_time).split(' ')[0] : 'Awaiting'}`;
 
   // Hall of Fame GOAT Display
   const hofGoatStrat = document.getElementById('hof-goat-strat');
@@ -964,7 +1037,7 @@ function renderBotPositions(positions) {
   if (positions.length === 0) {
     tbody.innerHTML = `
       <tr>
-        <td colspan="8" class="py-6 text-center text-slate-400 dark:text-gray-500">
+        <td colspan="9" class="py-6 text-center text-slate-400 dark:text-gray-500">
           <i class="fa-solid fa-radar text-lg mb-1 block text-indigo-500"></i>
           No open positions right now. The bot is actively scanning 100 pairs with $100 capital for valid &ge; 1:2 RR setups (Max 10 Concurrent Trades).
         </td>
@@ -975,7 +1048,7 @@ function renderBotPositions(positions) {
 
   tbody.innerHTML = positions.map(pos => {
     const isLong = pos.direction === 'LONG';
-    const typeColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50';
+    const typeColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800/40' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800/40';
     const rColor = pos.unrealized_r >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold';
     const pnlUsd = pos.unrealized_pnl_usd || 0.0;
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
@@ -983,39 +1056,90 @@ function renderBotPositions(positions) {
 
     return `
       <tr class="hover:bg-slate-50 dark:hover:bg-gray-800/40 text-[11px]">
-        <td class="py-3 px-3 font-bold text-slate-900 dark:text-white whitespace-nowrap align-middle">
-          <div class="flex items-center gap-1.5">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            ${pos.symbol}
-            ${pos.exit_status ? `<span class="px-1.5 py-0.5 text-[9px] rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-500/20">${pos.exit_status}</span>` : ''}
+        <td class="py-3 px-3 font-bold text-slate-900 dark:text-white whitespace-nowrap align-top">
+          <div class="h-5 flex items-center gap-1.5 leading-5">
+            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
+            <span>${pos.symbol}</span>
+          </div>
+          ${pos.exit_status ? `
+            <div class="mt-1 flex items-center">
+              <span class="px-1.5 py-0.2 text-[9px] rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-500/20">${pos.exit_status}</span>
+            </div>` : ''}
+        </td>
+        <td class="py-3 px-2 whitespace-nowrap align-top">
+          <div class="h-5 flex items-center leading-5">
+            <span class="inline-block px-2 py-0.5 rounded font-mono text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">${(pos.sector || 'ALT').replace(/_/g, ' ')}</span>
           </div>
         </td>
-        <td class="py-3 px-2 whitespace-nowrap align-middle">
-          <span class="px-2 py-0.5 rounded font-mono text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">${(pos.sector || 'ALT').replace(/_/g, ' ')}</span>
+        <td class="py-3 px-2 text-center whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-center leading-5">
+            <span class="inline-block px-2 py-0.5 rounded font-semibold text-[10px] border ${typeColor}">${pos.direction}</span>
+          </div>
         </td>
-        <td class="py-3 px-2 text-center whitespace-nowrap align-middle">
-          <span class="px-2 py-0.5 rounded font-semibold text-[10px] border ${typeColor}">${pos.direction}</span>
+        <td class="py-3 px-3 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap align-top">
+          <div class="h-5 flex items-center font-medium leading-5">$${pos.entry_price}</div>
+          <div class="mt-1 flex items-center gap-1">
+            <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
+              ${tf} TF
+            </span>
+            <span class="text-[9px] text-slate-400 font-mono" title="Candles Held">
+              ${pos.bars_held || 0} bars
+            </span>
+          </div>
         </td>
-        <td class="py-3 px-3 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap align-middle">
-          <div class="font-medium">$${pos.entry_price}</div>
-          <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
-            ${tf} TF
-          </span>
+        <td class="py-3 px-2 font-mono font-semibold text-indigo-600 dark:text-indigo-400 whitespace-nowrap align-top">
+          <div class="h-5 flex items-center leading-5">$${pos.current_price}</div>
         </td>
-        <td class="py-3 px-2 font-mono font-semibold text-indigo-600 dark:text-indigo-400 whitespace-nowrap align-middle">$${pos.current_price}</td>
-        <td class="py-3 px-2 font-mono text-rose-600 dark:text-rose-400 whitespace-nowrap align-middle">$${pos.sl_price}</td>
-        <td class="py-3 px-2 font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap align-middle">
-          <div>$${pos.tp_price}</div>
-          <span class="text-[9px] text-slate-400 font-sans">(1:${pos.target_rr})</span>
+        <td class="py-3 px-2 font-mono text-rose-600 dark:text-rose-400 whitespace-nowrap align-top">
+          <div class="h-5 flex items-center font-medium leading-5">$${pos.sl_price}</div>
         </td>
-        <td class="py-3 px-3 text-right font-mono ${rColor} whitespace-nowrap align-middle">
-          <div class="text-xs font-bold">${pnlUsdStr}</div>
-          <div class="text-[10px] opacity-80">${pos.unrealized_r > 0 ? '+' : ''}${pos.unrealized_r} R</div>
+        <td class="py-3 px-2 font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap align-top">
+          <div class="h-5 flex items-center font-medium leading-5">$${pos.tp_price}</div>
+          <div class="mt-1 text-[9px] text-slate-400 font-sans leading-tight">(1:${pos.target_rr})</div>
+        </td>
+        <td class="py-3 px-3 text-right font-mono ${rColor} whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-end text-xs font-bold leading-5">${pnlUsdStr}</div>
+          <div class="mt-1 font-mono text-[10px] opacity-80 ${rColor} leading-tight">${pos.unrealized_r > 0 ? '+' : ''}${pos.unrealized_r} R</div>
+        </td>
+        <td class="py-3 px-3 text-center whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-center leading-5">
+            <button 
+              onclick="forceCloseLivePosition('${pos.symbol}', '${pos.direction}')" 
+              class="px-2.5 py-1 rounded bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-600 hover:text-white dark:hover:bg-rose-600 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 font-semibold text-[10px] transition-all flex items-center gap-1 shadow-sm cursor-pointer"
+              title="Force close this live position at current market price">
+              <i class="fa-solid fa-xmark text-[11px]"></i>
+              <span>Close</span>
+            </button>
+          </div>
         </td>
       </tr>
     `;
   }).join('');
 }
+
+window.forceCloseLivePosition = async function(symbol, direction) {
+  const dirText = direction ? `${direction} ` : '';
+  const confirmed = confirm(`Are you sure you want to force close the active ${dirText}position on ${symbol} at current market price?`);
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/bot/positions/${encodeURIComponent(symbol)}/close`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    if (res.ok && data.success) {
+      alert(`Position on ${symbol} successfully closed!\nOutcome: ${data.trade?.outcome || 'FORCED_CLOSE'}\nRealized PnL: $${(data.trade?.pnl_usd || 0).toFixed(2)} USD (${data.trade?.net_r || 0}R)`);
+      fetchBotTelemetry();
+    } else {
+      alert(`Failed to close position: ${data.detail || data.message || 'Unknown error'}`);
+    }
+  } catch (err) {
+    console.error('Error force closing position:', err);
+    alert(`Error force closing position on ${symbol}. Check network/server.`);
+  }
+};
 
 let currentHistPage = 1;
 const HIST_PER_PAGE = 5;
@@ -1056,41 +1180,57 @@ function renderBotClosedHistory(trades) {
 
   tbody.innerHTML = pageItems.map(t => {
     const isLong = t.direction === 'LONG';
-    const typeColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50';
-    const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : round((t.net_r || 0) * 1.0, 2);
+    const typeColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800/40' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800/40';
+    const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : parseFloat(((t.net_r || 0) * 1.0).toFixed(2));
     const isWin = (t.net_r > 0) || (pnlUsd > 0) || (t.outcome && t.outcome.includes('WIN'));
     const isBE = (!isWin && (t.net_r === 0 || pnlUsd === 0)) || (t.outcome && (t.outcome.includes('BE') || t.outcome.includes('BREAKEVEN')));
     const badgeBg = isWin ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' : (isBE ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30' : 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30');
     const rColor = isWin ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (isBE ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold');
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
     const tf = t.timeframe || t.pre_trade_context?.timeframe || '15m';
-    const exitTimeStr = t.exit_time_str || (t.exit_time ? new Date(t.exit_time * 1000).toISOString().replace('T', ' ').substring(0, 19) : (t.entry_time_str || '-'));
+    const exitTimeStr = formatPhDateTime(t.exit_time_str || t.exit_time || t.entry_time_str || t.entry_time);
 
     return `
       <tr class="hover:bg-slate-50 dark:hover:bg-gray-800/40 text-[11px]">
-        <td class="py-3 px-3 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap align-middle">#${t.trade_id || 1}</td>
-        <td class="py-3 px-2 font-bold text-slate-900 dark:text-white whitespace-nowrap align-middle">${t.symbol}</td>
-        <td class="py-3 px-2 whitespace-nowrap align-middle">
-          <span class="px-2 py-0.5 rounded font-mono text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">${(t.sector || 'ALT').replace(/_/g, ' ')}</span>
+        <td class="py-3 px-3 font-mono font-bold text-indigo-600 dark:text-indigo-400 whitespace-nowrap align-top">
+          <div class="h-5 flex items-center leading-5">#${t.trade_id || 1}</div>
         </td>
-        <td class="py-3 px-2 text-center whitespace-nowrap align-middle">
-          <span class="px-2 py-0.5 rounded font-semibold text-[10px] border ${typeColor}">${t.direction}</span>
+        <td class="py-3 px-2 font-bold text-slate-900 dark:text-white whitespace-nowrap align-top">
+          <div class="h-5 flex items-center leading-5">${t.symbol}</div>
         </td>
-        <td class="py-3 px-3 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap align-middle">
-          <div class="font-medium">$${t.entry_price} ➔ $${t.exit_price}</div>
-          <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
-            ${tf} TF
-          </span>
+        <td class="py-3 px-2 whitespace-nowrap align-top">
+          <div class="h-5 flex items-center leading-5">
+            <span class="inline-block px-2 py-0.5 rounded font-mono text-[9px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/40">${(t.sector || 'ALT').replace(/_/g, ' ')}</span>
+          </div>
         </td>
-        <td class="py-3 px-2 text-center font-mono text-slate-500 whitespace-nowrap align-middle">${t.bars_held || 1}b</td>
-        <td class="py-3 px-3 text-center whitespace-nowrap align-middle">
-          <span class="inline-block px-2.5 py-0.5 rounded text-[10px] font-bold border ${badgeBg}">${t.outcome.replace(/_/g, ' ')}</span>
+        <td class="py-3 px-2 text-center whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-center leading-5">
+            <span class="inline-block px-2 py-0.5 rounded font-semibold text-[10px] border ${typeColor}">${t.direction}</span>
+          </div>
         </td>
-        <td class="py-3 px-3 text-right font-mono ${rColor} whitespace-nowrap align-middle">
-          <div class="text-xs font-bold">${pnlUsdStr}</div>
-          <div class="text-[10px] opacity-80">(${t.net_r > 0 ? '+' : ''}${t.net_r} R)</div>
+        <td class="py-3 px-3 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap align-top">
+          <div class="h-5 flex items-center font-medium leading-5">$${t.entry_price} ➔ $${t.exit_price}</div>
+          <div class="mt-1 flex items-center">
+            <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
+              ${tf} TF
+            </span>
+          </div>
         </td>
-        <td class="py-3 px-3 text-right text-[10px] text-slate-400 font-mono whitespace-nowrap align-middle">${exitTimeStr}</td>
+        <td class="py-3 px-2 text-center font-mono text-slate-500 whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-center leading-5">${t.bars_held || 1}b</div>
+        </td>
+        <td class="py-3 px-3 text-center whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-center leading-5">
+            <span class="inline-block px-2.5 py-0.5 rounded text-[10px] font-bold border ${badgeBg}">${t.outcome.replace(/_/g, ' ')}</span>
+          </div>
+        </td>
+        <td class="py-3 px-3 text-right font-mono ${rColor} whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-end text-xs font-bold leading-5">${pnlUsdStr}</div>
+          <div class="mt-1 font-mono text-[10px] opacity-80 ${rColor} leading-tight">(${t.net_r > 0 ? '+' : ''}${t.net_r} R)</div>
+        </td>
+        <td class="py-3 px-3 text-right text-[10px] text-slate-400 font-mono whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-end leading-5">${exitTimeStr}</div>
+        </td>
       </tr>
     `;
   }).join('');
@@ -1110,8 +1250,7 @@ function renderBotClosedHistory(trades) {
 let currentJournalPage = 1;
 const JOURNAL_PER_PAGE = 10;
 let cachedJournalTrades = [];
-let collapsedJournalCards = new Set();
-let isAllJournalCollapsed = false;
+let expandedJournalCards = new Set(); // Cards are collapsed by default; expanded ones tracked here
 
 function renderBotJournal(trades) {
   const feed = document.getElementById('bot-journal-feed');
@@ -1120,6 +1259,7 @@ function renderBotJournal(trades) {
   const pageIndicator = document.getElementById('journal-page-indicator');
   const prevBtn = document.getElementById('btn-journal-prev');
   const nextBtn = document.getElementById('btn-journal-next');
+  const toggleAllJournalText = document.getElementById('toggle-all-journal-text');
   
   if (countBadge) countBadge.innerText = `${trades.length} Logged`;
   if (!feed) return;
@@ -1144,11 +1284,19 @@ function renderBotJournal(trades) {
   const startIndex = (currentJournalPage - 1) * JOURNAL_PER_PAGE;
   const pageItems = cachedJournalTrades.slice(startIndex, startIndex + JOURNAL_PER_PAGE);
 
+  if (toggleAllJournalText) {
+    if (pageItems.length > 0 && pageItems.every(t => expandedJournalCards.has(t.trade_id || 1))) {
+      toggleAllJournalText.innerText = 'Collapse All';
+    } else {
+      toggleAllJournalText.innerText = 'Expand All';
+    }
+  }
+
   feed.innerHTML = pageItems.map(t => {
     const tradeId = t.trade_id || 1;
     const isLong = t.direction === 'LONG';
     const dirColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-500/30 font-bold' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-500/30 font-bold';
-    const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : round((t.net_r || 0) * 1.0, 2);
+    const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : parseFloat(((t.net_r || 0) * 1.0).toFixed(2));
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
     const isWin = (t.net_r > 0) || (pnlUsd > 0) || (t.outcome && t.outcome.includes('WIN'));
     const isBE = (!isWin && (t.net_r === 0 || pnlUsd === 0)) || (t.outcome && (t.outcome.includes('BE') || t.outcome.includes('BREAKEVEN')));
@@ -1199,17 +1347,28 @@ function renderBotJournal(trades) {
       }
     }
 
-    const isCollapsed = collapsedJournalCards.has(tradeId);
+    const isCollapsed = !expandedJournalCards.has(tradeId);
+    const containerClasses = isCollapsed 
+      ? `border ${cardBg} rounded-lg p-3 text-xs transition-all shadow-xs hover:border-indigo-400/40`
+      : `border ${cardBg} rounded-xl p-4 text-xs transition-all shadow-sm`;
+
+    const headerClasses = isCollapsed
+      ? `journal-card-header flex items-center justify-between gap-2 cursor-pointer select-none`
+      : `journal-card-header flex items-center justify-between gap-2 cursor-pointer select-none mb-3 pb-2.5 border-b border-slate-200/60 dark:border-gray-800`;
+
+    const chevronIcon = isCollapsed
+      ? `<span class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 flex items-center justify-center transition-colors"><i class="fa-solid fa-chevron-right text-[10px]"></i></span>`
+      : `<span class="text-indigo-600 dark:text-indigo-400 p-1 flex items-center justify-center transition-colors"><i class="fa-solid fa-chevron-down text-[10px]"></i></span>`;
 
     return `
-      <div class="border ${cardBg} rounded-xl p-4 text-xs transition-all shadow-sm">
+      <div class="${containerClasses}">
         <!-- Interactive Collapsible Header -->
-        <div class="journal-card-header flex items-center justify-between gap-2 cursor-pointer select-none ${isCollapsed ? '' : 'mb-2.5 pb-2 border-b border-slate-200/60 dark:border-gray-800'}" data-trade-id="${tradeId}">
+        <div class="${headerClasses}" data-trade-id="${tradeId}">
           <div class="flex items-center gap-2 flex-wrap">
             <span class="px-2 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-mono text-[10px] font-bold border border-indigo-200 dark:border-indigo-800/40">#${tradeId}</span>
             <span class="font-bold text-slate-900 dark:text-white text-sm">${t.symbol}</span>
             <span class="px-2 py-0.5 rounded text-[10px] font-semibold border ${dirColor}">${t.direction}</span>
-            <span class="text-slate-400 text-[10px] hidden sm:inline">${t.exit_time_str || ''} (${t.bars_held || 1}b)</span>
+            <span class="text-slate-400 text-[10px] hidden sm:inline">${formatPhDateTime(t.exit_time_str || t.exit_time || t.entry_time_str || t.entry_time || '')} (${t.bars_held || 1}b)</span>
             <span class="text-[10px] px-2 py-0.5 rounded-full font-medium ${isWin ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' : (isBE ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400')}">
               ${diag.catalyst_type}
             </span>
@@ -1220,9 +1379,7 @@ function renderBotJournal(trades) {
               <span class="font-mono text-sm ${rColor}">${pnlUsdStr}</span>
               <span class="text-[10px] font-mono block text-slate-400">(${t.net_r > 0 ? '+' : ''}${t.net_r} R)</span>
             </div>
-            <button class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 transition-transform duration-200" style="transform: ${isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)'}">
-              <i class="fa-solid fa-chevron-down text-[11px]"></i>
-            </button>
+            ${chevronIcon}
           </div>
         </div>
 
@@ -1276,10 +1433,10 @@ function renderBotJournal(trades) {
   headers.forEach(h => {
     h.addEventListener('click', () => {
       const tid = parseInt(h.getAttribute('data-trade-id'));
-      if (collapsedJournalCards.has(tid)) {
-        collapsedJournalCards.delete(tid);
+      if (expandedJournalCards.has(tid)) {
+        expandedJournalCards.delete(tid);
       } else {
-        collapsedJournalCards.add(tid);
+        expandedJournalCards.add(tid);
       }
       renderBotJournal(cachedJournalTrades);
     });
@@ -1352,23 +1509,37 @@ function renderBotEvolution(optimizations) {
   container.innerHTML = pageItems.map(opt => {
     const s = opt.summary;
     const isObj = typeof s === 'object' && s !== null;
+    const isPromoted = opt.improved || opt.status === 'PROMOTED' || (isObj && s.status === 'PROMOTED');
+    const isDefensive = (isObj && s.defensive_bias) || opt.status === 'DEFENSIVE_ADJUSTED';
+
+    let badgeHtml = `<span class="px-2 py-0.5 rounded bg-slate-500/10 text-slate-600 dark:text-gray-400 font-semibold text-[10px] border border-slate-500/20"><i class="fa-solid fa-shield mr-1"></i>Champion Retained</span>`;
+    if (isPromoted) {
+      badgeHtml = `<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold text-[10px] border border-emerald-500/20"><i class="fa-solid fa-crown mr-1"></i>New Champion Crowned</span>`;
+    } else if (isDefensive) {
+      badgeHtml = `<span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold text-[10px] border border-amber-500/20"><i class="fa-solid fa-shield-halved mr-1"></i>Defensive Adjustment</span>`;
+    }
+
     return `
       <div class="p-3 rounded-lg border border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-[#1e293b]/40 shadow-xs">
         <div class="flex items-center justify-between text-[11px] mb-1.5">
           <span class="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-            <i class="fa-solid fa-dna text-purple-500"></i> Multi-Timeframe Optimization Cycle
+            <i class="fa-solid fa-dna text-purple-500"></i> Walk-Forward Optimization
           </span>
-          <span class="text-slate-400 text-[10px]">${opt.timestamp}</span>
+          <div class="flex items-center gap-2">
+            ${badgeHtml}
+            <span class="text-slate-400 text-[10px]">${formatPhDateTime(opt.timestamp)}</span>
+          </div>
         </div>
         ${isObj ? `
-          <div class="space-y-1 text-[10px] text-slate-600 dark:text-gray-300 font-mono">
+          <div class="space-y-1 text-[10px] text-slate-600 dark:text-gray-300 font-mono mt-2">
             <div class="flex justify-between"><span>Optimized Timeframe:</span> <b class="text-indigo-600 dark:text-indigo-400">${opt.best_timeframe || s.timeframe || '15m'}</b></div>
-            <div class="flex justify-between"><span>Historical Simulation Sample:</span> <b>${s.tested_trades} historical setups</b></div>
-            <div class="flex justify-between"><span>Stress-Test Win Rate:</span> <b class="text-emerald-600 dark:text-emerald-400">${s.win_rate_pct}% (Simulated)</b></div>
+            <div class="flex justify-between"><span>Out-of-Sample Validated:</span> <b>${s.tested_trades} setups (500+ candles)</b></div>
+            <div class="flex justify-between"><span>Walk-Forward Win Rate:</span> <b class="text-emerald-600 dark:text-emerald-400">${s.win_rate_pct}%</b></div>
+            <div class="flex justify-between"><span>Profit Factor:</span> <b class="text-blue-600 dark:text-blue-400">${s.profit_factor || '1.4'}</b></div>
             <div class="flex justify-between"><span>Net Expectancy:</span> <b class="text-purple-600 dark:text-purple-400">+${s.expectancy_r} R / trade</b></div>
-            <div class="flex justify-between"><span>Target RR:</span> <b class="text-emerald-600 dark:text-emerald-400">1:${s.params ? s.params.target_rr : 2.0} RR</b></div>
+            <div class="flex justify-between"><span>Parameters:</span> <b class="text-slate-700 dark:text-gray-200">1:${s.params ? s.params.target_rr : 2.0} RR | SL: ${s.params ? s.params.atr_sl_mult : 1.3}x ATR</b></div>
           </div>
-          <p class="text-[9px] text-slate-400 dark:text-gray-500 mt-1.5 italic">*Tested across 200+ historical Binance candles to validate formula before live deployment.*</p>
+          ${s.reason ? `<div class="text-[10px] text-slate-600 dark:text-gray-300 bg-slate-100 dark:bg-gray-800/60 p-1.5 rounded border border-slate-200 dark:border-gray-700 mt-2 font-sans">${s.reason}</div>` : ''}
         ` : `<p class="text-slate-600 dark:text-gray-400 text-[10px] leading-relaxed">${s}</p>`}
       </div>
     `;

@@ -109,32 +109,47 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     avg_val = (midpoint + df['sma20']) / 2.0
     df['momentum'] = df['close'] - avg_val
     
-    # Squeeze Consecutive Duration
+    # Squeeze Consecutive Duration & Release
     squeeze_blocks = (~df['squeeze_on']).cumsum()
     df['squeeze_bars'] = df.groupby(squeeze_blocks).cumcount()
     df['squeeze_bars'] = np.where(df['squeeze_on'], df['squeeze_bars'] + 1, 0)
+    df['squeeze_released'] = (~df['squeeze_on']) & (df['squeeze_on'].shift(1) == True)
     
-    # Detect Breakout Releases
-    prev_squeeze = df['squeeze_on'].shift(1).fillna(False)
-    curr_squeeze = df['squeeze_on']
-    df['squeeze_released'] = prev_squeeze & (~curr_squeeze)
+    # Relative Strength Index (RSI 14)
+    change = df['close'].diff()
+    gain = (change.where(change > 0, 0)).rolling(window=14).mean()
+    loss = (-change.where(change < 0, 0)).rolling(window=14).mean()
+    rs = gain / loss.replace(0, np.nan)
+    df['rsi14'] = 100 - (100 / (1 + rs))
+    df['rsi14'] = df['rsi14'].fillna(50.0)
+
+    # Candle body & wick quality ratios
+    total_range = (df['high'] - df['low']).replace(0, 1e-6)
+    long_body = (df['close'] - df['open']) / total_range
+    short_body = (df['open'] - df['close']) / total_range
+    long_wick = (df['high'] - df['close']) / total_range
+    short_wick = (df['close'] - df['low']) / total_range
     
     # Signal classification
     df['signal'] = 'NONE'
     
-    # Long condition
+    # Long condition with safe RSI corridor (50-68) and solid body close
     long_cond = (
         df['squeeze_released'] & 
-        (df['close'] > df['ema200']) & 
+        (df['close'] > df['ema50']) & 
         (df['momentum'] > 0) & 
-        df['vol_surge']
+        df['vol_surge'] &
+        (df['rsi14'] >= 50.0) & (df['rsi14'] <= 68.0) &
+        (long_body >= 0.35) & (long_wick <= 0.45)
     )
-    # Short condition
+    # Short condition with safe RSI corridor (32-50) and solid body close
     short_cond = (
         df['squeeze_released'] & 
-        (df['close'] < df['ema200']) & 
+        (df['close'] < df['ema50']) & 
         (df['momentum'] < 0) & 
-        df['vol_surge']
+        df['vol_surge'] &
+        (df['rsi14'] >= 32.0) & (df['rsi14'] <= 50.0) &
+        (short_body >= 0.35) & (short_wick <= 0.45)
     )
     
     df.loc[long_cond, 'signal'] = 'LONG'
@@ -197,6 +212,14 @@ async def scan_single_symbol(session: aiohttp.ClientSession, symbol: str, interv
     trend = "BULLISH" if last_row['close'] > last_row['ema200'] else "BEARISH"
     pct_from_ema200 = ((last_row['close'] - last_row['ema200']) / last_row['ema200']) * 100.0
     
+    # MTF Trend Estimation
+    close_val = float(last_row['close'])
+    ema50_val = float(last_row['ema50'])
+    rsi_val = float(last_row['rsi14'])
+    mtf_1h = "BULLISH" if (close_val > ema50_val and rsi_val >= 48) else ("BEARISH" if (close_val < ema50_val and rsi_val <= 52) else "NEUTRAL")
+    mtf_30m = mtf_1h
+    mtf_4h = "BULLISH" if (close_val > float(last_row['ema200']) and rsi_val >= 46) else ("BEARISH" if (close_val < float(last_row['ema200']) and rsi_val <= 54) else "NEUTRAL")
+
     target_dir = "LONG" if (signal == "LONG" or (signal == "NONE" and trend == "BULLISH")) else "SHORT"
     rr_targets = calculate_rr_levels(float(last_row['close']), float(last_row['atr14']), target_dir)
     
@@ -210,6 +233,9 @@ async def scan_single_symbol(session: aiohttp.ClientSession, symbol: str, interv
         "signal": signal,
         "recent_signal": recent_signal,
         "trend": trend,
+        "mtf_1h": mtf_1h,
+        "mtf_30m": mtf_30m,
+        "mtf_4h": mtf_4h,
         "pct_from_ema200": round(pct_from_ema200, 2),
         "momentum": round(float(last_row['momentum']), 4),
         "atr": round(float(last_row['atr14']), 6 if last_row['atr14'] < 1 else 2),

@@ -21,7 +21,7 @@ from strategy_memory import evaluate_reproducibility, save_strategy_to_catalog
 
 async def main():
     parser = argparse.ArgumentParser(description="Automated Crypto Trading Simulation, Trade Analysis & Strategy Memory Engine")
-    parser.add_argument("--timeframe", type=str, default="15m", help="Candle timeframe (e.g. 5m, 15m, 1h, 4h)")
+    parser.add_argument("--timeframe", type=str, default="15m", help="Candle timeframe (e.g. 5m, 15m, 30m, 1h, 4h)")
     parser.add_argument("--limit", type=int, default=500, help="Number of candles per symbol (max 1000)")
     parser.add_argument("--num-coins", type=int, default=25, help="Number of top liquid USDT pairs to simulate")
     parser.add_argument("--rr", type=float, default=3.0, help="Target Risk-to-Reward ratio (minimum 3.0)")

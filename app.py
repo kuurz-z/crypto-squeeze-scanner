@@ -35,19 +35,27 @@ app.add_middleware(
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-# Explicit static file routes to guarantee correct MIME types across all cloud providers
+# Explicit static file routes to guarantee correct MIME types and prevent stale browser caching
 @app.get("/static/js/{file_path:path}")
 async def serve_js(file_path: str):
     p = os.path.join(STATIC_DIR, "js", file_path)
     if os.path.exists(p):
-        return FileResponse(p, media_type="application/javascript")
+        return FileResponse(
+            p, 
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+        )
     raise HTTPException(status_code=404, detail="File not found")
 
 @app.get("/static/css/{file_path:path}")
 async def serve_css(file_path: str):
     p = os.path.join(STATIC_DIR, "css", file_path)
     if os.path.exists(p):
-        return FileResponse(p, media_type="text/css")
+        return FileResponse(
+            p, 
+            media_type="text/css",
+            headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+        )
     raise HTTPException(status_code=404, detail="File not found")
 
 @app.get("/favicon.ico")
@@ -75,11 +83,11 @@ async def serve_index():
 
 @app.get("/api/scan")
 async def get_market_scan(
-    interval: str = Query("1h", description="Candle interval: 15m, 1h, 4h, 1d"),
+    interval: str = Query("1h", description="Candle interval: 15m, 30m, 1h, 4h, 1d"),
     limit: int = Query(50, description="Number of top liquid pairs to scan")
 ):
     """Scan top crypto pairs and return squeeze states, momentum, and active breakout triggers."""
-    valid_intervals = ["15m", "1h", "4h", "1d"]
+    valid_intervals = ["15m", "30m", "1h", "4h", "1d"]
     if interval not in valid_intervals:
         raise HTTPException(status_code=400, detail=f"Interval must be one of {valid_intervals}")
     
@@ -264,6 +272,48 @@ async def get_depletion_report():
     return {"status": "ACTIVE", "message": "Capital is not depleted."}
 
 from pydantic import BaseModel
+from typing import Optional
+
+class ForceClosePositionRequest(BaseModel):
+    exit_price: Optional[float] = None
+
+@app.post("/api/bot/positions/{symbol}/close")
+async def force_close_position_api(symbol: str, payload: Optional[ForceClosePositionRequest] = None):
+    """Force close an active live position at current market price."""
+    clean_sym = symbol.upper().replace("/", "").replace("-", "")
+    if clean_sym not in bot_instance.open_positions:
+        raise HTTPException(status_code=404, detail=f"No active open position found for symbol {clean_sym}")
+    
+    price = payload.exit_price if payload else None
+    closed_trade = await bot_instance.force_close_position(clean_sym, exit_price=price)
+    if not closed_trade:
+        raise HTTPException(status_code=500, detail=f"Failed to close position for {clean_sym}")
+    
+    return {
+        "success": True,
+        "message": f"Live position on {clean_sym} was forcefully closed.",
+        "trade": closed_trade
+    }
+
+class SetTimeframeRequest(BaseModel):
+    timeframe: str
+
+@app.post("/api/bot/timeframe")
+async def set_bot_timeframe(payload: SetTimeframeRequest):
+    """Update active bot timeframe and synchronize dynamic holding profiles, cooldowns, and scan intervals."""
+    tf = payload.timeframe.lower()
+    valid_tfs = ["15m", "30m", "1h", "4h", "1d"]
+    if tf not in valid_tfs:
+        raise HTTPException(status_code=400, detail=f"Timeframe must be one of {valid_tfs}")
+    success = bot_instance.set_timeframe(tf)
+    if not success:
+        raise HTTPException(status_code=400, detail=f"Failed to set timeframe to {tf}")
+    return {
+        "success": True,
+        "timeframe": tf,
+        "profile": bot_instance.timeframe_profile,
+        "message": f"Bot timeframe set to {tf} ({bot_instance.timeframe_profile['name']})"
+    }
 
 class RestartBotRequest(BaseModel):
     capital: float = 100.0

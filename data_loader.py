@@ -87,6 +87,21 @@ async def fetch_symbol_klines(
         print(f"[DataLoader] Warning fetching {symbol}: {e}")
         return None
 
+async def fetch_symbol_mtf_klines(
+    session: aiohttp.ClientSession,
+    symbol: str,
+    intervals: List[str] = ["1h", "4h"],
+    limit: int = 100
+) -> Dict[str, pd.DataFrame]:
+    """Fetch multi-timeframe candle datasets (e.g. 1h, 4h) for a symbol concurrently."""
+    tasks = [fetch_symbol_klines(session, symbol, interval=tf, limit=limit) for tf in intervals]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    mtf_map: Dict[str, pd.DataFrame] = {}
+    for tf, res in zip(intervals, results):
+        if isinstance(res, pd.DataFrame) and len(res) >= 30:
+            mtf_map[tf] = res
+    return mtf_map
+
 async def fetch_market_dataset(
     symbols: List[str], 
     interval: str = "15m", 

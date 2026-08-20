@@ -20,8 +20,11 @@ def diagnose_trade_outcome(
     strategy_name = trade['strategy']
     
     # Calculate price action behavior during trade duration
-    trade_slice = df.iloc[entry_idx:exit_idx + 1]
-    vol_surge = (trade_slice['volume'].max() / (trade_slice['volume'].mean() + 1e-6)) > 1.8
+    vol_surge = False
+    if df is not None and len(df) > 0 and entry_idx >= 0 and exit_idx >= entry_idx:
+        trade_slice = df.iloc[entry_idx:exit_idx + 1]
+        if len(trade_slice) > 0 and 'volume' in trade_slice.columns:
+            vol_surge = (trade_slice['volume'].max() / (trade_slice['volume'].mean() + 1e-6)) > 1.8
     
     analysis = {
         "summary": "",
@@ -30,7 +33,13 @@ def diagnose_trade_outcome(
         "risk_management_quality": "High"
     }
 
-    if outcome == "WIN" or outcome == "TRAILING_STOP_WIN":
+    if outcome in ["FORCED_CLOSE", "MANUAL_CLOSE"]:
+        analysis["catalyst_type"] = "Manual Forced Close"
+        analysis["summary"] = f"Position manually closed by trader at market price ${trade.get('exit_price', 0)} ({trade.get('net_r', 0):+.2f}R PnL)."
+        analysis["key_factors"].append("User-initiated manual position termination")
+        analysis["key_factors"].append(f"Exit Price: ${trade.get('exit_price', 0)} (Net PnL: ${trade.get('pnl_usd', 0):+.2f} USD)")
+
+    elif outcome == "WIN" or outcome == "TRAILING_STOP_WIN":
         if outcome == "TRAILING_STOP_WIN":
             analysis["catalyst_type"] = "ATR Trailing Stop Protected Profit"
             analysis["summary"] = f"Dynamic trailing stop locked in +{trade['net_r']}R profit as momentum cooled off after peaking at +{mfe_r}R MFE."
@@ -88,19 +97,71 @@ def diagnose_trade_outcome(
 
     return analysis
 
+TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
+    "15m": {
+        "name": "15m Intraday",
+        "expected_hold_str": "1.5h - 8h",
+        "max_holding_bars": 64,       # ~16 hours
+        "stagnation_bars": 24,        # ~6 hours
+        "cooldown_minutes": 45,       # 3 bars
+        "scan_interval_sec": 20,
+    },
+    "30m": {
+        "name": "30m Intraday",
+        "expected_hold_str": "3h - 16h",
+        "max_holding_bars": 64,       # ~32 hours
+        "stagnation_bars": 24,        # ~12 hours
+        "cooldown_minutes": 90,       # 3 bars
+        "scan_interval_sec": 30,
+    },
+    "1h": {
+        "name": "1h Short Swing",
+        "expected_hold_str": "12h - 3d",
+        "max_holding_bars": 96,       # 4 days
+        "stagnation_bars": 30,        # 30 hours
+        "cooldown_minutes": 180,      # 3 hours (3 bars)
+        "scan_interval_sec": 45,
+    },
+    "4h": {
+        "name": "4h Macro Swing",
+        "expected_hold_str": "2d - 10d",
+        "max_holding_bars": 84,       # 14 days
+        "stagnation_bars": 24,        # 4 days
+        "cooldown_minutes": 720,      # 12 hours (3 bars)
+        "scan_interval_sec": 60,
+    },
+    "1d": {
+        "name": "1d Positional Trend",
+        "expected_hold_str": "2w - 2mo",
+        "max_holding_bars": 60,       # 60 days
+        "stagnation_bars": 20,        # 20 days
+        "cooldown_minutes": 2880,     # 48 hours (2 bars)
+        "scan_interval_sec": 120,
+    },
+}
+
 def simulate_strategy_on_dataframe(
     df: pd.DataFrame, 
     strategy_cls: type[StrategyBase],
     target_rr: float = 3.0,
     fee_pct: float = 0.05,
     slippage_pct: float = 0.02,
-    max_holding_bars: int = 120
+    max_holding_bars: Optional[int] = None,
+    timeframe: str = "15m",
+    stagnation_bars: Optional[int] = None,
+    params: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Simulate a strategy over historical crypto candles with strict >= 1:3 RR and comprehensive diagnostics.
+    Simulate a strategy over historical crypto candles with strict >= 1:3 RR, timeframe-aware holding horizons, and comprehensive diagnostics.
     """
     assert target_rr >= 3.0, f"Target Risk-to-Reward must be at least 1:3 (got {target_rr})"
     
+    tf_profile = TIMEFRAME_PROFILES.get(timeframe, TIMEFRAME_PROFILES["15m"])
+    if max_holding_bars is None:
+        max_holding_bars = tf_profile.get("max_holding_bars", 64)
+    if stagnation_bars is None:
+        stagnation_bars = tf_profile.get("stagnation_bars", 24)
+
     df = compute_crypto_indicators(df)
     trades: List[Dict[str, Any]] = []
     
@@ -109,7 +170,7 @@ def simulate_strategy_on_dataframe(
     symbol = df['symbol'].iloc[0] if 'symbol' in df.columns else 'CRYPTO'
 
     while i < n - 2:
-        signal = strategy_cls.generate_signal(df, i, target_rr=target_rr)
+        signal = strategy_cls.generate_signal(df, i, target_rr=target_rr, params=params)
         if not signal:
             i += 1
             continue
@@ -137,6 +198,7 @@ def simulate_strategy_on_dataframe(
             bar = df.iloc[j]
             bar_high = float(bar['high'])
             bar_low = float(bar['low'])
+            bar_close = float(bar['close'])
             bar_time = int(bar['time'])
 
             if is_long:
@@ -157,6 +219,13 @@ def simulate_strategy_on_dataframe(
                     exit_time = bar_time
                     exit_idx = j
                     break
+                # Check Stagnation Exit
+                elif bars_held >= stagnation_bars and abs((bar_close - entry_price) / risk_dist) < 0.4:
+                    outcome = "TIME_EXIT"
+                    exit_price = bar_close
+                    exit_time = bar_time
+                    exit_idx = j
+                    break
             else:  # SHORT
                 max_favorable_price = min(max_favorable_price, bar_low)
                 max_adverse_price = max(max_adverse_price, bar_high)
@@ -172,6 +241,13 @@ def simulate_strategy_on_dataframe(
                 elif bar_low <= tp_price:
                     outcome = "WIN"
                     exit_price = tp_price
+                    exit_time = bar_time
+                    exit_idx = j
+                    break
+                # Check Stagnation Exit
+                elif bars_held >= stagnation_bars and abs((entry_price - bar_close) / risk_dist) < 0.4:
+                    outcome = "TIME_EXIT"
+                    exit_price = bar_close
                     exit_time = bar_time
                     exit_idx = j
                     break

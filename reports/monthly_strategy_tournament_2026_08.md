@@ -1,5 +1,5 @@
 # 🏆 End-of-Month Strategy Championship Tournament (2026-08)
-*Generated on: 2026-08-20 21:06:37 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
+*Generated on: 2026-08-21 00:45:46 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
 
 ## 1. 👑 Crowned Monthly Grand Champion
 - **Champion Strategy**: `Liquidity_Sweep_Reversal`
@@ -14,8 +14,8 @@
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | #1 | **Liquidity_Sweep_Reversal** | `1h` | **50.0%** | `100.0/100` | `+0.67R` | `2.24` | 👑 **MONTHLY CHAMPION** |
 | #2 | **Squeeze_Momentum_Breakout** | `1h` | **46.88%** | `93.5/100` | `+0.326R` | `1.57` | ✅ Qualified |
-| #3 | **Trend_Pullback_Confluence** | `4h` | **40.98%** | `88.5/100` | `+0.15R` | `1.23` | ✅ Qualified |
-| #4 | **Aggressive_Trend_Runner** | `15m` | **27.5%** | `76.6/100` | `+0.02R` | `1.03` | ❌ Rejected (<40% WR) |
+| #3 | **Trend_Pullback_Confluence** | `4h` | **43.08%** | `90.2/100` | `+0.212R` | `1.35` | ✅ Qualified |
+| #4 | **Aggressive_Trend_Runner** | `15m` | **23.4%** | `69.0/100` | `+-0.144R` | `0.83` | ❌ Rejected (<40% WR) |
 
 ## 3. Champion Parameters
 ```json
