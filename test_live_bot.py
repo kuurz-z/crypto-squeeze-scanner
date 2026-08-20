@@ -258,7 +258,7 @@ class TestLiveBotEngine(unittest.TestCase):
         }
         self.bot._archive_entry("trades", mock_trade)
         
-        archive_path = os.path.join("reports", "historical_archive.json")
+        archive_path = self.bot.archive_file
         self.assertTrue(os.path.exists(archive_path))
         with open(archive_path, "r", encoding="utf-8") as f:
             data = json.load(f)

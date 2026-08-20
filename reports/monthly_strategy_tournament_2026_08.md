@@ -1,5 +1,5 @@
 # 🏆 End-of-Month Strategy Championship Tournament (2026-08)
-*Generated on: 2026-08-20 19:02:59 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
+*Generated on: 2026-08-20 20:30:08 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
 
 ## 1. 👑 Crowned Monthly Grand Champion
 - **Champion Strategy**: `Liquidity_Sweep_Reversal`
@@ -14,7 +14,7 @@
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | #1 | **Liquidity_Sweep_Reversal** | `1h` | **50.0%** | `100.0/100` | `+0.67R` | `2.24` | 👑 **MONTHLY CHAMPION** |
 | #2 | **Squeeze_Momentum_Breakout** | `1h` | **46.88%** | `93.5/100` | `+0.326R` | `1.57` | ✅ Qualified |
-| #3 | **Trend_Pullback_Confluence** | `4h` | **40.0%** | `87.8/100` | `+0.12R` | `1.19` | ✅ Qualified |
+| #3 | **Trend_Pullback_Confluence** | `4h` | **40.98%** | `88.5/100` | `+0.15R` | `1.23` | ✅ Qualified |
 | #4 | **Aggressive_Trend_Runner** | `15m` | **27.5%** | `76.6/100` | `+0.02R` | `1.03` | ❌ Rejected (<40% WR) |
 
 ## 3. Champion Parameters

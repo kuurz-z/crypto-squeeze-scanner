@@ -1,10 +1,10 @@
 # Trade Record & Post-Mortem Diagnostic #1: BTCUSDT (LONG)
-*Closed on: 2026-08-20 19:02:59*
+*Closed on: 2026-08-20 20:30:08*
 
 ## 1. Trade Execution Summary
 - **Outcome**: `LOSS`
 - **Realized PnL**: `$+0.87 USD` (+0.87 R)
-- **Resulting Account Balance**: `$1.37 USD`
+- **Resulting Account Balance**: `$100.87 USD`
 - **Entry Price**: `$100.0` | **Exit Price**: `$109.5`
 - **Stop Loss**: `$109.5` | **Take Profit**: `$120.0` (1:2.0 RR)
 - **Position Size**: `1.0 units` (Notional Value: `$0.00`)
