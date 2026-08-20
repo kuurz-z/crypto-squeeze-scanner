@@ -818,13 +818,13 @@ class LiveCryptoBot:
         if period_upper == "MONTHLY":
             self.last_monthly_optimization_time = now
             lookback_bars = 1000
-            target_timeframes = ["1h", "4h"]
+            target_timeframes = ["15m", "1h", "4h"]
             report_code = now.strftime("%Y_%m")
             report_filename = os.path.join(REPORTS_DIR, f"monthly_optimization_report_{report_code}.md")
         else:
             self.last_weekly_optimization_time = now
             lookback_bars = 500
-            target_timeframes = ["1h", "4h"]
+            target_timeframes = ["15m", "1h", "4h"]
             report_code = f"{now.strftime('%Y')}_W{now.isocalendar()[1]:02d}_{now.strftime('%m%d_%H%M%S')}"
             report_filename = os.path.join(REPORTS_DIR, f"weekly_optimization_report_{report_code}.md")
 
