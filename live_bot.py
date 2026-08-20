@@ -54,11 +54,11 @@ class LiveCryptoBot:
         initial_capital: float = 100.0,
         fixed_risk_usd: float = 1.0,
         timeframe: str = "15m",
-        max_open_positions: int = 5,
+        max_open_positions: int = 10,
         target_rr: float = 2.0,
         scan_interval_sec: int = 20,
         optimize_every_n_trades: int = 5,
-        max_positions_per_sector: int = 1
+        max_positions_per_sector: int = 2
     ):
         self.initial_capital = initial_capital
         self.current_balance = initial_capital
@@ -1655,5 +1655,5 @@ class LiveCryptoBot:
             "recent_journal": self.closed_trades[-20:][::-1]
         }
 
-# Global singleton bot instance initialized with $100.00 USD Capital, $1.00 Fixed Risk, and 1:2.0 RR (100 pairs)
-bot_instance = LiveCryptoBot(initial_capital=100.0, fixed_risk_usd=1.0, timeframe="15m", target_rr=2.0, scan_interval_sec=20)
+# Global singleton bot instance initialized with $100.00 USD Capital, $1.00 Fixed Risk, 1:2.0 RR, and Max 10 Concurrent Trades
+bot_instance = LiveCryptoBot(initial_capital=100.0, fixed_risk_usd=1.0, timeframe="15m", max_open_positions=10, target_rr=2.0, scan_interval_sec=20, max_positions_per_sector=2)

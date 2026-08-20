@@ -933,8 +933,8 @@ function renderBotPositions(positions) {
   const countBadge = document.getElementById('bot-positions-count-badge');
   const tabBadge = document.getElementById('tab-badge-active-count');
   
-  if (countBadge) countBadge.innerText = `${positions.length} Active`;
-  if (tabBadge) tabBadge.innerText = `${positions.length}`;
+  if (countBadge) countBadge.innerText = `${positions.length} / 10 Active`;
+  if (tabBadge) tabBadge.innerText = `${positions.length} / 10`;
 
   if (!tbody) return;
 
@@ -943,7 +943,7 @@ function renderBotPositions(positions) {
       <tr>
         <td colspan="8" class="py-6 text-center text-slate-400 dark:text-gray-500">
           <i class="fa-solid fa-radar text-lg mb-1 block text-indigo-500"></i>
-          No open positions right now. The bot is actively scanning 100 pairs with $100 capital for valid &ge; 1:2 RR setups.
+          No open positions right now. The bot is actively scanning 100 pairs with $100 capital for valid &ge; 1:2 RR setups (Max 10 Concurrent Trades).
         </td>
       </tr>
     `;

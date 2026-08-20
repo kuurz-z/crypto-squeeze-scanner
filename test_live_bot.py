@@ -177,7 +177,7 @@ class TestLiveBotEngine(unittest.TestCase):
             "gate_status": "ALLOW_ALL"
         }
 
-        # Open active Meme position (DOGEUSDT)
+        # Open 2 active Meme positions (DOGEUSDT, SHIBUSDT) to hit sector cap of 2
         self.bot.open_positions["DOGEUSDT"] = {
             "trade_id": 1,
             "symbol": "DOGEUSDT",
@@ -188,6 +188,19 @@ class TestLiveBotEngine(unittest.TestCase):
             "sl_price": 0.09,
             "tp_price": 0.12,
             "risk_distance": 0.01,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.0
+        }
+        self.bot.open_positions["SHIBUSDT"] = {
+            "trade_id": 2,
+            "symbol": "SHIBUSDT",
+            "sector": "MEMES",
+            "direction": "LONG",
+            "entry_price": 0.00002,
+            "current_price": 0.00002,
+            "sl_price": 0.000018,
+            "tp_price": 0.000024,
+            "risk_distance": 0.000002,
             "risk_amount_usd": 1.0,
             "target_rr": 2.0
         }
@@ -210,7 +223,7 @@ class TestLiveBotEngine(unittest.TestCase):
             'rvol': [2.5] * 60
         })
 
-        # Try to open PEPEUSDT (same MEMES sector)
+        # Try to open PEPEUSDT (3rd MEMES sector trade)
         asyncio.run(self.bot._scan_new_entries({"PEPEUSDT": mock_df}))
         # PEPEUSDT must be BLOCKED by Sector Correlation Limit
         self.assertNotIn("PEPEUSDT", self.bot.open_positions)
