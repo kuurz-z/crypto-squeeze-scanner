@@ -75,8 +75,8 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
         self.assertEqual(t_bear["regime"], "BEARISH")
         self.assertTrue(t_bear["is_valid"])
 
-    def test_mtf_long_approved_when_1h_and_4h_bullish_on_15m_and_30m(self):
-        """Verify that both 15m and 30m Long breakouts are APPROVED when 1h and 4h are Bullish."""
+    def test_mtf_long_approved_when_15m_with_1h_and_30m_with_4h_bullish(self):
+        """Verify that 15m Long is approved with 1h Bullish, and 30m Long is approved with 4h Bullish."""
         df_15m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
         df_30m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
         df_1h = self._create_mock_df(close_val=100.0, ema50_val=92.0, rsi_val=58.0, is_bullish=True)
@@ -84,48 +84,50 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
 
         htf_data = {"1h": df_1h, "4h": df_4h}
         
-        # Test 15m entry
-        sig_15m = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data)
+        # Test 15m entry -> Anchored to 1h
+        sig_15m = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="15m")
         self.assertIsNotNone(sig_15m)
         self.assertEqual(sig_15m["direction"], "LONG")
-        self.assertEqual(sig_15m["pre_trade_context"]["mtf_alignment"]["1h"], "BULLISH")
-        self.assertEqual(sig_15m["pre_trade_context"]["mtf_alignment"]["4h"], "BULLISH")
+        self.assertEqual(sig_15m["timeframe"], "15m")
+        self.assertEqual(sig_15m["pre_trade_context"]["mtf_alignment"]["anchor_tf"], "1h")
+        self.assertEqual(sig_15m["pre_trade_context"]["mtf_alignment"]["anchor_regime"], "BULLISH")
 
-        # Test 30m entry
-        sig_30m = SqueezeMomentumBreakout.generate_signal(df_30m, len(df_30m) - 1, target_rr=2.0, htf_data=htf_data)
+        # Test 30m entry -> Anchored to 4h
+        sig_30m = SqueezeMomentumBreakout.generate_signal(df_30m, len(df_30m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="30m")
         self.assertIsNotNone(sig_30m)
         self.assertEqual(sig_30m["direction"], "LONG")
-        self.assertEqual(sig_30m["pre_trade_context"]["mtf_alignment"]["1h"], "BULLISH")
-        self.assertEqual(sig_30m["pre_trade_context"]["mtf_alignment"]["4h"], "BULLISH")
+        self.assertEqual(sig_30m["timeframe"], "30m")
+        self.assertEqual(sig_30m["pre_trade_context"]["mtf_alignment"]["anchor_tf"], "4h")
+        self.assertEqual(sig_30m["pre_trade_context"]["mtf_alignment"]["anchor_regime"], "BULLISH")
 
-    def test_mtf_long_rejected_when_1h_bearish(self):
-        """Verify that a 15m/30m Long breakout is REJECTED when 1h intermediate trend is Bearish."""
+    def test_mtf_15m_long_rejected_when_1h_bearish(self):
+        """Verify that a 15m Long breakout is REJECTED when 1h anchor trend is Bearish."""
         df_15m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
         # 1h is Bearish (below EMA50, RSI 40)
         df_1h = self._create_mock_df(close_val=88.0, ema50_val=95.0, rsi_val=40.0, is_bullish=False)
         df_4h = self._create_mock_df(close_val=100.0, ema50_val=85.0, rsi_val=55.0, is_bullish=True)
 
         htf_data = {"1h": df_1h, "4h": df_4h}
-        sig = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data)
+        sig = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="15m")
 
         # Must be rejected due to 1h counter-trend
         self.assertIsNone(sig)
 
-    def test_mtf_long_rejected_when_4h_macro_bearish(self):
-        """Verify that a 15m/30m Long breakout is REJECTED when 4h macro trend is Bearish (macro downtrend trap)."""
-        df_15m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
+    def test_mtf_30m_long_rejected_when_4h_bearish(self):
+        """Verify that a 30m Long breakout is REJECTED when 4h anchor macro trend is Bearish."""
+        df_30m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
         df_1h = self._create_mock_df(close_val=100.0, ema50_val=92.0, rsi_val=58.0, is_bullish=True)
         # 4h is in Macro Downtrend (Price 80 < EMA50 100, RSI 35)
         df_4h = self._create_mock_df(close_val=80.0, ema50_val=100.0, rsi_val=35.0, is_bullish=False)
 
         htf_data = {"1h": df_1h, "4h": df_4h}
-        sig = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data)
+        sig = SqueezeMomentumBreakout.generate_signal(df_30m, len(df_30m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="30m")
 
-        # Must be rejected due to 4h macro downtrend
+        # Must be rejected due to 4h anchor macro downtrend
         self.assertIsNone(sig)
 
-    def test_mtf_short_approved_when_1h_and_4h_bearish_on_15m_and_30m(self):
-        """Verify that 15m and 30m Short breakdowns are APPROVED when both 1h and 4h are Bearish."""
+    def test_mtf_short_approved_for_15m_and_30m(self):
+        """Verify that 15m Short is approved with 1h Bearish, and 30m Short is approved with 4h Bearish."""
         df_15m = self._create_mock_df(close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
         df_30m = self._create_mock_df(close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
         df_1h = self._create_mock_df(close_val=80.0, ema50_val=92.0, rsi_val=40.0, is_bullish=False)
@@ -134,42 +136,52 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
         htf_data = {"1h": df_1h, "4h": df_4h}
         
         # Test 15m Short
-        sig_15m = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data)
+        sig_15m = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="15m")
         self.assertIsNotNone(sig_15m)
         self.assertEqual(sig_15m["direction"], "SHORT")
-        self.assertEqual(sig_15m["pre_trade_context"]["mtf_alignment"]["1h"], "BEARISH")
-        self.assertEqual(sig_15m["pre_trade_context"]["mtf_alignment"]["4h"], "BEARISH")
+        self.assertEqual(sig_15m["timeframe"], "15m")
+        self.assertEqual(sig_15m["pre_trade_context"]["mtf_alignment"]["anchor_tf"], "1h")
+        self.assertEqual(sig_15m["pre_trade_context"]["mtf_alignment"]["anchor_regime"], "BEARISH")
 
         # Test 30m Short
-        sig_30m = SqueezeMomentumBreakout.generate_signal(df_30m, len(df_30m) - 1, target_rr=2.0, htf_data=htf_data)
+        sig_30m = SqueezeMomentumBreakout.generate_signal(df_30m, len(df_30m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="30m")
         self.assertIsNotNone(sig_30m)
         self.assertEqual(sig_30m["direction"], "SHORT")
-        self.assertEqual(sig_30m["pre_trade_context"]["mtf_alignment"]["1h"], "BEARISH")
-        self.assertEqual(sig_30m["pre_trade_context"]["mtf_alignment"]["4h"], "BEARISH")
+        self.assertEqual(sig_30m["timeframe"], "30m")
+        self.assertEqual(sig_30m["pre_trade_context"]["mtf_alignment"]["anchor_tf"], "4h")
+        self.assertEqual(sig_30m["pre_trade_context"]["mtf_alignment"]["anchor_regime"], "BEARISH")
 
-    def test_mtf_short_rejected_when_1h_bullish(self):
-        """Verify that a 15m/30m Short breakdown is REJECTED when 1h intermediate trend is Bullish."""
+    def test_mtf_15m_short_rejected_when_1h_bullish(self):
+        """Verify that a 15m Short breakdown is REJECTED when 1h anchor trend is Bullish."""
         df_15m = self._create_mock_df(close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
         # 1h is Bullish
         df_1h = self._create_mock_df(close_val=110.0, ema50_val=100.0, rsi_val=58.0, is_bullish=True)
         df_4h = self._create_mock_df(close_val=80.0, ema50_val=95.0, rsi_val=38.0, is_bullish=False)
 
         htf_data = {"1h": df_1h, "4h": df_4h}
-        sig = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data)
+        sig = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="15m")
 
         self.assertIsNone(sig)
 
-    def test_mtf_short_rejected_when_4h_macro_bullish(self):
-        """Verify that a 15m/30m Short breakdown is REJECTED when 4h macro trend is Bullish."""
-        df_15m = self._create_mock_df(close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
+    def test_mtf_30m_short_rejected_when_4h_bullish(self):
+        """Verify that a 30m Short breakdown is REJECTED when 4h anchor macro trend is Bullish."""
+        df_30m = self._create_mock_df(close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
         df_1h = self._create_mock_df(close_val=80.0, ema50_val=92.0, rsi_val=40.0, is_bullish=False)
         # 4h Macro is Bullish
         df_4h = self._create_mock_df(close_val=120.0, ema50_val=100.0, rsi_val=60.0, is_bullish=True)
 
         htf_data = {"1h": df_1h, "4h": df_4h}
-        sig = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data)
+        sig = SqueezeMomentumBreakout.generate_signal(df_30m, len(df_30m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="30m")
 
         self.assertIsNone(sig)
+
+    def test_1hr_and_4hr_direct_entries_blocked(self):
+        """Verify that 1h and 4h cannot generate direct trade signals."""
+        df = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=60.0, is_bullish=True)
+        sig_1h = SqueezeMomentumBreakout.generate_signal(df, len(df) - 1, target_rr=2.0, timeframe="1h")
+        sig_4h = SqueezeMomentumBreakout.generate_signal(df, len(df) - 1, target_rr=2.0, timeframe="4h")
+        self.assertIsNone(sig_1h)
+        self.assertIsNone(sig_4h)
 
     def test_entry_only_permitted_on_15m_and_30m_no_1hr_position(self):
         """Verify that trade entry is ONLY allowed on 15m and 30m, and NO positions can be opened on 1h."""
@@ -195,12 +207,10 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
         self.assertIn("BTCUSDT", self.bot.open_positions)
         self.assertEqual(self.bot.open_positions["BTCUSDT"]["timeframe"], "30m")
 
-        # 3. On 1h timeframe -> STRICTLY BLOCKED from opening position
-        self.bot.set_timeframe("1h")
-        self.bot.open_positions.clear()
-        asyncio.run(self.bot._scan_new_entries({"BTCUSDT": df_bullish}))
-        self.assertNotIn("BTCUSDT", self.bot.open_positions)
-        self.assertEqual(len(self.bot.open_positions), 0)
+        # 3. Attempting to switch to 1h timeframe is rejected and retains 30m
+        res = self.bot.set_timeframe("1h")
+        self.assertFalse(res)
+        self.assertEqual(self.bot.timeframe, "30m")
 
 if __name__ == '__main__':
     unittest.main()

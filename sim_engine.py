@@ -170,7 +170,7 @@ def simulate_strategy_on_dataframe(
     symbol = df['symbol'].iloc[0] if 'symbol' in df.columns else 'CRYPTO'
 
     while i < n - 2:
-        signal = strategy_cls.generate_signal(df, i, target_rr=target_rr, params=params)
+        signal = strategy_cls.generate_signal(df, i, target_rr=target_rr, params=params, timeframe=timeframe)
         if not signal:
             i += 1
             continue

@@ -57,9 +57,12 @@ def get_crypto_sector(symbol: str) -> str:
             return sector
     return "GENERAL_ALT"
 
+ALLOWED_ENTRY_TIMEFRAMES = ["15m", "30m"]
+
 TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
     "15m": {
-        "name": "15m Intraday",
+        "name": "15m Intraday (1h MTF Anchor)",
+        "anchor_tf": "1h",
         "expected_hold_str": "1.5h - 8h",
         "max_holding_bars": 64,       # ~16 hours
         "stagnation_bars": 24,        # ~6 hours
@@ -67,37 +70,14 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
         "scan_interval_sec": 20,
     },
     "30m": {
-        "name": "30m Intraday",
+        "name": "30m Intraday (4h MTF Anchor)",
+        "anchor_tf": "4h",
         "expected_hold_str": "3h - 16h",
         "max_holding_bars": 64,       # ~32 hours
         "stagnation_bars": 24,        # ~12 hours
         "cooldown_minutes": 90,       # 3 bars
         "scan_interval_sec": 30,
-    },
-    "1h": {
-        "name": "1h Short Swing",
-        "expected_hold_str": "12h - 3d",
-        "max_holding_bars": 96,       # 4 days
-        "stagnation_bars": 30,        # 30 hours
-        "cooldown_minutes": 180,      # 3 hours (3 bars)
-        "scan_interval_sec": 45,
-    },
-    "4h": {
-        "name": "4h Macro Swing",
-        "expected_hold_str": "2d - 10d",
-        "max_holding_bars": 84,       # 14 days
-        "stagnation_bars": 24,        # 4 days
-        "cooldown_minutes": 720,      # 12 hours (3 bars)
-        "scan_interval_sec": 60,
-    },
-    "1d": {
-        "name": "1d Positional Trend",
-        "expected_hold_str": "2w - 2mo",
-        "max_holding_bars": 60,       # 60 days
-        "stagnation_bars": 20,        # 20 days
-        "cooldown_minutes": 2880,     # 48 hours (2 bars)
-        "scan_interval_sec": 120,
-    },
+    }
 }
 
 class LiveCryptoBot:
@@ -105,6 +85,8 @@ class LiveCryptoBot:
     Continuous automated paper-trading bot with fixed $1.00 USD risk per trade,
     dynamic >= 1:2.0 RR unlimited profit runners, real-time trade diagnosis, BTC Macro Gatekeeper, Sector Correlation Limits,
     Strict >= 40% Win Rate Champion Evolution, Daily Strategy Archiving, and Monthly/All-Time Hall of Fame Championship.
+    
+    RULE: Trade entries are strictly permitted on 15m (anchored to 1h) and 30m (anchored to 4h) only.
     """
     def __init__(
         self,
@@ -131,6 +113,8 @@ class LiveCryptoBot:
         self.initial_capital = initial_capital
         self.current_balance = initial_capital
         self.fixed_risk_usd = fixed_risk_usd
+        if timeframe not in ALLOWED_ENTRY_TIMEFRAMES:
+            timeframe = "15m"
         self.timeframe = timeframe
         self.timeframe_profile = TIMEFRAME_PROFILES.get(timeframe, TIMEFRAME_PROFILES["15m"])
         self.max_open_positions = max_open_positions
@@ -223,18 +207,19 @@ class LiveCryptoBot:
         print(f"[LiveBot] Account balance reset to ${initial_capital:.2f} USD starting capital (Trade history preserved: {len(self.closed_trades)} trades).")
 
     def set_timeframe(self, timeframe: str) -> bool:
-        """Update active timeframe and synchronize holding profiles, cooldowns, and scan cadences."""
-        if timeframe in TIMEFRAME_PROFILES:
-            self.timeframe = timeframe
-            self.timeframe_profile = TIMEFRAME_PROFILES[timeframe]
-            self.cooldown_minutes = self.timeframe_profile["cooldown_minutes"]
-            self.scan_interval_sec = self.timeframe_profile["scan_interval_sec"]
-            self.champion_stats["timeframe"] = timeframe
-            self.symbol_last_entry_candle.clear()
-            self.save_state()
-            print(f"[LiveBot] Timeframe updated to {timeframe} ({self.timeframe_profile['name']}). Max Hold: {self.timeframe_profile['max_holding_bars']} bars, Stagnation: {self.timeframe_profile['stagnation_bars']} bars, Cooldown: {self.cooldown_minutes}m.")
-            return True
-        return False
+        """Update active timeframe. Strictly restricted to allowed entry timeframes (15m anchored to 1h, 30m anchored to 4h)."""
+        if timeframe not in ALLOWED_ENTRY_TIMEFRAMES:
+            print(f"[LiveBot] Timeframe '{timeframe}' rejected: Trade entries are strictly restricted to 15m (anchored to 1h) and 30m (anchored to 4h).")
+            return False
+        self.timeframe = timeframe
+        self.timeframe_profile = TIMEFRAME_PROFILES[timeframe]
+        self.cooldown_minutes = self.timeframe_profile["cooldown_minutes"]
+        self.scan_interval_sec = self.timeframe_profile["scan_interval_sec"]
+        self.champion_stats["timeframe"] = timeframe
+        self.symbol_last_entry_candle.clear()
+        self.save_state()
+        print(f"[LiveBot] Timeframe updated to {timeframe} ({self.timeframe_profile['name']}). Max Hold: {self.timeframe_profile['max_holding_bars']} bars, Stagnation: {self.timeframe_profile['stagnation_bars']} bars, Cooldown: {self.cooldown_minutes}m.")
+        return True
 
     async def restart_with_capital(self, capital: float, fixed_risk_usd: float = 1.0):
         """Re-fund the bot with custom capital amount and immediately resume live scanning."""
@@ -291,6 +276,11 @@ class LiveCryptoBot:
         except Exception:
             self.open_positions = {}
 
+        # Sanitize open positions to ensure valid timeframe
+        for sym, pos in list(self.open_positions.items()):
+            if pos.get("timeframe") not in ALLOWED_ENTRY_TIMEFRAMES:
+                pos["timeframe"] = self.timeframe
+
         # 3. Load Engine State & Wallets (Database + File Fallback)
         state = None
         try:
@@ -319,7 +309,11 @@ class LiveCryptoBot:
                 self.optimization_logs = state.get("optimization_logs", [])
                 self.macro_audits = state.get("macro_audits", [])
                 self.champion_stats = state.get("champion_stats", self.champion_stats)
+                if self.champion_stats.get("timeframe") not in ALLOWED_ENTRY_TIMEFRAMES:
+                    self.champion_stats["timeframe"] = "15m"
                 self.all_time_grand_champion = state.get("all_time_grand_champion", None)
+                if self.all_time_grand_champion and self.all_time_grand_champion.get("timeframe") not in ALLOWED_ENTRY_TIMEFRAMES:
+                    self.all_time_grand_champion["timeframe"] = "15m"
                 if state.get("last_daily_snapshot"):
                     self.last_daily_snapshot_time = datetime.strptime(state["last_daily_snapshot"], "%Y-%m-%d %H:%M:%S")
                 if state.get("last_weekly_opt"):
@@ -348,6 +342,11 @@ class LiveCryptoBot:
                         pass
             except Exception:
                 pass
+
+        # Ensure bot timeframe is valid
+        if self.timeframe not in ALLOWED_ENTRY_TIMEFRAMES:
+            self.timeframe = "15m"
+            self.timeframe_profile = TIMEFRAME_PROFILES["15m"]
 
         # 4. Load Hall of Fame Registry
         if os.path.exists(self.hall_of_fame_file):
@@ -877,7 +876,7 @@ class LiveCryptoBot:
         idx: int,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None
     ) -> Optional[Dict[str, Any]]:
-        """Evaluate strategy incorporating dynamic active parameters, RSI safe corridor, and 1h/4h MTF alignment."""
+        """Evaluate strategy incorporating dynamic active parameters, RSI safe corridor, and 15m(1h)/30m(4h) MTF alignment."""
         if len(df) < 50 or idx < 50:
             return None
 
@@ -900,7 +899,8 @@ class LiveCryptoBot:
             idx, 
             target_rr=target_rr, 
             params=self.active_params,
-            htf_data=htf_data
+            htf_data=htf_data,
+            timeframe=self.timeframe
         )
 
         return None
@@ -1143,13 +1143,13 @@ class LiveCryptoBot:
         if period_upper == "MONTHLY":
             self.last_monthly_optimization_time = now
             lookback_bars = 1000
-            target_timeframes = ["15m", "30m", "1h", "4h"]
+            target_timeframes = ["15m", "30m"]
             report_code = now.strftime("%Y_%m")
             report_filename = os.path.join(REPORTS_DIR, f"monthly_optimization_report_{report_code}.md")
         else:
             self.last_weekly_optimization_time = now
             lookback_bars = 500
-            target_timeframes = ["15m", "30m", "1h", "4h"]
+            target_timeframes = ["15m", "30m"]
             report_code = f"{now.strftime('%Y')}_W{now.isocalendar()[1]:02d}_{now.strftime('%m%d_%H%M%S')}"
             report_filename = os.path.join(REPORTS_DIR, f"weekly_optimization_report_{report_code}.md")
 
@@ -1824,10 +1824,10 @@ class LiveCryptoBot:
         print(f"[LiveBot:Monthly Tournament] Initiating End-of-Month Strategy Championship for {month_str}...")
 
         tournament_competitors = [
-            {"name": "Squeeze_Momentum_Breakout", "timeframe": "1h", "params": {"rvol_min": 1.20, "atr_sl_mult": 1.30, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_short": 50.0}},
-            {"name": "Liquidity_Sweep_Reversal", "timeframe": "1h", "params": {"rvol_min": 1.25, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 52.0, "rsi_max_short": 48.0}},
-            {"name": "Trend_Pullback_Confluence", "timeframe": "4h", "params": {"rvol_min": 1.15, "atr_sl_mult": 1.50, "target_rr": 2.0, "rsi_min_long": 48.0, "rsi_max_short": 52.0}},
-            {"name": "Aggressive_Trend_Runner", "timeframe": "15m", "params": {"rvol_min": 1.30, "atr_sl_mult": 1.35, "target_rr": 3.0, "rsi_min_long": 52.0, "rsi_max_short": 48.0}}
+            {"name": "Squeeze_Momentum_Breakout", "timeframe": "15m", "params": {"rvol_min": 1.20, "atr_sl_mult": 1.30, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_short": 50.0}},
+            {"name": "Liquidity_Sweep_Reversal", "timeframe": "15m", "params": {"rvol_min": 1.25, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 52.0, "rsi_max_short": 48.0}},
+            {"name": "Trend_Pullback_Confluence", "timeframe": "30m", "params": {"rvol_min": 1.15, "atr_sl_mult": 1.50, "target_rr": 2.0, "rsi_min_long": 48.0, "rsi_max_short": 52.0}},
+            {"name": "Squeeze_Momentum_Breakout", "timeframe": "30m", "params": {"rvol_min": 1.25, "atr_sl_mult": 1.35, "target_rr": 2.5, "rsi_min_long": 50.0, "rsi_max_short": 50.0}}
         ]
 
         leaderboard = []

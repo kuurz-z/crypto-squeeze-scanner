@@ -115,46 +115,65 @@ def evaluate_mtf_alignment(
     df_1h: Optional[pd.DataFrame] = None, 
     df_4h: Optional[pd.DataFrame] = None, 
     direction: str = "LONG",
+    entry_tf: str = "15m",
     **kwargs
 ) -> tuple[bool, Dict[str, Any]]:
     """
-    Evaluate intermediate 1h and macro 4h alignment for a proposed trade direction (required for 15m/30m trades).
-    
+    Strict Multi-Timeframe Alignment:
+      - 15m entries MUST align with 1h higher-timeframe trend.
+      - 30m entries MUST align with 4h higher-timeframe macro trend.
+      - 1h, 4h, 1d entries are strictly BLOCKED.
+      
     For LONG:
-      - 1h must NOT be BEARISH (should be BULLISH or NEUTRAL)
-      - 4h must NOT be BEARISH (should be BULLISH or NEUTRAL)
+      - Anchor TF must NOT be BEARISH (should be BULLISH or NEUTRAL)
     For SHORT:
-      - 1h must NOT be BULLISH (should be BEARISH or NEUTRAL)
-      - 4h must NOT be BULLISH (should be BEARISH or NEUTRAL)
+      - Anchor TF must NOT be BULLISH (should be BEARISH or NEUTRAL)
     """
-    if df_1h is None and "df_30m" in kwargs:
-        df_1h = kwargs["df_30m"]
-        
-    t_1h = evaluate_tf_trend(df_1h)
-    t_4h = evaluate_tf_trend(df_4h)
-    
+    # STRICT RULE: Only 15m and 30m timeframes can generate trade entries
+    if entry_tf not in ["15m", "30m"]:
+        return False, {
+            "entry_tf": entry_tf,
+            "anchor_tf": "N/A",
+            "anchor_regime": "N/A",
+            "1h": "N/A",
+            "4h": "N/A",
+            "aligned": False,
+            "reasons": [f"Entries on timeframe '{entry_tf}' are blocked. Entries are strictly restricted to 15m and 30m."]
+        }
+
+    t_1h = evaluate_tf_trend(df_1h) if df_1h is not None else {"is_valid": False, "regime": "N/A"}
+    t_4h = evaluate_tf_trend(df_4h) if df_4h is not None else {"is_valid": False, "regime": "N/A"}
+
+    if entry_tf == "15m":
+        t_anchor = t_1h
+        anchor_tf = "1h"
+    else:  # 30m
+        t_anchor = t_4h
+        anchor_tf = "4h"
+
     context = {
-        "tf_1h": t_1h,
-        "tf_4h": t_4h,
+        "entry_tf": entry_tf,
+        "anchor_tf": anchor_tf,
+        "anchor_regime": t_anchor.get("regime", "N/A"),
+        "1h": t_1h.get("regime", "N/A"),
+        "4h": t_4h.get("regime", "N/A"),
         "aligned": True,
         "reasons": []
     }
-    
+
     if direction == "LONG":
-        if t_1h["is_valid"] and t_1h["regime"] == "BEARISH":
+        if t_anchor.get("is_valid") and t_anchor.get("regime") == "BEARISH":
             context["aligned"] = False
-            context["reasons"].append(f"1h is BEARISH (Close ${t_1h['close']:.4f} < EMA50 ${t_1h['ema50']:.4f}, RSI {t_1h['rsi']})")
-        if t_4h["is_valid"] and t_4h["regime"] == "BEARISH":
-            context["aligned"] = False
-            context["reasons"].append(f"4h Macro is BEARISH (Close ${t_4h['close']:.4f} < EMA50 ${t_4h['ema50']:.4f}, RSI {t_4h['rsi']})")
+            context["reasons"].append(
+                f"{anchor_tf} Anchor Trend is BEARISH (Close ${t_anchor.get('close', 0):.4f} < EMA50 ${t_anchor.get('ema50', 0):.4f}, RSI {t_anchor.get('rsi', 0)})"
+            )
     elif direction == "SHORT":
-        if t_1h["is_valid"] and t_1h["regime"] == "BULLISH":
+        if t_anchor.get("is_valid") and t_anchor.get("regime") == "BULLISH":
             context["aligned"] = False
-            context["reasons"].append(f"1h is BULLISH (Close ${t_1h['close']:.4f} > EMA50 ${t_1h['ema50']:.4f}, RSI {t_1h['rsi']})")
-        if t_4h["is_valid"] and t_4h["regime"] == "BULLISH":
-            context["aligned"] = False
-            context["reasons"].append(f"4h Macro is BULLISH (Close ${t_4h['close']:.4f} > EMA50 ${t_4h['ema50']:.4f}, RSI {t_4h['rsi']})")
-            
+            context["reasons"].append(
+                f"{anchor_tf} Anchor Trend is BULLISH (Close ${t_anchor.get('close', 0):.4f} > EMA50 ${t_anchor.get('ema50', 0):.4f}, RSI {t_anchor.get('rsi', 0)})"
+            )
+
     return context["aligned"], context
 
 class StrategyBase:
@@ -167,14 +186,15 @@ class StrategyBase:
         idx: int, 
         target_rr: float = 2.0,
         params: Optional[Dict[str, Any]] = None,
-        htf_data: Optional[Dict[str, pd.DataFrame]] = None
+        htf_data: Optional[Dict[str, pd.DataFrame]] = None,
+        timeframe: str = "15m"
     ) -> Optional[Dict[str, Any]]:
         """Evaluate a candle and return a trade order dict if triggered."""
         raise NotImplementedError
 
 class SqueezeMomentumBreakout(StrategyBase):
     name = "Squeeze_Momentum_Breakout"
-    description = "Trades volatility expansion out of compressed Bollinger Bands inside Keltner Channels with volume confirmation, RSI corridor protection, and 1h/4h MTF alignment."
+    description = "Trades volatility expansion out of compressed Bollinger Bands inside Keltner Channels with volume confirmation, RSI corridor protection, and 15m(1h)/30m(4h) MTF alignment."
 
     @staticmethod
     def generate_signal(
@@ -182,8 +202,12 @@ class SqueezeMomentumBreakout(StrategyBase):
         idx: int, 
         target_rr: float = 2.0,
         params: Optional[Dict[str, Any]] = None,
-        htf_data: Optional[Dict[str, pd.DataFrame]] = None
+        htf_data: Optional[Dict[str, pd.DataFrame]] = None,
+        timeframe: str = "15m"
     ) -> Optional[Dict[str, Any]]:
+        # STRICT RULE: Trading entries are ONLY allowed on 15m and 30m
+        if timeframe not in ["15m", "30m"]:
+            return None
         if idx < 50:
             return None
 
@@ -225,18 +249,21 @@ class SqueezeMomentumBreakout(StrategyBase):
 
         # Long Setup: Squeeze release + Bullish Breakout + Volume expansion + Bullish Regime + Safe RSI Corridor + Solid Body
         if close > curr['bb_upper'] and mom > 0 and rvol >= rvol_min and close > ema50 and (rsi_min_long <= rsi <= rsi_max_long):
-            # Check 1h & 4h Multi-Timeframe Alignment
-            mtf_summary = {"aligned": True, "1h": "N/A", "4h": "N/A"}
+            # Check 15m (1h) / 30m (4h) Multi-Timeframe Alignment
+            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": "1h" if timeframe == "15m" else "4h", "1h": "N/A", "4h": "N/A"}
             if htf_data:
-                df_1h = htf_data.get("1h", htf_data.get("1hr", htf_data.get("30m")))
+                df_1h = htf_data.get("1h", htf_data.get("1hr"))
                 df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "LONG")
+                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "LONG", entry_tf=timeframe)
                 if not aligned:
                     return None
                 mtf_summary = {
                     "aligned": True,
-                    "1h": mtf_ctx["tf_1h"]["regime"],
-                    "4h": mtf_ctx["tf_4h"]["regime"]
+                    "entry_tf": timeframe,
+                    "anchor_tf": mtf_ctx["anchor_tf"],
+                    "anchor_regime": mtf_ctx["anchor_regime"],
+                    "1h": mtf_ctx["1h"],
+                    "4h": mtf_ctx["4h"]
                 }
 
             body = close - open_p
@@ -251,6 +278,7 @@ class SqueezeMomentumBreakout(StrategyBase):
                 return {
                     "strategy": "Squeeze_Momentum_Breakout",
                     "direction": "LONG",
+                    "timeframe": timeframe,
                     "entry_price": entry_price,
                     "sl_price": sl_price,
                     "tp_price": tp_price,
@@ -258,31 +286,35 @@ class SqueezeMomentumBreakout(StrategyBase):
                     "target_rr": target_rr,
                     "pre_trade_context": {
                         "regime": "Bullish Trend & Volatility Expansion",
-                        "reason": "Squeeze fired bullishly above BB upper band with volume surge and strong candle body",
+                        "reason": f"Squeeze fired bullishly on {timeframe} above BB upper band with volume surge (Anchored to {mtf_summary.get('anchor_tf', 'HTF')})",
                         "rvol": round(rvol, 2),
                         "rsi": round(rsi, 1),
                         "momentum": round(mom, 4),
                         "ema_alignment": "Close > EMA50",
                         "body_ratio": round(body / total_range, 2),
                         "volatility_atr": round(atr, 4),
+                        "timeframe": timeframe,
                         "mtf_alignment": mtf_summary
                     }
                 }
 
         # Short Setup: Squeeze release + Bearish Breakdown + Volume expansion + Bearish Regime + Safe RSI Corridor + Solid Body
         if close < curr['bb_lower'] and mom < 0 and rvol >= rvol_min and close < ema50 and (rsi_min_short <= rsi <= rsi_max_short):
-            # Check 1h & 4h Multi-Timeframe Alignment
-            mtf_summary = {"aligned": True, "1h": "N/A", "4h": "N/A"}
+            # Check 15m (1h) / 30m (4h) Multi-Timeframe Alignment
+            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": "1h" if timeframe == "15m" else "4h", "1h": "N/A", "4h": "N/A"}
             if htf_data:
-                df_1h = htf_data.get("1h", htf_data.get("1hr", htf_data.get("30m")))
+                df_1h = htf_data.get("1h", htf_data.get("1hr"))
                 df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "SHORT")
+                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "SHORT", entry_tf=timeframe)
                 if not aligned:
                     return None
                 mtf_summary = {
                     "aligned": True,
-                    "1h": mtf_ctx["tf_1h"]["regime"],
-                    "4h": mtf_ctx["tf_4h"]["regime"]
+                    "entry_tf": timeframe,
+                    "anchor_tf": mtf_ctx["anchor_tf"],
+                    "anchor_regime": mtf_ctx["anchor_regime"],
+                    "1h": mtf_ctx["1h"],
+                    "4h": mtf_ctx["4h"]
                 }
 
             body = open_p - close
@@ -297,6 +329,7 @@ class SqueezeMomentumBreakout(StrategyBase):
                 return {
                     "strategy": "Squeeze_Momentum_Breakout",
                     "direction": "SHORT",
+                    "timeframe": timeframe,
                     "entry_price": entry_price,
                     "sl_price": sl_price,
                     "tp_price": tp_price,
@@ -304,13 +337,14 @@ class SqueezeMomentumBreakout(StrategyBase):
                     "target_rr": target_rr,
                     "pre_trade_context": {
                         "regime": "Bearish Trend & Volatility Breakdown",
-                        "reason": "Squeeze fired bearishly below BB lower band with volume surge and strong candle body",
+                        "reason": f"Squeeze fired bearishly on {timeframe} below BB lower band with volume surge (Anchored to {mtf_summary.get('anchor_tf', 'HTF')})",
                         "rvol": round(rvol, 2),
                         "rsi": round(rsi, 1),
                         "momentum": round(mom, 4),
                         "ema_alignment": "Close < EMA50",
                         "body_ratio": round(body / total_range, 2),
                         "volatility_atr": round(atr, 4),
+                        "timeframe": timeframe,
                         "mtf_alignment": mtf_summary
                     }
                 }
@@ -327,8 +361,12 @@ class LiquiditySweepReversal(StrategyBase):
         idx: int, 
         target_rr: float = 2.0,
         params: Optional[Dict[str, Any]] = None,
-        htf_data: Optional[Dict[str, pd.DataFrame]] = None
+        htf_data: Optional[Dict[str, pd.DataFrame]] = None,
+        timeframe: str = "15m"
     ) -> Optional[Dict[str, Any]]:
+        # STRICT RULE: Trading entries are ONLY allowed on 15m and 30m
+        if timeframe not in ["15m", "30m"]:
+            return None
         if idx < 50:
             return None
 
@@ -352,17 +390,20 @@ class LiquiditySweepReversal(StrategyBase):
 
         # Long: Sweep of swing low, closing with bullish rejection wick and non-overbought RSI
         if low < swing_low and close > swing_low and close > open_p and rsi <= 55.0:
-            mtf_summary = {"aligned": True, "1h": "N/A", "4h": "N/A"}
+            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": "1h" if timeframe == "15m" else "4h", "1h": "N/A", "4h": "N/A"}
             if htf_data:
-                df_1h = htf_data.get("1h", htf_data.get("1hr", htf_data.get("30m")))
+                df_1h = htf_data.get("1h", htf_data.get("1hr"))
                 df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "LONG")
+                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "LONG", entry_tf=timeframe)
                 if not aligned:
                     return None
                 mtf_summary = {
                     "aligned": True,
-                    "1h": mtf_ctx["tf_1h"]["regime"],
-                    "4h": mtf_ctx["tf_4h"]["regime"]
+                    "entry_tf": timeframe,
+                    "anchor_tf": mtf_ctx["anchor_tf"],
+                    "anchor_regime": mtf_ctx["anchor_regime"],
+                    "1h": mtf_ctx["1h"],
+                    "4h": mtf_ctx["4h"]
                 }
 
             lower_wick = min(open_p, close) - low
@@ -376,6 +417,7 @@ class LiquiditySweepReversal(StrategyBase):
                 return {
                     "strategy": "Liquidity_Sweep_Reversal",
                     "direction": "LONG",
+                    "timeframe": timeframe,
                     "entry_price": entry_price,
                     "sl_price": sl_price,
                     "tp_price": tp_price,
@@ -383,28 +425,32 @@ class LiquiditySweepReversal(StrategyBase):
                     "target_rr": target_rr,
                     "pre_trade_context": {
                         "regime": "Liquidity Hunt Reversal (Bull Trap Clearance)",
-                        "reason": f"Price pierced 20-bar swing low ({round(swing_low, 4)}) and rejected aggressively with lower wick",
+                        "reason": f"Price pierced 20-bar swing low ({round(swing_low, 4)}) on {timeframe} and rejected aggressively with lower wick (Anchored to {mtf_summary.get('anchor_tf', 'HTF')})",
                         "rvol": round(rvol, 2),
                         "rsi": round(rsi, 1),
                         "lower_wick_ratio": round(lower_wick / (body + 1e-6), 2),
                         "volatility_atr": round(atr, 4),
+                        "timeframe": timeframe,
                         "mtf_alignment": mtf_summary
                     }
                 }
 
         # Short: Sweep of swing high, closing with bearish rejection wick and non-oversold RSI
         if high > swing_high and close < swing_high and close < open_p and rsi >= 45.0:
-            mtf_summary = {"aligned": True, "1h": "N/A", "4h": "N/A"}
+            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": "1h" if timeframe == "15m" else "4h", "1h": "N/A", "4h": "N/A"}
             if htf_data:
-                df_1h = htf_data.get("1h", htf_data.get("1hr", htf_data.get("30m")))
+                df_1h = htf_data.get("1h", htf_data.get("1hr"))
                 df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "SHORT")
+                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "SHORT", entry_tf=timeframe)
                 if not aligned:
                     return None
                 mtf_summary = {
                     "aligned": True,
-                    "1h": mtf_ctx["tf_1h"]["regime"],
-                    "4h": mtf_ctx["tf_4h"]["regime"]
+                    "entry_tf": timeframe,
+                    "anchor_tf": mtf_ctx["anchor_tf"],
+                    "anchor_regime": mtf_ctx["anchor_regime"],
+                    "1h": mtf_ctx["1h"],
+                    "4h": mtf_ctx["4h"]
                 }
 
             upper_wick = high - max(open_p, close)
@@ -418,6 +464,7 @@ class LiquiditySweepReversal(StrategyBase):
                 return {
                     "strategy": "Liquidity_Sweep_Reversal",
                     "direction": "SHORT",
+                    "timeframe": timeframe,
                     "entry_price": entry_price,
                     "sl_price": sl_price,
                     "tp_price": tp_price,
@@ -425,11 +472,12 @@ class LiquiditySweepReversal(StrategyBase):
                     "target_rr": target_rr,
                     "pre_trade_context": {
                         "regime": "Liquidity Hunt Reversal (Bear Trap Clearance)",
-                        "reason": f"Price swept 20-bar swing high ({round(swing_high, 4)}) and rejected aggressively with upper wick",
+                        "reason": f"Price swept 20-bar swing high ({round(swing_high, 4)}) on {timeframe} and rejected aggressively with upper wick (Anchored to {mtf_summary.get('anchor_tf', 'HTF')})",
                         "rvol": round(rvol, 2),
                         "rsi": round(rsi, 1),
                         "upper_wick_ratio": round(upper_wick / (body + 1e-6), 2),
                         "volatility_atr": round(atr, 4),
+                        "timeframe": timeframe,
                         "mtf_alignment": mtf_summary
                     }
                 }
@@ -446,8 +494,12 @@ class TrendPullbackConfluence(StrategyBase):
         idx: int, 
         target_rr: float = 2.0,
         params: Optional[Dict[str, Any]] = None,
-        htf_data: Optional[Dict[str, pd.DataFrame]] = None
+        htf_data: Optional[Dict[str, pd.DataFrame]] = None,
+        timeframe: str = "15m"
     ) -> Optional[Dict[str, Any]]:
+        # STRICT RULE: Trading entries are ONLY allowed on 15m and 30m
+        if timeframe not in ["15m", "30m"]:
+            return None
         if idx < 50:
             return None
 
@@ -477,17 +529,20 @@ class TrendPullbackConfluence(StrategyBase):
 
         # Long: In strong uptrend, price pulled back into EMA20/EMA50 zone, RSI cooled off (38-55), bullish trigger candle
         if uptrend and (low <= ema20 or low <= ema50) and (close > open_p) and (38.0 <= rsi <= 55.0):
-            mtf_summary = {"aligned": True, "1h": "N/A", "4h": "N/A"}
+            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": "1h" if timeframe == "15m" else "4h", "1h": "N/A", "4h": "N/A"}
             if htf_data:
-                df_1h = htf_data.get("1h", htf_data.get("1hr", htf_data.get("30m")))
+                df_1h = htf_data.get("1h", htf_data.get("1hr"))
                 df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "LONG")
+                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "LONG", entry_tf=timeframe)
                 if not aligned:
                     return None
                 mtf_summary = {
                     "aligned": True,
-                    "1h": mtf_ctx["tf_1h"]["regime"],
-                    "4h": mtf_ctx["tf_4h"]["regime"]
+                    "entry_tf": timeframe,
+                    "anchor_tf": mtf_ctx["anchor_tf"],
+                    "anchor_regime": mtf_ctx["anchor_regime"],
+                    "1h": mtf_ctx["1h"],
+                    "4h": mtf_ctx["4h"]
                 }
 
             risk_dist = max(1.4 * atr, close * min_risk_dist_pct)
@@ -498,6 +553,7 @@ class TrendPullbackConfluence(StrategyBase):
             return {
                 "strategy": "Trend_Pullback_Confluence",
                 "direction": "LONG",
+                "timeframe": timeframe,
                 "entry_price": entry_price,
                 "sl_price": sl_price,
                 "tp_price": tp_price,
@@ -505,28 +561,32 @@ class TrendPullbackConfluence(StrategyBase):
                 "target_rr": target_rr,
                 "pre_trade_context": {
                     "regime": "Structured Bullish Trend Pullback",
-                    "reason": "Retracement into EMA20/50 support band with RSI reset and bullish candle confirmation",
+                    "reason": f"Retracement into EMA20/50 support band on {timeframe} with RSI reset (Anchored to {mtf_summary.get('anchor_tf', 'HTF')})",
                     "rsi": round(rsi, 1),
                     "rvol": round(rvol, 2),
                     "trend_structure": "EMA20 > EMA50 > EMA200",
                     "volatility_atr": round(atr, 4),
+                    "timeframe": timeframe,
                     "mtf_alignment": mtf_summary
                 }
             }
 
         # Short: In strong downtrend, price pulled back into EMA20/EMA50 zone, RSI bounced (45-62), bearish trigger candle
         if downtrend and (high >= ema20 or high >= ema50) and (close < open_p) and (45.0 <= rsi <= 62.0):
-            mtf_summary = {"aligned": True, "1h": "N/A", "4h": "N/A"}
+            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": "1h" if timeframe == "15m" else "4h", "1h": "N/A", "4h": "N/A"}
             if htf_data:
-                df_1h = htf_data.get("1h", htf_data.get("1hr", htf_data.get("30m")))
+                df_1h = htf_data.get("1h", htf_data.get("1hr"))
                 df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "SHORT")
+                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "SHORT", entry_tf=timeframe)
                 if not aligned:
                     return None
                 mtf_summary = {
                     "aligned": True,
-                    "1h": mtf_ctx["tf_1h"]["regime"],
-                    "4h": mtf_ctx["tf_4h"]["regime"]
+                    "entry_tf": timeframe,
+                    "anchor_tf": mtf_ctx["anchor_tf"],
+                    "anchor_regime": mtf_ctx["anchor_regime"],
+                    "1h": mtf_ctx["1h"],
+                    "4h": mtf_ctx["4h"]
                 }
 
             risk_dist = max(1.4 * atr, close * min_risk_dist_pct)
@@ -537,6 +597,7 @@ class TrendPullbackConfluence(StrategyBase):
             return {
                 "strategy": "Trend_Pullback_Confluence",
                 "direction": "SHORT",
+                "timeframe": timeframe,
                 "entry_price": entry_price,
                 "sl_price": sl_price,
                 "tp_price": tp_price,
@@ -544,11 +605,12 @@ class TrendPullbackConfluence(StrategyBase):
                 "target_rr": target_rr,
                 "pre_trade_context": {
                     "regime": "Structured Bearish Trend Pullback",
-                    "reason": "Retracement into EMA20/50 resistance band with RSI overbought reset and bearish candle confirmation",
+                    "reason": f"Retracement into EMA20/50 resistance band on {timeframe} with RSI overbought reset (Anchored to {mtf_summary.get('anchor_tf', 'HTF')})",
                     "rsi": round(rsi, 1),
                     "rvol": round(rvol, 2),
                     "trend_structure": "EMA20 < EMA50 < EMA200",
                     "volatility_atr": round(atr, 4),
+                    "timeframe": timeframe,
                     "mtf_alignment": mtf_summary
                 }
             }

@@ -558,40 +558,29 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertTrue(os.path.exists(opt_entry["report_file"]))
 
     def test_timeframe_profiles_and_switching(self):
-        """Verify that timeframe profiles load correctly and set_timeframe updates all properties."""
-        # 1. Default profile on 15m
+        """Verify that timeframe profiles load correctly, set_timeframe allows 15m and 30m, and blocks 1h/4h/1d."""
+        # 1. Default profile on 15m (1h MTF Anchor)
         self.assertEqual(self.bot.timeframe, "15m")
+        self.assertEqual(self.bot.timeframe_profile["anchor_tf"], "1h")
         self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 64)
         self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 24)
         self.assertEqual(self.bot.cooldown_minutes, 45)
 
-        # 2. Switch to 1h
-        res = self.bot.set_timeframe("1h")
+        # 2. Switch to 30m (4h MTF Anchor)
+        res = self.bot.set_timeframe("30m")
         self.assertTrue(res)
-        self.assertEqual(self.bot.timeframe, "1h")
-        self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 96)
-        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 30)
-        self.assertEqual(self.bot.cooldown_minutes, 180)
-
-        # 3. Switch to 4h
-        res = self.bot.set_timeframe("4h")
-        self.assertTrue(res)
-        self.assertEqual(self.bot.timeframe, "4h")
-        self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 84)
+        self.assertEqual(self.bot.timeframe, "30m")
+        self.assertEqual(self.bot.timeframe_profile["anchor_tf"], "4h")
+        self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 64)
         self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 24)
-        self.assertEqual(self.bot.cooldown_minutes, 720)
+        self.assertEqual(self.bot.cooldown_minutes, 90)
 
-        # 4. Switch to 1d
-        res = self.bot.set_timeframe("1d")
-        self.assertTrue(res)
-        self.assertEqual(self.bot.timeframe, "1d")
-        self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 60)
-        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 20)
-        self.assertEqual(self.bot.cooldown_minutes, 2880)
-
-        # 5. Invalid timeframe rejected
-        res = self.bot.set_timeframe("99m")
-        self.assertFalse(res)
+        # 3. 1h, 4h, 1d, 99m are strictly rejected
+        self.assertFalse(self.bot.set_timeframe("1h"))
+        self.assertFalse(self.bot.set_timeframe("4h"))
+        self.assertFalse(self.bot.set_timeframe("1d"))
+        self.assertFalse(self.bot.set_timeframe("99m"))
+        self.assertEqual(self.bot.timeframe, "30m")
 
     def test_timeframe_stagnation_and_horizon_exit(self):
         """Verify that time stagnation and max horizon exits trigger at timeframe-specific bar thresholds."""

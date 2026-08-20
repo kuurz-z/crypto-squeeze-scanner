@@ -1,5 +1,5 @@
 // Application State
-let currentInterval = '1h';
+let currentInterval = '15m';
 let currentSymbol = 'BTCUSDT';
 let currentFilter = 'all'; // 'all' | 'signals' | 'squeeze'
 let searchQuery = '';
@@ -1080,7 +1080,7 @@ function renderBotPositions(positions) {
           <div class="h-5 flex items-center font-medium leading-5">$${pos.entry_price}</div>
           <div class="mt-1 flex items-center gap-1">
             <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
-              ${tf} TF
+              ${tf} (${tf === '30m' ? '4h MTF' : '1h MTF'})
             </span>
             <span class="text-[9px] text-slate-400 font-mono" title="Candles Held">
               ${pos.bars_held || 0} bars
@@ -1212,7 +1212,7 @@ function renderBotClosedHistory(trades) {
           <div class="h-5 flex items-center font-medium leading-5">$${t.entry_price} ➔ $${t.exit_price}</div>
           <div class="mt-1 flex items-center">
             <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
-              ${tf} TF
+              ${tf} (${tf === '30m' ? '4h MTF' : '1h MTF'})
             </span>
           </div>
         </td>

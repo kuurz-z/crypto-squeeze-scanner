@@ -1,56 +1,315 @@
 {
   "initial_capital": 100.0,
-  "current_balance": 100.92,
+  "current_balance": 51.07,
   "fixed_risk_usd": 1.0,
-  "auto_trading_enabled": true,
   "is_depleted": false,
   "depletion_report_file": null,
   "active_strategy_name": "Squeeze_Momentum_Breakout",
   "active_params": {
-    "rvol_min": 1.2,
+    "rvol_min": 1.25,
     "atr_sl_mult": 1.4,
-    "target_rr": 2.0,
+    "target_rr": 2.5,
     "rsi_min_long": 50.0,
-    "rsi_max_long": 68.0,
-    "rsi_min_short": 32.0,
-    "rsi_max_short": 50.0,
-    "min_body_ratio": 0.25,
-    "max_wick_ratio": 0.5,
-    "min_risk_dist_pct": 0.008
+    "rsi_max_short": 50.0
   },
-  "champion_stats": {
-    "name": "Squeeze_Momentum_Breakout",
-    "timeframe": "15m",
-    "win_rate": 42.0,
-    "expectancy_r": 0.25,
-    "score": 85.0,
-    "upgrades_count": 0,
-    "crowned_at": "2026-08-20 22:53:54"
-  },
-  "all_time_grand_champion": {
-    "month": "2026_08",
-    "crowned_at": "2026-08-20 22:53:54",
-    "strategy_name": "Squeeze_Momentum_Breakout",
-    "timeframe": "15m",
-    "params": {
-      "rvol_min": 1.25,
-      "atr_sl_mult": 1.4,
-      "target_rr": 2.5,
-      "rsi_min_long": 50.0,
-      "rsi_max_short": 50.0
+  "optimization_logs": [
+    {
+      "timestamp": "2026-08-20 18:26:43",
+      "improved": true,
+      "best_timeframe": "1h",
+      "best_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "summary": {
+        "timeframe": "1h",
+        "tested_trades": 27,
+        "win_rate_pct": 81.48,
+        "total_net_r": 47.84,
+        "expectancy_r": 1.772,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "report_file": "reports\\ai_evolution_report_20260820_182643.md"
     },
-    "win_rate_pct": 42.0,
-    "reproducibility_score": 85.0,
-    "net_expectancy_r": 0.25,
-    "profit_factor": 2.0,
-    "tested_trades": 30
-  },
-  "symbol_loss_cooldowns": {},
-  "circuit_breaker_until": null,
-  "optimization_logs": [],
-  "macro_audits": [],
-  "last_daily_snapshot": "2026-08-20 22:53:54",
-  "last_weekly_opt": null,
-  "last_monthly_opt": "2026-08-20 22:53:54",
-  "updated_at": "2026-08-21 00:45:45"
+    {
+      "timestamp": "2026-08-20 19:48:32",
+      "improved": false,
+      "best_timeframe": "1h",
+      "best_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "summary": {
+        "timeframe": "1h",
+        "tested_trades": 27,
+        "win_rate_pct": 81.48,
+        "total_net_r": 47.84,
+        "expectancy_r": 1.772,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "report_file": "reports\\ai_evolution_report_20260820_194832.md"
+    },
+    {
+      "timestamp": "2026-08-20 19:57:34",
+      "improved": false,
+      "best_timeframe": "1h",
+      "best_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "summary": {
+        "timeframe": "1h",
+        "tested_trades": 27,
+        "win_rate_pct": 81.48,
+        "total_net_r": 47.84,
+        "expectancy_r": 1.772,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "report_file": "reports\\ai_evolution_report_20260820_195734.md"
+    },
+    {
+      "timestamp": "2026-08-20 21:25:47",
+      "improved": false,
+      "best_timeframe": "1h",
+      "best_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "summary": {
+        "timeframe": "1h",
+        "tested_trades": 27,
+        "win_rate_pct": 81.48,
+        "total_net_r": 47.84,
+        "expectancy_r": 1.772,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "report_file": "reports\\ai_evolution_report_20260820_212547.md"
+    },
+    {
+      "timestamp": "2026-08-20 21:27:39",
+      "improved": false,
+      "best_timeframe": "1h",
+      "best_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "summary": {
+        "timeframe": "1h",
+        "tested_trades": 27,
+        "win_rate_pct": 81.48,
+        "total_net_r": 47.84,
+        "expectancy_r": 1.772,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "report_file": "reports\\ai_evolution_report_20260820_212739.md"
+    },
+    {
+      "timestamp": "2026-08-20 22:34:33",
+      "improved": false,
+      "best_timeframe": "1h",
+      "best_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "summary": {
+        "timeframe": "1h",
+        "tested_trades": 27,
+        "win_rate_pct": 81.48,
+        "total_net_r": 47.84,
+        "expectancy_r": 1.772,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "report_file": "reports\\ai_evolution_report_20260820_223433.md"
+    },
+    {
+      "timestamp": "2026-08-20 23:09:29",
+      "improved": false,
+      "best_timeframe": "1h",
+      "best_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "summary": {
+        "timeframe": "1h",
+        "tested_trades": 27,
+        "win_rate_pct": 81.48,
+        "total_net_r": 47.84,
+        "expectancy_r": 1.772,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "report_file": "reports\\ai_evolution_report_20260820_230929.md"
+    },
+    {
+      "timestamp": "2026-08-21 00:31:49",
+      "improved": false,
+      "best_timeframe": "1h",
+      "best_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "summary": {
+        "timeframe": "1h",
+        "tested_trades": 27,
+        "win_rate_pct": 85.19,
+        "total_net_r": 51.34,
+        "expectancy_r": 1.901,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "report_file": "reports\\ai_evolution_report_20260821_003149.md"
+    },
+    {
+      "timestamp": "2026-08-21 00:51:12",
+      "improved": false,
+      "best_timeframe": "1h",
+      "best_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "summary": {
+        "timeframe": "1h",
+        "tested_trades": 27,
+        "win_rate_pct": 85.19,
+        "total_net_r": 51.34,
+        "expectancy_r": 1.901,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "report_file": "reports\\ai_evolution_report_20260821_005112.md"
+    },
+    {
+      "timestamp": "2026-08-21 00:53:06",
+      "improved": false,
+      "best_timeframe": "1h",
+      "best_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "summary": {
+        "timeframe": "1h",
+        "tested_trades": 27,
+        "win_rate_pct": 85.19,
+        "total_net_r": 51.34,
+        "expectancy_r": 1.901,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "report_file": "reports\\ai_evolution_report_20260821_005306.md"
+    },
+    {
+      "timestamp": "2026-08-21 00:55:01",
+      "improved": false,
+      "best_timeframe": "1h",
+      "best_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "summary": {
+        "timeframe": "1h",
+        "tested_trades": 27,
+        "win_rate_pct": 85.19,
+        "total_net_r": 51.34,
+        "expectancy_r": 1.901,
+        "params": {
+          "rvol_min": 1.25,
+          "atr_sl_mult": 1.4,
+          "target_rr": 2.5,
+          "rsi_min_long": 50.0,
+          "rsi_max_short": 50.0
+        }
+      },
+      "report_file": "reports\\ai_evolution_report_20260821_005501.md"
+    }
+  ],
+  "updated_at": "2026-08-21 00:55:39"
 }
