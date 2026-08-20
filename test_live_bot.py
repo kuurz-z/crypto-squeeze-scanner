@@ -19,6 +19,7 @@ class TestLiveBotEngine(unittest.TestCase):
         )
         self.bot.open_positions = {}
         self.bot.closed_trades = []
+        self.bot.current_balance = 100.0
 
     def test_bot_initialization(self):
         self.assertEqual(self.bot.initial_capital, 100.0)

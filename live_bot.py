@@ -212,6 +212,12 @@ class LiveCryptoBot:
             except Exception:
                 self.hall_of_fame = []
 
+        # 5. Synchronize wallet balance with realized trade history if balance was unadjusted
+        if self.closed_trades:
+            total_realized_pnl = sum(t.get('pnl_usd', round(t.get('net_r', 0) * self.fixed_risk_usd, 2)) for t in self.closed_trades)
+            if self.current_balance == self.initial_capital and total_realized_pnl != 0:
+                self.current_balance = round(self.initial_capital + total_realized_pnl, 2)
+
     def save_state(self):
         """Persist state and wallet balances to disk."""
         try:
@@ -1636,11 +1642,14 @@ class LiveCryptoBot:
         profit_factor = round(total_win_r / total_loss_r, 2) if total_loss_r > 0 else (999.0 if total_win_r > 0 else 0.0)
         expectancy_r = round(total_net_r / total_trades, 3) if total_trades > 0 else 0.0
 
-        # USD Balances
+        # USD Balances - dynamically synced with trade ledger
+        total_realized_pnl_usd = round(sum(t.get('pnl_usd', round(t.get('net_r', 0) * self.fixed_risk_usd, 2)) for t in self.closed_trades), 2)
+        self.current_balance = round(self.initial_capital + total_realized_pnl_usd, 2)
+
         unrealized_pnl_usd = round(sum(p.get('unrealized_pnl_usd', 0.0) for p in self.open_positions.values()), 2)
         equity_usd = round(self.current_balance + unrealized_pnl_usd, 2)
-        total_pnl_usd = round(self.current_balance - self.initial_capital, 2)
-        total_pnl_pct = round(((self.current_balance - self.initial_capital) / self.initial_capital) * 100.0, 2)
+        total_pnl_usd = total_realized_pnl_usd
+        total_pnl_pct = round((total_realized_pnl_usd / self.initial_capital) * 100.0, 2) if self.initial_capital > 0 else 0.0
 
         status_str = "DEPLETED_STOPPED" if self.is_depleted else ("RUNNING" if self.is_running else "PAUSED")
 
