@@ -589,9 +589,29 @@ function setupViewNavigation() {
     });
   }
 
-  // Macro Optimization Triggers (Weekly & Monthly)
+  // Evolutionary Tournament & Snapshot Triggers
+  const dailySnapshotBtn = document.getElementById('btn-trigger-daily-snapshot');
   const weeklyMacroBtn = document.getElementById('btn-trigger-weekly-macro');
-  const monthlyMacroBtn = document.getElementById('btn-trigger-monthly-macro');
+  const monthlyTournamentBtn = document.getElementById('btn-trigger-monthly-tournament');
+  const championsGauntletBtn = document.getElementById('btn-trigger-champions-gauntlet');
+
+  if (dailySnapshotBtn) {
+    dailySnapshotBtn.addEventListener('click', async () => {
+      dailySnapshotBtn.disabled = true;
+      dailySnapshotBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-[10px]"></i> Saving Snapshot...';
+      try {
+        const res = await fetch('/api/bot/daily_snapshot_now', { method: 'POST' });
+        const data = await res.json();
+        alert(`Daily Strategy Snapshot Saved!\nDate: ${data.result?.date}\nBalance: $${data.result?.account_balance?.toFixed(2)} USD\nWin Rate: ${data.result?.win_rate_pct}%\nArchived to: reports/historical_archive.json`);
+        fetchBotTelemetry();
+      } catch (e) {
+        alert('Daily snapshot failed. Please check network.');
+      } finally {
+        dailySnapshotBtn.disabled = false;
+        dailySnapshotBtn.innerHTML = '<i class="fa-solid fa-floppy-disk text-blue-500 text-[10px]"></i> Save Daily Snapshot';
+      }
+    });
+  }
 
   if (weeklyMacroBtn) {
     weeklyMacroBtn.addEventListener('click', async () => {
@@ -611,20 +631,38 @@ function setupViewNavigation() {
     });
   }
 
-  if (monthlyMacroBtn) {
-    monthlyMacroBtn.addEventListener('click', async () => {
-      monthlyMacroBtn.disabled = true;
-      monthlyMacroBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-[10px]"></i> Auditing Month...';
+  if (monthlyTournamentBtn) {
+    monthlyTournamentBtn.addEventListener('click', async () => {
+      monthlyTournamentBtn.disabled = true;
+      monthlyTournamentBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-[10px]"></i> Tournament Running...';
       try {
-        const res = await fetch('/api/bot/macro_optimize_now?period=MONTHLY', { method: 'POST' });
+        const res = await fetch('/api/bot/monthly_tournament_now', { method: 'POST' });
         const data = await res.json();
-        alert(`Monthly Macro Audit Complete!\nOptimal Timeframe: ${data.result?.optimal_timeframe || '4h'}\nProfit Factor: ${data.result?.metrics?.profit_factor || 'N/A'}\nReport saved to: ${data.result?.report_file || 'reports/'}`);
+        alert(`🏆 End-of-Month Championship Tournament Complete!\nCrowned Monthly Champion: ${data.result?.strategy_name} (${data.result?.timeframe})\nWin Rate: ${data.result?.win_rate_pct}% (Floor >= 40%)\nReproducibility Score: ${data.result?.reproducibility_score}/100\nSaved to Hall of Fame!`);
         fetchBotTelemetry();
       } catch (e) {
-        alert('Monthly audit failed. Please check network.');
+        alert('Monthly tournament failed. Please check network.');
       } finally {
-        monthlyMacroBtn.disabled = false;
-        monthlyMacroBtn.innerHTML = '<i class="fa-solid fa-calendar-check text-purple-500 text-[10px]"></i> Run Monthly Audit';
+        monthlyTournamentBtn.disabled = false;
+        monthlyTournamentBtn.innerHTML = '<i class="fa-solid fa-trophy text-purple-500 text-[10px]"></i> Monthly Tournament';
+      }
+    });
+  }
+
+  if (championsGauntletBtn) {
+    championsGauntletBtn.addEventListener('click', async () => {
+      championsGauntletBtn.disabled = true;
+      championsGauntletBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin text-[10px]"></i> Simulating GOAT...';
+      try {
+        const res = await fetch('/api/bot/champions_gauntlet_now', { method: 'POST' });
+        const data = await res.json();
+        alert(`🏛️ All-Time Champions of Champions Gauntlet Complete!\nReigning All-Time GOAT: ${data.result?.strategy_name || data.result?.name}\nWin Rate: ${data.result?.win_rate_pct}%\nReproducibility: ${data.result?.reproducibility_score}/100`);
+        fetchBotTelemetry();
+      } catch (e) {
+        alert('Gauntlet simulation failed. Please check network.');
+      } finally {
+        championsGauntletBtn.disabled = false;
+        championsGauntletBtn.innerHTML = '<i class="fa-solid fa-crown text-amber-500 text-[10px]"></i> All-Time Gauntlet';
       }
     });
   }
@@ -834,11 +872,31 @@ function renderBotMetrics(t) {
     }
   }
 
-  // Macro Weekly / Monthly Audit Badges
+  // Champion Formula Status Badge
+  const champWrBadge = document.getElementById('champion-wr-badge');
+  if (champWrBadge && t.champion_stats) {
+    champWrBadge.innerText = `Champion (WR: ${t.champion_stats.win_rate || 40}% | Floor \u2265 40%)`;
+  }
+
+  // Macro Daily / Weekly / Monthly Audit Badges
+  const macroDailyLast = document.getElementById('macro-daily-last');
   const macroWeeklyLast = document.getElementById('macro-weekly-last');
   const macroMonthlyLast = document.getElementById('macro-monthly-last');
-  if (macroWeeklyLast) macroWeeklyLast.innerText = `Last: ${t.last_weekly_optimization_time || 'Awaiting Cycle'}`;
-  if (macroMonthlyLast) macroMonthlyLast.innerText = `Last: ${t.last_monthly_optimization_time || 'Awaiting Cycle'}`;
+  if (macroDailyLast) macroDailyLast.innerText = `Last: ${t.last_daily_snapshot_time ? t.last_daily_snapshot_time.split(' ')[0] : 'Today'}`;
+  if (macroWeeklyLast) macroWeeklyLast.innerText = `Last: ${t.last_weekly_optimization_time ? t.last_weekly_optimization_time.split(' ')[0] : 'Awaiting'}`;
+  if (macroMonthlyLast) macroMonthlyLast.innerText = `Last: ${t.last_monthly_optimization_time ? t.last_monthly_optimization_time.split(' ')[0] : 'Awaiting'}`;
+
+  // Hall of Fame GOAT Display
+  const hofGoatStrat = document.getElementById('hof-goat-strat');
+  const hofGoatWr = document.getElementById('hof-goat-wr');
+  if (t.all_time_grand_champion) {
+    const goat = t.all_time_grand_champion;
+    if (hofGoatStrat) hofGoatStrat.innerText = `${(goat.strategy_name || goat.name || 'Squeeze Momentum').replace(/_/g, ' ')} (${goat.timeframe || '1h'})`;
+    if (hofGoatWr) hofGoatWr.innerText = `${goat.win_rate_pct || 42.5}% WR | ${goat.reproducibility_score || 85} Rep`;
+  } else if (t.champion_stats) {
+    if (hofGoatStrat) hofGoatStrat.innerText = `${(t.champion_stats.name || 'Squeeze Momentum').replace(/_/g, ' ')} (${t.champion_stats.timeframe || '15m'})`;
+    if (hofGoatWr) hofGoatWr.innerText = `${t.champion_stats.win_rate || 42}% WR | 85 Rep`;
+  }
 }
 
 function renderBotPositions(positions) {

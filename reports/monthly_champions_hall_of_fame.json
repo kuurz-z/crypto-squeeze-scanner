@@ -1,0 +1,38 @@
+[
+  {
+    "month": "2026_08",
+    "crowned_at": "2026-08-20 19:01:52",
+    "strategy_name": "Liquidity_Sweep_Reversal",
+    "timeframe": "1h",
+    "params": {
+      "rvol_min": 1.25,
+      "atr_sl_mult": 1.4,
+      "target_rr": 2.5,
+      "rsi_min_long": 52.0,
+      "rsi_max_short": 48.0
+    },
+    "win_rate_pct": 50.0,
+    "reproducibility_score": 100.0,
+    "net_expectancy_r": 0.67,
+    "profit_factor": 2.24,
+    "tested_trades": 62
+  },
+  {
+    "month": "2026_08",
+    "crowned_at": "2026-08-20 19:02:59",
+    "strategy_name": "Liquidity_Sweep_Reversal",
+    "timeframe": "1h",
+    "params": {
+      "rvol_min": 1.25,
+      "atr_sl_mult": 1.4,
+      "target_rr": 2.5,
+      "rsi_min_long": 52.0,
+      "rsi_max_short": 48.0
+    },
+    "win_rate_pct": 50.0,
+    "reproducibility_score": 100.0,
+    "net_expectancy_r": 0.67,
+    "profit_factor": 2.24,
+    "tested_trades": 62
+  }
+]

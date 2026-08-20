@@ -280,6 +280,37 @@ async def trigger_macro_optimization(period: str = Query("WEEKLY", description="
     result = await bot_instance.run_macro_optimization(period=p)
     return {"message": f"{p} Macro Strategy Optimization completed.", "result": result}
 
+@app.post("/api/bot/daily_snapshot_now")
+async def trigger_daily_snapshot():
+    """Trigger an on-demand daily strategy snapshot & quantitative audit log."""
+    result = await bot_instance.run_daily_strategy_snapshot()
+    return {"message": "Daily Strategy Snapshot completed and archived.", "result": result}
+
+@app.post("/api/bot/monthly_tournament_now")
+async def trigger_monthly_tournament():
+    """Trigger an on-demand End-of-Month Multi-Strategy Championship Tournament."""
+    result = await bot_instance.run_monthly_strategy_tournament()
+    return {"message": "End-of-Month Strategy Tournament completed.", "result": result}
+
+@app.post("/api/bot/champions_gauntlet_now")
+async def trigger_champions_gauntlet():
+    """Trigger an on-demand Multi-Month Champions of Champions Gauntlet."""
+    result = await bot_instance.run_champions_of_champions_gauntlet()
+    return {"message": "Champions of Champions Gauntlet completed.", "result": result}
+
+@app.get("/api/bot/hall_of_fame")
+async def get_hall_of_fame_api():
+    """Return the Monthly Champions Hall of Fame registry."""
+    hof_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports", "monthly_champions_hall_of_fame.json")
+    if os.path.exists(hof_file):
+        try:
+            import json
+            with open(hof_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            return {"error": f"Failed to read Hall of Fame: {e}"}
+    return bot_instance.hall_of_fame
+
 @app.get("/api/bot/historical_archive")
 async def get_historical_archive_api():
     """Return the permanent structured historical archive of all trades, micro, and macro optimizations."""

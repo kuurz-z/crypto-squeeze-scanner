@@ -578,13 +578,15 @@
             <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <i class="fa-solid fa-sliders text-emerald-500"></i> Active Strategy Parameters
             </h3>
-            <span class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">Optimal</span>
+            <span id="champion-wr-badge" class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">Champion (WR &ge; 40%)</span>
           </div>
           
           <div class="space-y-2 text-xs" id="bot-params-container">
             <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
               <span class="text-slate-500 dark:text-gray-400">Target Risk-to-Reward:</span>
-              <span id="param-target-rr" class="font-mono font-bold text-emerald-600 dark:text-emerald-400">1:2.0 RR</span>
+              <span id="param-target-rr" class="font-mono font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                &ge; 1:2.0 RR <span class="text-[10px] px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-500 font-semibold">Unlimited Runner 🚀</span>
+              </span>
             </div>
             <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
               <span class="text-slate-500 dark:text-gray-400">Min Relative Volume (RVOL):</span>
@@ -596,7 +598,7 @@
             </div>
             <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
               <span class="text-slate-500 dark:text-gray-400">Take Profit Distance:</span>
-              <span id="param-atr-tp" class="font-mono font-bold text-emerald-600 dark:text-emerald-400">2.60 &times; ATR14 (2R)</span>
+              <span id="param-atr-tp" class="font-mono font-bold text-emerald-600 dark:text-emerald-400">Dynamic &ge; 2.60 &times; ATR14</span>
             </div>
             <div class="flex justify-between items-center py-1.5">
               <span class="text-slate-500 dark:text-gray-400">RSI Filter Bound:</span>
@@ -633,48 +635,64 @@
           </div>
         </div>
 
-        <!-- MACRO STRATEGY AUDITS (WEEKLY & MONTHLY) -->
+        <!-- MACRO STRATEGY AUDITS & CHAMPIONS HALL OF FAME -->
         <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl transition-colors">
           <div class="flex items-center justify-between mb-3 border-b border-slate-200 dark:border-gray-800 pb-2.5">
             <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <i class="fa-solid fa-landmark text-amber-500"></i> Macro Audits & Archives
+              <i class="fa-solid fa-trophy text-amber-500"></i> Champions Hall of Fame & Audits
             </h3>
-            <span class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">Long-Term Engine</span>
+            <span class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">Evolution Engine</span>
           </div>
 
           <div class="space-y-2.5 text-xs">
-            <!-- Weekly & Monthly Status Badges -->
-            <div class="grid grid-cols-2 gap-2">
-              <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800">
-                <div class="text-[10px] text-slate-400 font-medium">Weekly Multi-Horizon</div>
-                <div id="macro-weekly-status" class="font-semibold text-slate-700 dark:text-gray-300 mt-0.5 flex items-center gap-1.5">
-                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Active (7 Days)
-                </div>
-                <div id="macro-weekly-last" class="text-[9px] font-mono text-slate-400 mt-1">Last: Awaiting Cycle</div>
+            <!-- 3-Pillar Status Grid (Daily, Weekly, Monthly) -->
+            <div class="grid grid-cols-3 gap-1.5 text-[11px]">
+              <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 text-center">
+                <div class="text-[9px] text-slate-400 font-medium">Daily Snapshot</div>
+                <div id="macro-daily-status" class="font-semibold text-slate-700 dark:text-gray-300 mt-0.5 text-[10px]">Active (24h)</div>
+                <div id="macro-daily-last" class="text-[8px] font-mono text-slate-400 mt-0.5">Last: Today</div>
               </div>
 
-              <div class="p-2.5 rounded-lg bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800">
-                <div class="text-[10px] text-slate-400 font-medium">Monthly Regime Audit</div>
-                <div id="macro-monthly-status" class="font-semibold text-slate-700 dark:text-gray-300 mt-0.5 flex items-center gap-1.5">
-                  <span class="w-1.5 h-1.5 rounded-full bg-purple-500"></span> Active (30 Days)
-                </div>
-                <div id="macro-monthly-last" class="text-[9px] font-mono text-slate-400 mt-1">Last: Awaiting Cycle</div>
+              <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 text-center">
+                <div class="text-[9px] text-slate-400 font-medium">Weekly Benchmark</div>
+                <div id="macro-weekly-status" class="font-semibold text-slate-700 dark:text-gray-300 mt-0.5 text-[10px]">Active (7d)</div>
+                <div id="macro-weekly-last" class="text-[8px] font-mono text-slate-400 mt-0.5">Last: Awaiting</div>
+              </div>
+
+              <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 text-center">
+                <div class="text-[9px] text-slate-400 font-medium">Monthly Champ</div>
+                <div id="macro-monthly-status" class="font-semibold text-slate-700 dark:text-gray-300 mt-0.5 text-[10px]">Active (30d)</div>
+                <div id="macro-monthly-last" class="text-[8px] font-mono text-slate-400 mt-0.5">Last: Awaiting</div>
               </div>
             </div>
 
-            <!-- Action Buttons: Trigger Macro Optimization Now -->
-            <div class="flex gap-2 pt-1">
-              <button id="btn-trigger-weekly-macro" class="flex-1 py-1.5 px-2 bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded text-[11px] font-semibold transition border border-slate-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-1.5">
+            <!-- Action Buttons Grid -->
+            <div class="grid grid-cols-2 gap-1.5 pt-1">
+              <button id="btn-trigger-daily-snapshot" class="py-1.5 px-2 bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded text-[10px] font-semibold transition border border-slate-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-1">
+                <i class="fa-solid fa-floppy-disk text-blue-500 text-[10px]"></i> Save Daily Snapshot
+              </button>
+              <button id="btn-trigger-weekly-macro" class="py-1.5 px-2 bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded text-[10px] font-semibold transition border border-slate-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-1">
                 <i class="fa-solid fa-bolt text-amber-500 text-[10px]"></i> Run Weekly (1h/4h)
               </button>
-              <button id="btn-trigger-monthly-macro" class="flex-1 py-1.5 px-2 bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded text-[11px] font-semibold transition border border-slate-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-1.5">
-                <i class="fa-solid fa-calendar-check text-purple-500 text-[10px]"></i> Run Monthly Audit
+              <button id="btn-trigger-monthly-tournament" class="py-1.5 px-2 bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded text-[10px] font-semibold transition border border-slate-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-1">
+                <i class="fa-solid fa-trophy text-purple-500 text-[10px]"></i> Monthly Tournament
               </button>
+              <button id="btn-trigger-champions-gauntlet" class="py-1.5 px-2 bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded text-[10px] font-semibold transition border border-slate-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-1">
+                <i class="fa-solid fa-crown text-amber-500 text-[10px]"></i> All-Time Gauntlet
+              </button>
+            </div>
+
+            <!-- Hall of Fame Quick Feed -->
+            <div id="hall-of-fame-container" class="space-y-1.5 pt-1">
+              <div class="p-2 rounded bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-800/30 text-[10px] text-slate-600 dark:text-gray-300 flex items-center justify-between">
+                <span><i class="fa-solid fa-crown text-amber-500 mr-1"></i> <b id="hof-goat-title">All-Time GOAT:</b> <span id="hof-goat-strat">Squeeze Momentum</span></span>
+                <span id="hof-goat-wr" class="font-mono font-bold text-amber-600 dark:text-amber-400">42.5% WR | 85 Rep</span>
+              </div>
             </div>
 
             <div class="p-2 rounded bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/50 dark:border-indigo-800/30 text-[10px] text-slate-500 dark:text-gray-400 flex items-center justify-between">
-              <span><i class="fa-solid fa-box-archive text-indigo-500 mr-1"></i> Permanent Data Archive:</span>
-              <span class="font-mono font-semibold text-indigo-600 dark:text-indigo-400">reports/historical_archive.json</span>
+              <span><i class="fa-solid fa-box-archive text-indigo-500 mr-1"></i> Permanent Archive:</span>
+              <span class="font-mono font-semibold text-indigo-600 dark:text-indigo-400">historical_archive.json</span>
             </div>
           </div>
         </div>

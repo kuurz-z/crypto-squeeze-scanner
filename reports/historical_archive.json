@@ -1,6 +1,6 @@
 {
   "created_at": "2026-08-20 18:48:56",
-  "total_trades_archived": 4,
+  "total_trades_archived": 7,
   "trades": [
     {
       "trade_id": 999,
@@ -72,6 +72,67 @@
       "entry_time_str": "2026-08-20 12:00:00",
       "exit_time": 1700002700,
       "exit_time_str": "2026-08-20 18:49:39",
+      "entry_price": 100.0,
+      "exit_price": 109.5,
+      "sl_price": 109.5,
+      "tp_price": 120.0,
+      "target_rr": 2.0,
+      "risk_amount_usd": 1.0,
+      "position_qty": 1.0,
+      "position_value_usd": 0.0,
+      "outcome": "TRAILING_STOP_WIN",
+      "raw_r": 0.95,
+      "net_r": 0.87,
+      "pnl_usd": 0.87,
+      "account_balance": 1.37,
+      "mfe_r": 1.65,
+      "mae_r": 0.0,
+      "bars_held": 3,
+      "friction_breakdown": "Gross: +0.95R | Friction: -0.08R | Net: +0.87R ($+0.87 USD)",
+      "trade_efficiency": "MFE: +1.65R | MAE: -0.0R",
+      "pre_trade_context": {
+        "reason": "Test setup"
+      },
+      "diagnostic": {
+        "summary": "Dynamic trailing stop locked in +0.87R profit as momentum cooled off after peaking at +1.65R MFE.",
+        "catalyst_type": "ATR Trailing Stop Protected Profit",
+        "key_factors": [
+          "Dynamic stop protection prevented giving back gains",
+          "MFE reached +1.65R before trailing SL secured profit"
+        ],
+        "risk_management_quality": "High"
+      },
+      "report_file": "reports\\trade_journal_#1_BTCUSDT_TRAILING_STOP_WIN.md"
+    },
+    {
+      "trade_id": 999,
+      "symbol": "BTCUSDT",
+      "direction": "LONG",
+      "entry_price": 60000.0,
+      "exit_price": 62000.0,
+      "net_r": 2.0,
+      "pnl_usd": 2.0,
+      "outcome": "WIN"
+    },
+    {
+      "trade_id": 999,
+      "symbol": "BTCUSDT",
+      "direction": "LONG",
+      "entry_price": 60000.0,
+      "exit_price": 62000.0,
+      "net_r": 2.0,
+      "pnl_usd": 2.0,
+      "outcome": "WIN"
+    },
+    {
+      "trade_id": 1,
+      "symbol": "BTCUSDT",
+      "strategy": "Squeeze_Momentum_Breakout",
+      "direction": "LONG",
+      "entry_time": 1700000000,
+      "entry_time_str": "2026-08-20 12:00:00",
+      "exit_time": 1700002700,
+      "exit_time_str": "2026-08-20 19:02:59",
       "entry_price": 100.0,
       "exit_price": 109.5,
       "sl_price": 109.5,
@@ -330,5 +391,143 @@
       "report_file": "reports\\monthly_optimization_report_2026_08.md"
     }
   ],
-  "last_updated": "2026-08-20 18:50:00"
+  "last_updated": "2026-08-20 19:03:10",
+  "daily_snapshots": [
+    {
+      "date": "2026_08_20",
+      "timestamp": "2026-08-20 19:01:52",
+      "account_balance": 100.0,
+      "equity_usd": 100.0,
+      "total_pnl_usd": 0.0,
+      "total_pnl_pct": 0.0,
+      "total_trades": 0,
+      "win_rate_pct": 0.0,
+      "total_net_r": 0,
+      "champion_strategy": {
+        "name": "Squeeze_Momentum_Breakout",
+        "timeframe": "15m",
+        "win_rate": 42.0,
+        "expectancy_r": 0.25,
+        "score": 2.0,
+        "upgrades_count": 0,
+        "crowned_at": "2026-08-20 19:01:52"
+      },
+      "active_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.0,
+        "rsi_min_long": 50.0,
+        "rsi_max_short": 50.0
+      },
+      "active_timeframe": "15m",
+      "open_positions_count": 1,
+      "report_file": "reports\\daily_strategy_snapshot_2026_08_20.md"
+    },
+    {
+      "date": "2026_08_20",
+      "timestamp": "2026-08-20 19:02:59",
+      "account_balance": 100.0,
+      "equity_usd": 100.0,
+      "total_pnl_usd": 0.0,
+      "total_pnl_pct": 0.0,
+      "total_trades": 0,
+      "win_rate_pct": 0.0,
+      "total_net_r": 0,
+      "champion_strategy": {
+        "name": "Liquidity_Sweep_Reversal",
+        "timeframe": "1h",
+        "win_rate": 50.0,
+        "expectancy_r": 0.67,
+        "score": 100.0,
+        "upgrades_count": 1,
+        "crowned_at": "2026-08-20 19:01:52"
+      },
+      "active_params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.0,
+        "rsi_min_long": 52.0,
+        "rsi_max_short": 48.0
+      },
+      "active_timeframe": "15m",
+      "open_positions_count": 0,
+      "report_file": "reports\\daily_strategy_snapshot_2026_08_20.md"
+    }
+  ],
+  "monthly_strategy_tournaments": [
+    {
+      "month": "2026_08",
+      "crowned_at": "2026-08-20 19:01:52",
+      "strategy_name": "Liquidity_Sweep_Reversal",
+      "timeframe": "1h",
+      "params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 52.0,
+        "rsi_max_short": 48.0
+      },
+      "win_rate_pct": 50.0,
+      "reproducibility_score": 100.0,
+      "net_expectancy_r": 0.67,
+      "profit_factor": 2.24,
+      "tested_trades": 62
+    },
+    {
+      "month": "2026_08",
+      "crowned_at": "2026-08-20 19:02:59",
+      "strategy_name": "Liquidity_Sweep_Reversal",
+      "timeframe": "1h",
+      "params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 52.0,
+        "rsi_max_short": 48.0
+      },
+      "win_rate_pct": 50.0,
+      "reproducibility_score": 100.0,
+      "net_expectancy_r": 0.67,
+      "profit_factor": 2.24,
+      "tested_trades": 62
+    }
+  ],
+  "all_time_gauntlets": [
+    {
+      "month": "2026_08",
+      "crowned_at": "2026-08-20 19:01:52",
+      "strategy_name": "Liquidity_Sweep_Reversal",
+      "timeframe": "1h",
+      "params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 52.0,
+        "rsi_max_short": 48.0
+      },
+      "win_rate_pct": 50.0,
+      "reproducibility_score": 100.0,
+      "net_expectancy_r": 0.67,
+      "profit_factor": 2.24,
+      "tested_trades": 62
+    },
+    {
+      "month": "2026_08",
+      "crowned_at": "2026-08-20 19:01:52",
+      "strategy_name": "Liquidity_Sweep_Reversal",
+      "timeframe": "1h",
+      "params": {
+        "rvol_min": 1.25,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.5,
+        "rsi_min_long": 52.0,
+        "rsi_max_short": 48.0
+      },
+      "win_rate_pct": 50.0,
+      "reproducibility_score": 100.0,
+      "net_expectancy_r": 0.67,
+      "profit_factor": 2.24,
+      "tested_trades": 62
+    }
+  ]
 }

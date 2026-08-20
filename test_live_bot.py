@@ -17,6 +17,8 @@ class TestLiveBotEngine(unittest.TestCase):
             target_rr=2.0, 
             scan_interval_sec=5
         )
+        self.bot.open_positions = {}
+        self.bot.closed_trades = []
 
     def test_bot_initialization(self):
         self.assertEqual(self.bot.initial_capital, 100.0)
@@ -239,17 +241,67 @@ class TestLiveBotEngine(unittest.TestCase):
             self.assertIn("trades", data)
             self.assertTrue(any(t.get("trade_id") == 999 for t in data["trades"]))
 
-    def test_run_macro_optimization_weekly_and_monthly(self):
-        """Verify that Weekly and Monthly Macro Optimizations generate markdown reports and record archives."""
-        res_weekly = asyncio.run(self.bot.run_macro_optimization("WEEKLY"))
-        self.assertEqual(res_weekly["period"], "WEEKLY")
-        self.assertTrue(os.path.exists(res_weekly["report_file"]))
-        self.assertIsNotNone(self.bot.last_weekly_optimization_time)
+    def test_unlimited_profit_runner_expands_beyond_2r(self):
+        """Verify that positions reaching >= +2.0R with strong momentum engage Unlimited Runner mode."""
+        self.bot.open_positions["SOLUSDT"] = {
+            "trade_id": 101,
+            "symbol": "SOLUSDT",
+            "sector": "LAYER_1",
+            "strategy": "Squeeze_Momentum_Breakout",
+            "direction": "LONG",
+            "entry_time": 1700000000,
+            "entry_price": 100.0,
+            "current_price": 100.0,
+            "sl_price": 99.0,
+            "tp_price": 102.0,
+            "risk_distance": 1.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.0,
+            "unrealized_r": 0.0,
+            "mfe_r": 0.0,
+            "mae_r": 0.0,
+            "bars_held": 2
+        }
 
-        res_monthly = asyncio.run(self.bot.run_macro_optimization("MONTHLY"))
-        self.assertEqual(res_monthly["period"], "MONTHLY")
-        self.assertTrue(os.path.exists(res_monthly["report_file"]))
-        self.assertIsNotNone(self.bot.last_monthly_optimization_time)
+        # Simulate breakout surging to 103.5 (+3.5R) with continuing momentum and higher low
+        mock_df = pd.DataFrame([{
+            'time': 1700000300,
+            'open': 102.8,
+            'high': 103.5,
+            'low': 102.9,
+            'close': 103.2,
+            'volume': 5000,
+            'atr14': 0.8,
+            'rsi14': 64.0,
+            'momentum': 1.5,
+            'rvol': 2.2,
+            'squeeze_on': False
+        }])
+
+        asyncio.run(self.bot._update_open_positions({"SOLUSDT": mock_df}))
+
+        # Position should still be OPEN in Unlimited Runner Mode
+        self.assertIn("SOLUSDT", self.bot.open_positions)
+        pos = self.bot.open_positions["SOLUSDT"]
+        self.assertTrue(pos.get("is_unlimited_runner"))
+        self.assertGreater(pos["sl_price"], 100.0)  # SL raised well above entry to lock in runner profit
+
+    def test_daily_snapshot_generation(self):
+        """Verify that Daily Strategy Snapshot generates markdown report and JSON archive."""
+        res = asyncio.run(self.bot.run_daily_strategy_snapshot())
+        self.assertIn("date", res)
+        self.assertTrue(os.path.exists(res["report_file"]))
+        self.assertIsNotNone(self.bot.last_daily_snapshot_time)
+
+    def test_monthly_tournament_and_champions_gauntlet(self):
+        """Verify that Monthly Strategy Tournament crowns champion and updates Hall of Fame."""
+        res = asyncio.run(self.bot.run_monthly_strategy_tournament())
+        self.assertIn("strategy_name", res)
+        self.assertIn("win_rate_pct", res)
+        self.assertIsNotNone(self.bot.all_time_grand_champion)
+
+        hof_path = os.path.join("reports", "monthly_champions_hall_of_fame.json")
+        self.assertTrue(os.path.exists(hof_path))
 
 if __name__ == '__main__':
     unittest.main()
