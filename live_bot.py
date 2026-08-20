@@ -18,6 +18,7 @@ from strategies import (
 )
 from sim_engine import diagnose_trade_outcome, compile_simulation_metrics
 from strategy_memory import evaluate_reproducibility, save_strategy_to_catalog, load_saved_strategies
+from db import DatabaseManager
 
 LIVE_TRADES_FILE = "live_trades.json"
 LIVE_POSITIONS_FILE = "live_positions.json"
@@ -68,6 +69,8 @@ class LiveCryptoBot:
         self.reports_dir = os.path.join(data_dir, "reports") if data_dir else REPORTS_DIR
         self.archive_file = os.path.join(self.reports_dir, "historical_archive.json")
         self.hall_of_fame_file = os.path.join(self.reports_dir, "monthly_champions_hall_of_fame.json")
+
+        self.db = DatabaseManager(db_url=os.environ.get("DATABASE_URL") if not data_dir else None, data_dir=data_dir)
 
         self.initial_capital = initial_capital
         self.current_balance = initial_capital
@@ -154,10 +157,17 @@ class LiveCryptoBot:
         print(f"[LiveBot] Bot re-funded with ${capital:.2f} USD and resumed scanning.")
 
     def load_state(self):
-        """Load persisted trades, balances, open positions, and audit archives from disk."""
-        # 1. Load Closed Trades with Multi-File Redundancy
+        """Load persisted trades, balances, open positions, and audit archives from Database and disk."""
+        # 1. Load Closed Trades (Database + Multi-File Redundancy)
         loaded_trades = []
-        if os.path.exists(self.trades_file):
+        try:
+            db_trades = self.db.get_trades()
+            if db_trades:
+                loaded_trades = db_trades
+        except Exception:
+            pass
+
+        if not loaded_trades and os.path.exists(self.trades_file):
             try:
                 with open(self.trades_file, "r", encoding="utf-8") as f:
                     loaded_trades = json.load(f)
@@ -181,38 +191,54 @@ class LiveCryptoBot:
         loaded_trades.sort(key=lambda x: x.get("trade_id", 0))
         self.closed_trades = loaded_trades
 
-        # 2. Load Active Open Positions
-        if os.path.exists(self.positions_file):
-            try:
+        # 2. Load Active Open Positions (Database + File Fallback)
+        try:
+            db_pos = self.db.get_positions()
+            if db_pos:
+                self.open_positions = db_pos
+            elif os.path.exists(self.positions_file):
                 with open(self.positions_file, "r", encoding="utf-8") as f:
                     self.open_positions = json.load(f)
-            except Exception:
+            else:
                 self.open_positions = {}
+        except Exception:
+            self.open_positions = {}
 
-        # 3. Load Engine State & Wallets
-        if os.path.exists(self.state_file):
+        # 3. Load Engine State & Wallets (Database + File Fallback)
+        state = None
+        try:
+            state = self.db.get_state("bot_state")
+        except Exception:
+            pass
+
+        if not state and os.path.exists(self.state_file):
             try:
                 with open(self.state_file, "r", encoding="utf-8") as f:
                     state = json.load(f)
-                    self.initial_capital = state.get("initial_capital", self.initial_capital)
-                    self.current_balance = state.get("current_balance", self.current_balance)
-                    self.fixed_risk_usd = state.get("fixed_risk_usd", self.fixed_risk_usd)
-                    self.is_depleted = state.get("is_depleted", False)
-                    self.depletion_report_file = state.get("depletion_report_file", None)
-                    self.active_strategy_name = state.get("active_strategy_name", self.active_strategy_name)
-                    self.active_params = state.get("active_params", self.active_params)
-                    self.auto_trading_enabled = state.get("auto_trading_enabled", True)
-                    self.target_rr = self.active_params.get("target_rr", self.target_rr)
-                    self.optimization_logs = state.get("optimization_logs", [])
-                    self.macro_audits = state.get("macro_audits", [])
-                    self.champion_stats = state.get("champion_stats", self.champion_stats)
-                    self.all_time_grand_champion = state.get("all_time_grand_champion", None)
-                    if state.get("last_daily_snapshot"):
-                        self.last_daily_snapshot_time = datetime.strptime(state["last_daily_snapshot"], "%Y-%m-%d %H:%M:%S")
-                    if state.get("last_weekly_opt"):
-                        self.last_weekly_optimization_time = datetime.strptime(state["last_weekly_opt"], "%Y-%m-%d %H:%M:%S")
-                    if state.get("last_monthly_opt"):
-                        self.last_monthly_optimization_time = datetime.strptime(state["last_monthly_opt"], "%Y-%m-%d %H:%M:%S")
+            except Exception:
+                state = None
+
+        if state:
+            try:
+                self.initial_capital = state.get("initial_capital", self.initial_capital)
+                self.current_balance = state.get("current_balance", self.current_balance)
+                self.fixed_risk_usd = state.get("fixed_risk_usd", self.fixed_risk_usd)
+                self.is_depleted = state.get("is_depleted", False)
+                self.depletion_report_file = state.get("depletion_report_file", None)
+                self.active_strategy_name = state.get("active_strategy_name", self.active_strategy_name)
+                self.active_params = state.get("active_params", self.active_params)
+                self.auto_trading_enabled = state.get("auto_trading_enabled", True)
+                self.target_rr = self.active_params.get("target_rr", self.target_rr)
+                self.optimization_logs = state.get("optimization_logs", [])
+                self.macro_audits = state.get("macro_audits", [])
+                self.champion_stats = state.get("champion_stats", self.champion_stats)
+                self.all_time_grand_champion = state.get("all_time_grand_champion", None)
+                if state.get("last_daily_snapshot"):
+                    self.last_daily_snapshot_time = datetime.strptime(state["last_daily_snapshot"], "%Y-%m-%d %H:%M:%S")
+                if state.get("last_weekly_opt"):
+                    self.last_weekly_optimization_time = datetime.strptime(state["last_weekly_opt"], "%Y-%m-%d %H:%M:%S")
+                if state.get("last_monthly_opt"):
+                    self.last_monthly_optimization_time = datetime.strptime(state["last_monthly_opt"], "%Y-%m-%d %H:%M:%S")
             except Exception:
                 pass
 
@@ -231,8 +257,37 @@ class LiveCryptoBot:
                 self.current_balance = round(self.initial_capital + total_realized_pnl, 2)
 
     def save_state(self):
-        """Persist state and wallet balances to disk."""
+        """Persist state and wallet balances to Database and disk."""
         try:
+            state_data = {
+                "initial_capital": self.initial_capital,
+                "current_balance": self.current_balance,
+                "fixed_risk_usd": self.fixed_risk_usd,
+                "auto_trading_enabled": self.auto_trading_enabled,
+                "is_depleted": self.is_depleted,
+                "depletion_report_file": self.depletion_report_file,
+                "active_strategy_name": self.active_strategy_name,
+                "active_params": self.active_params,
+                "champion_stats": self.champion_stats,
+                "all_time_grand_champion": self.all_time_grand_champion,
+                "optimization_logs": self.optimization_logs[-20:],
+                "macro_audits": self.macro_audits[-10:],
+                "last_daily_snapshot": self.last_daily_snapshot_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_daily_snapshot_time else None,
+                "last_weekly_opt": self.last_weekly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_weekly_optimization_time else None,
+                "last_monthly_opt": self.last_monthly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_monthly_optimization_time else None,
+                "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+
+            # 1. Save to Database
+            try:
+                for t in self.closed_trades:
+                    self.db.save_trade(t)
+                self.db.save_positions(self.open_positions)
+                self.db.save_state("bot_state", state_data)
+            except Exception as e:
+                print(f"[LiveBot] Notice: DB save_state fallback: {e}")
+
+            # 2. Save to JSON files for multi-file local redundancy
             if self.data_dir:
                 os.makedirs(self.data_dir, exist_ok=True)
             with open(self.trades_file, "w", encoding="utf-8") as f:
@@ -240,24 +295,7 @@ class LiveCryptoBot:
             with open(self.positions_file, "w", encoding="utf-8") as f:
                 json.dump(self.open_positions, f, indent=2)
             with open(self.state_file, "w", encoding="utf-8") as f:
-                json.dump({
-                    "initial_capital": self.initial_capital,
-                    "current_balance": self.current_balance,
-                    "fixed_risk_usd": self.fixed_risk_usd,
-                    "auto_trading_enabled": self.auto_trading_enabled,
-                    "is_depleted": self.is_depleted,
-                    "depletion_report_file": self.depletion_report_file,
-                    "active_strategy_name": self.active_strategy_name,
-                    "active_params": self.active_params,
-                    "champion_stats": self.champion_stats,
-                    "all_time_grand_champion": self.all_time_grand_champion,
-                    "optimization_logs": self.optimization_logs[-20:],
-                    "macro_audits": self.macro_audits[-10:],
-                    "last_daily_snapshot": self.last_daily_snapshot_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_daily_snapshot_time else None,
-                    "last_weekly_opt": self.last_weekly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_weekly_optimization_time else None,
-                    "last_monthly_opt": self.last_monthly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_monthly_optimization_time else None,
-                    "updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                }, f, indent=2)
+                json.dump(state_data, f, indent=2)
         except Exception as e:
             print(f"[LiveBot] Error saving state: {e}")
 
@@ -817,6 +855,10 @@ class LiveCryptoBot:
 
         self.closed_trades.append(closed_record)
         self._archive_entry("trades", closed_record)
+        try:
+            self.db.save_trade(closed_record)
+        except Exception as e:
+            print(f"[LiveBot] Notice: DB save_trade fallback: {e}")
         self.save_state()
         print(f"[LiveBot] CLOSED {pos['direction']} on {symbol}: {outcome} ({net_r}R | ${pnl_usd:+.2f} USD) | Balance: ${self.current_balance:.2f} USD")
 

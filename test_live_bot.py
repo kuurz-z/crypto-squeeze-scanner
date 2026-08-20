@@ -396,5 +396,57 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertTrue(re_enabled)
         self.assertTrue(self.bot.auto_trading_enabled)
 
+    def test_database_persistence_layer(self):
+        """Verify that DatabaseManager saves and loads trades, positions, and state correctly."""
+        from db import DatabaseManager
+        db_mgr = DatabaseManager(data_dir=self.test_dir)
+        
+        # 1. Test Trade Save/Load
+        sample_trade = {
+            "trade_id": 501,
+            "symbol": "LINKUSDT",
+            "sector": "INFRASTRUCTURE",
+            "strategy": "Squeeze_Momentum_Breakout",
+            "timeframe": "15m",
+            "direction": "LONG",
+            "entry_time": 1700000000,
+            "entry_time_str": "2026-08-20 12:00:00",
+            "exit_time": 1700003600,
+            "exit_time_str": "2026-08-20 13:00:00",
+            "entry_price": 20.0,
+            "exit_price": 22.0,
+            "sl_price": 19.0,
+            "tp_price": 22.0,
+            "target_rr": 2.0,
+            "risk_amount_usd": 1.0,
+            "position_qty": 1.0,
+            "position_value_usd": 20.0,
+            "outcome": "WIN",
+            "raw_r": 2.0,
+            "net_r": 2.0,
+            "pnl_usd": 2.0,
+            "account_balance": 102.0,
+            "mfe_r": 2.1,
+            "mae_r": 0.2,
+            "bars_held": 4,
+            "diagnostic": {"catalyst_type": "CLEAN_EXPANSION", "summary": "Reached TP"},
+            "pre_trade_context": {"rvol": 1.8, "rsi": 58.0}
+        }
+        db_mgr.save_trade(sample_trade)
+        loaded = db_mgr.get_trades()
+        self.assertTrue(any(t["trade_id"] == 501 and t["symbol"] == "LINKUSDT" for t in loaded))
+        
+        # 2. Test Position Save/Load
+        db_mgr.save_positions({"LINKUSDT": {"symbol": "LINKUSDT", "entry_price": 20.0}})
+        pos = db_mgr.get_positions()
+        self.assertIn("LINKUSDT", pos)
+        self.assertEqual(pos["LINKUSDT"]["entry_price"], 20.0)
+
+        # 3. Test Bot State Save/Load
+        db_mgr.save_state("bot_state", {"current_balance": 102.0, "active_strategy_name": "Squeeze_Momentum_Breakout"})
+        state = db_mgr.get_state("bot_state")
+        self.assertIsNotNone(state)
+        self.assertEqual(state.get("current_balance"), 102.0)
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,20 +1,20 @@
 {
   "SNDKBUSDT": {
-    "trade_id": 17,
+    "trade_id": 18,
     "symbol": "SNDKBUSDT",
     "sector": "GENERAL_ALT",
     "strategy": "Squeeze_Momentum_Breakout",
     "direction": "SHORT",
     "entry_time": 1787227200,
-    "entry_time_str": "2026-08-20 20:25:44",
-    "entry_price": 1538.95,
-    "current_price": 1538.95,
-    "sl_price": 1572.5,
-    "tp_price": 1455.08,
-    "risk_distance": 33.54800000000002,
+    "entry_time_str": "2026-08-20 20:37:01",
+    "entry_price": 1535.11,
+    "current_price": 1535.11,
+    "sl_price": 1569.2,
+    "tp_price": 1449.87,
+    "risk_distance": 34.095,
     "risk_amount_usd": 1.0,
-    "position_qty": 0.0298,
-    "position_value_usd": 45.86,
+    "position_qty": 0.0293,
+    "position_value_usd": 44.98,
     "target_rr": 2.5,
     "unrealized_r": 0.0,
     "unrealized_pnl_usd": 0.0,
@@ -24,11 +24,11 @@
     "pre_trade_context": {
       "regime": "Bearish Trend & Volatility Breakdown",
       "reason": "Squeeze fired bearishly below BB lower band with volume surge",
-      "rvol": 1.99,
-      "rsi": 29.1,
-      "momentum": -14.0975,
+      "rvol": 2.91,
+      "rsi": 28.5,
+      "momentum": -14.2955,
       "ema_alignment": "Close < EMA50",
-      "volatility_atr": 23.9629
+      "volatility_atr": 24.3536
     }
   }
 }
