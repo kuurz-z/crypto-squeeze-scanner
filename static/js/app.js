@@ -430,6 +430,19 @@ function setupViewNavigation() {
     });
   }
 
+  const autotradeToggleBtn = document.getElementById('btn-bot-toggle-autotrade');
+  if (autotradeToggleBtn) {
+    autotradeToggleBtn.addEventListener('click', async () => {
+      try {
+        const res = await fetch('/api/bot/toggle_auto_trading', { method: 'POST' });
+        const data = await res.json();
+        fetchBotTelemetry();
+      } catch (e) {
+        console.error('Error toggling auto-trading:', e);
+      }
+    });
+  }
+
   const toggleBtn = document.getElementById('btn-bot-toggle');
   if (toggleBtn) {
     toggleBtn.addEventListener('click', async () => {
@@ -795,47 +808,41 @@ async function fetchBotTelemetry() {
 
 function renderBotMetrics(t) {
   // Depletion Banner & Status
-  const depletedBanner = document.getElementById('bot-depleted-banner');
+  // Scanner 24/7 Status & Pulse Dot
   const statusBadge = document.getElementById('bot-status-badge');
-  const toggleBtn = document.getElementById('btn-bot-toggle');
   const pulseDot = document.getElementById('header-bot-pulse');
+  if (statusBadge) {
+    statusBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5';
+    statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> <span>SCANNER: 24/7 ACTIVE</span>';
+  }
+  if (pulseDot) pulseDot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
 
-  if (t.is_depleted) {
-    if (depletedBanner) depletedBanner.classList.remove('hidden');
-    if (statusBadge) {
-      statusBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-500/40 flex items-center gap-1.5';
-      statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-500"></span> CAPITAL DEPLETED (STOPPED)';
-    }
-    if (toggleBtn) {
-      toggleBtn.disabled = true;
-      toggleBtn.className = 'px-4 py-2 rounded-lg bg-gray-400 text-white text-xs font-semibold cursor-not-allowed opacity-60';
-      toggleBtn.innerHTML = '<i class="fa-solid fa-ban"></i> <span>Halted</span>';
-    }
-    if (pulseDot) pulseDot.className = 'w-2 h-2 rounded-full bg-rose-500';
-  } else {
-    if (depletedBanner) depletedBanner.classList.add('hidden');
-    if (toggleBtn) toggleBtn.disabled = false;
+  // Auto-Trading Execution Gateway Toggle & Badge
+  const autoTradeBtn = document.getElementById('btn-bot-toggle-autotrade');
+  const autoTradeBadge = document.getElementById('bot-autotrade-badge');
+  const autoTradeText = document.getElementById('bot-autotrade-text');
 
-    if (t.status === 'RUNNING') {
-      if (statusBadge) {
-        statusBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5';
-        statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> RUNNING';
-      }
-      if (toggleBtn) {
-        toggleBtn.className = 'px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold transition flex items-center gap-2 shadow-sm cursor-pointer';
-        toggleBtn.innerHTML = '<i class="fa-solid fa-pause"></i> <span>Pause Bot</span>';
-      }
-      if (pulseDot) pulseDot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+  const isAutoTrading = t.auto_trading_enabled !== false;
+
+  if (autoTradeBtn) {
+    if (isAutoTrading) {
+      autoTradeBtn.className = 'px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition flex items-center gap-2 shadow-sm cursor-pointer';
+      autoTradeBtn.innerHTML = '<i class="fa-solid fa-robot"></i> <span>Auto-Trading: ON</span>';
+      autoTradeBtn.title = 'Click to switch to Signals-Only Monitoring Mode';
     } else {
-      if (statusBadge) {
-        statusBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1.5';
-        statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-amber-500"></span> PAUSED';
-      }
-      if (toggleBtn) {
-        toggleBtn.className = 'px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition flex items-center gap-2 shadow-sm cursor-pointer';
-        toggleBtn.innerHTML = '<i class="fa-solid fa-play"></i> <span>Resume Bot</span>';
-      }
-      if (pulseDot) pulseDot.className = 'w-2 h-2 rounded-full bg-amber-500';
+      autoTradeBtn.className = 'px-4 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold transition flex items-center gap-2 shadow-sm cursor-pointer';
+      autoTradeBtn.innerHTML = '<i class="fa-solid fa-tower-broadcast"></i> <span>Signals Only (Trade OFF)</span>';
+      autoTradeBtn.title = 'Click to activate Automated Trade Execution';
+    }
+  }
+
+  if (autoTradeBadge && autoTradeText) {
+    if (isAutoTrading) {
+      autoTradeBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5';
+      autoTradeText.innerHTML = '<i class="fa-solid fa-robot text-indigo-500"></i> Auto-Trading: ON ($100 Paper)';
+    } else {
+      autoTradeBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1.5';
+      autoTradeText.innerHTML = '<i class="fa-solid fa-tower-broadcast text-amber-500"></i> Signals-Only Mode';
     }
   }
 

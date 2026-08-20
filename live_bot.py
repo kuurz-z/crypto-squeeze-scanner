@@ -71,6 +71,7 @@ class LiveCryptoBot:
         self.max_positions_per_sector = max_positions_per_sector
         
         self.is_running = False
+        self.auto_trading_enabled = True
         self.is_depleted = False
         self.depletion_report_file: Optional[str] = None
         self.task: Optional[asyncio.Task] = None
@@ -78,6 +79,7 @@ class LiveCryptoBot:
         self.symbols: List[str] = []
         self.open_positions: Dict[str, Dict[str, Any]] = {}
         self.closed_trades: List[Dict[str, Any]] = []
+        self.latest_signals: List[Dict[str, Any]] = []
         self.optimization_logs: List[Dict[str, Any]] = []
         self.macro_audits: List[Dict[str, Any]] = []
         self.hall_of_fame: List[Dict[str, Any]] = []
@@ -190,6 +192,7 @@ class LiveCryptoBot:
                     self.depletion_report_file = state.get("depletion_report_file", None)
                     self.active_strategy_name = state.get("active_strategy_name", self.active_strategy_name)
                     self.active_params = state.get("active_params", self.active_params)
+                    self.auto_trading_enabled = state.get("auto_trading_enabled", True)
                     self.target_rr = self.active_params.get("target_rr", self.target_rr)
                     self.optimization_logs = state.get("optimization_logs", [])
                     self.macro_audits = state.get("macro_audits", [])
@@ -230,6 +233,7 @@ class LiveCryptoBot:
                     "initial_capital": self.initial_capital,
                     "current_balance": self.current_balance,
                     "fixed_risk_usd": self.fixed_risk_usd,
+                    "auto_trading_enabled": self.auto_trading_enabled,
                     "is_depleted": self.is_depleted,
                     "depletion_report_file": self.depletion_report_file,
                     "active_strategy_name": self.active_strategy_name,
@@ -245,6 +249,14 @@ class LiveCryptoBot:
                 }, f, indent=2)
         except Exception as e:
             print(f"[LiveBot] Error saving state: {e}")
+
+    def toggle_auto_trading(self) -> bool:
+        """Toggle auto-trading execution between active auto-trading and signals-only mode."""
+        self.auto_trading_enabled = not self.auto_trading_enabled
+        self.save_state()
+        mode = "AUTO-TRADING ACTIVE (Executing live trades)" if self.auto_trading_enabled else "SIGNALS-ONLY MODE (Zero automated trades)"
+        print(f"[LiveBot] Execution Gateway: {mode}")
+        return self.auto_trading_enabled
 
     async def start(self):
         """Start the continuous background live trading worker."""
@@ -508,12 +520,8 @@ class LiveCryptoBot:
         if self.current_balance < self.fixed_risk_usd:
             return
 
+        discovered_signals = []
         for sym, df in data_map.items():
-            if len(self.open_positions) >= self.max_open_positions:
-                break
-            if sym in self.open_positions:
-                continue
-
             last_idx = len(df) - 1
             signal = self._evaluate_active_strategy(df, last_idx)
             
@@ -524,22 +532,42 @@ class LiveCryptoBot:
                 tp_price = signal['tp_price']
                 risk_dist = signal['risk_distance']
                 target_rr = signal['target_rr']
+                sector = get_crypto_sector(sym)
+
+                # Record discovered market signal for 24/7 Live Radar Feed
+                sig_summary = {
+                    "symbol": sym,
+                    "sector": sector,
+                    "direction": direction,
+                    "entry_price": round(entry_price, 6 if entry_price < 1 else 2),
+                    "sl_price": round(sl_price, 6 if sl_price < 1 else 2),
+                    "tp_price": round(tp_price, 6 if tp_price < 1 else 2),
+                    "target_rr": target_rr,
+                    "discovered_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    "context": signal.get('pre_trade_context', {})
+                }
+                discovered_signals.append(sig_summary)
+
+                # GATEWAY: If Auto-Trading is DISABLED (Signals-Only Mode), skip trade execution
+                if not self.auto_trading_enabled:
+                    continue
+
+                if len(self.open_positions) >= self.max_open_positions:
+                    continue
+                if sym in self.open_positions:
+                    continue
 
                 # 1. Check Bitcoin Macro Trend Gatekeeper (Bypass for BTC itself)
                 if sym != "BTCUSDT":
                     gate_status = self.btc_macro_status.get("gate_status", "ALLOW_ALL")
                     if direction == "LONG" and gate_status == "BLOCK_LONGS":
-                        # BTC is dumping or in severe downtrend -> protect capital from fakeouts
                         continue
                     elif direction == "SHORT" and gate_status == "BLOCK_SHORTS":
-                        # BTC is in strong bullish trend -> block alt shorts
                         continue
 
                 # 2. Check Sector Correlation Limits (Max positions per sector)
-                sector = get_crypto_sector(sym)
                 active_in_sector = [p for p in self.open_positions.values() if p.get('sector') == sector]
                 if len(active_in_sector) >= self.max_positions_per_sector:
-                    # Sector capacity reached -> skip to prevent concentrated exposure
                     continue
 
                 # Fixed $1.00 USD risk per trade
@@ -579,6 +607,9 @@ class LiveCryptoBot:
                 self.open_positions[sym] = pos_record
                 print(f"[LiveBot] OPENED {direction} on {sym} [{sector}] @ ${entry_price} (Fixed Risk: ${risk_amount_usd:.2f} USD, SL: ${sl_price}, TP: ${tp_price} [1:{target_rr} RR])")
                 self.save_state()
+
+        if discovered_signals:
+            self.latest_signals = (discovered_signals + self.latest_signals)[:25]
 
     def _evaluate_active_strategy(self, df: pd.DataFrame, idx: int) -> Optional[Dict[str, Any]]:
         """Evaluate strategy incorporating dynamic active parameters."""
@@ -1689,6 +1720,8 @@ class LiveCryptoBot:
             "recent_optimizations": self.optimization_logs[-5:],
             "macro_audits": self.macro_audits[-5:],
             "hall_of_fame": self.hall_of_fame[-5:],
+            "auto_trading_enabled": self.auto_trading_enabled,
+            "latest_signals": self.latest_signals[-15:],
             "recent_journal": self.closed_trades[-20:][::-1]
         }
 

@@ -354,5 +354,37 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertIn("BTCUSDT", bot_rebooted.open_positions)
         self.assertTrue(any(t.get("symbol") == "ETHUSDT" for t in bot_rebooted.closed_trades))
 
+    def test_signals_only_mode_blocks_trade_execution(self):
+        """Verify that when auto_trading_enabled is False, scanner discovers signals but opens 0 trades."""
+        self.bot.auto_trading_enabled = False
+        
+        # Mock dataframe with squeeze breakout
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        df = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": np.linspace(100, 110, 60),
+            "high": np.linspace(101, 112, 60),
+            "low": np.linspace(99, 109, 60),
+            "close": np.linspace(100, 111, 60),
+            "volume": np.full(60, 5000.0)
+        })
+        
+        data_map = {"SOLUSDT": df}
+        asyncio.run(self.bot._scan_new_entries(data_map))
+        
+        # Assert no positions were opened because auto-trading was disabled
+        self.assertEqual(len(self.bot.open_positions), 0)
+
+    def test_toggle_auto_trading(self):
+        """Verify toggle_auto_trading toggles state and persists."""
+        self.assertTrue(self.bot.auto_trading_enabled)
+        new_state = self.bot.toggle_auto_trading()
+        self.assertFalse(new_state)
+        self.assertFalse(self.bot.auto_trading_enabled)
+        
+        re_enabled = self.bot.toggle_auto_trading()
+        self.assertTrue(re_enabled)
+        self.assertTrue(self.bot.auto_trading_enabled)
+
 if __name__ == '__main__':
     unittest.main()

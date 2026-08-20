@@ -227,6 +227,17 @@ async def toggle_bot():
         await bot_instance.start()
         return {"status": "RUNNING", "message": "Live automated bot started."}
 
+@app.post("/api/bot/toggle_auto_trading")
+async def toggle_bot_auto_trading():
+    """Toggle between active auto-trading execution and signals-only scanning mode."""
+    new_state = bot_instance.toggle_auto_trading()
+    return {
+        "success": True,
+        "auto_trading_enabled": new_state,
+        "status": "AUTO_TRADING_ON" if new_state else "SIGNALS_ONLY",
+        "message": "Auto-Trading Execution ENABLED (Entering paper trades)" if new_state else "Signals-Only Mode ENABLED (Zero automated trades)"
+    }
+
 @app.post("/api/bot/optimize_now")
 async def trigger_optimization():
     """Manually trigger an immediate strategy self-perfection & parameter walk-forward test."""

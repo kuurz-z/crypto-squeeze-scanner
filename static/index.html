@@ -359,25 +359,29 @@
               <i class="fa-solid fa-robot text-indigo-500"></i>
               <span>Continuous Crypto Trading Bot</span>
             </h2>
-            <span id="bot-status-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
-              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> RUNNING
+            <span id="bot-status-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5" title="24/7 Non-stop Market Scanner across 100 Binance Pairs">
+              <span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> <span>SCANNER: 24/7 ACTIVE</span>
+            </span>
+            <!-- AUTO-TRADING EXECUTION GATEWAY BADGE -->
+            <span id="bot-autotrade-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5">
+              <i class="fa-solid fa-robot"></i> <span id="bot-autotrade-text">Auto-Trading: ON ($100 Paper)</span>
             </span>
             <!-- BTC MACRO GATEKEEPER BADGE -->
             <span id="btc-gatekeeper-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5" title="Bitcoin Macro Trend Gatekeeper: Protects Altcoins from broad market selloffs">
               <i class="fa-brands fa-bitcoin text-amber-500"></i> <span id="btc-gatekeeper-text">BTC Gate: Checking...</span>
             </span>
           </div>
-          <p class="text-xs text-slate-500 dark:text-gray-400 mt-0.5">Automated paper-trading across 100 crypto pairs ($100 USD capital, $1.00 fixed risk/trade) with BTC Macro Gatekeeper & Sector Caps</p>
+          <p class="text-xs text-slate-500 dark:text-gray-400 mt-0.5">24/7 Non-Stop Market Scanner with Dual-Mode Execution Gateway (Auto-Trading vs. Signals-Only Radar)</p>
         </div>
       </div>
 
       <!-- Action Buttons -->
-      <div class="flex items-center gap-2.5">
+      <div class="flex items-center gap-2.5 flex-wrap">
+        <button id="btn-bot-toggle-autotrade" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition flex items-center gap-2 shadow-sm cursor-pointer" title="Toggle between automated trade execution and signals-only monitoring">
+          <i class="fa-solid fa-robot"></i> <span>Auto-Trading: ON</span>
+        </button>
         <button id="btn-bot-reset-balance" class="px-3.5 py-2 rounded-lg bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-200 text-xs font-semibold transition flex items-center gap-1.5 border border-slate-200 dark:border-gray-700 cursor-pointer" title="Reset Wallet Balance to $100 USD">
           <i class="fa-solid fa-rotate-left text-amber-500"></i> <span>Reset to $100</span>
-        </button>
-        <button id="btn-bot-toggle" class="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold transition flex items-center gap-2 shadow-sm cursor-pointer">
-          <i class="fa-solid fa-pause"></i> <span>Pause Bot</span>
         </button>
         <button id="btn-bot-optimize" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition flex items-center gap-2 shadow-sm cursor-pointer">
           <i class="fa-solid fa-bolt-lightning"></i> <span>Optimize Strategy Now</span>
