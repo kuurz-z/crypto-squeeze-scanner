@@ -58,8 +58,17 @@ class LiveCryptoBot:
         target_rr: float = 2.0,
         scan_interval_sec: int = 20,
         optimize_every_n_trades: int = 5,
-        max_positions_per_sector: int = 2
+        max_positions_per_sector: int = 2,
+        data_dir: Optional[str] = None
     ):
+        self.data_dir = data_dir
+        self.trades_file = os.path.join(data_dir, "live_trades.json") if data_dir else LIVE_TRADES_FILE
+        self.positions_file = os.path.join(data_dir, "live_positions.json") if data_dir else LIVE_POSITIONS_FILE
+        self.state_file = os.path.join(data_dir, "bot_state.json") if data_dir else BOT_STATE_FILE
+        self.reports_dir = os.path.join(data_dir, "reports") if data_dir else REPORTS_DIR
+        self.archive_file = os.path.join(self.reports_dir, "historical_archive.json")
+        self.hall_of_fame_file = os.path.join(self.reports_dir, "monthly_champions_hall_of_fame.json")
+
         self.initial_capital = initial_capital
         self.current_balance = initial_capital
         self.fixed_risk_usd = fixed_risk_usd
@@ -148,16 +157,16 @@ class LiveCryptoBot:
         """Load persisted trades, balances, open positions, and audit archives from disk."""
         # 1. Load Closed Trades with Multi-File Redundancy
         loaded_trades = []
-        if os.path.exists(LIVE_TRADES_FILE):
+        if os.path.exists(self.trades_file):
             try:
-                with open(LIVE_TRADES_FILE, "r", encoding="utf-8") as f:
+                with open(self.trades_file, "r", encoding="utf-8") as f:
                     loaded_trades = json.load(f)
             except Exception:
                 loaded_trades = []
 
-        if os.path.exists(HISTORICAL_ARCHIVE_FILE):
+        if os.path.exists(self.archive_file):
             try:
-                with open(HISTORICAL_ARCHIVE_FILE, "r", encoding="utf-8") as f:
+                with open(self.archive_file, "r", encoding="utf-8") as f:
                     arch = json.load(f)
                     arch_trades = arch.get("trades", [])
                     existing_ids = {t.get("trade_id") for t in loaded_trades if t.get("trade_id")}
@@ -173,17 +182,17 @@ class LiveCryptoBot:
         self.closed_trades = loaded_trades
 
         # 2. Load Active Open Positions
-        if os.path.exists(LIVE_POSITIONS_FILE):
+        if os.path.exists(self.positions_file):
             try:
-                with open(LIVE_POSITIONS_FILE, "r", encoding="utf-8") as f:
+                with open(self.positions_file, "r", encoding="utf-8") as f:
                     self.open_positions = json.load(f)
             except Exception:
                 self.open_positions = {}
 
         # 3. Load Engine State & Wallets
-        if os.path.exists(BOT_STATE_FILE):
+        if os.path.exists(self.state_file):
             try:
-                with open(BOT_STATE_FILE, "r", encoding="utf-8") as f:
+                with open(self.state_file, "r", encoding="utf-8") as f:
                     state = json.load(f)
                     self.initial_capital = state.get("initial_capital", self.initial_capital)
                     self.current_balance = state.get("current_balance", self.current_balance)
@@ -208,9 +217,9 @@ class LiveCryptoBot:
                 pass
 
         # 4. Load Hall of Fame Registry
-        if os.path.exists(HALL_OF_FAME_FILE):
+        if os.path.exists(self.hall_of_fame_file):
             try:
-                with open(HALL_OF_FAME_FILE, "r", encoding="utf-8") as f:
+                with open(self.hall_of_fame_file, "r", encoding="utf-8") as f:
                     self.hall_of_fame = json.load(f)
             except Exception:
                 self.hall_of_fame = []
@@ -224,11 +233,13 @@ class LiveCryptoBot:
     def save_state(self):
         """Persist state and wallet balances to disk."""
         try:
-            with open(LIVE_TRADES_FILE, "w", encoding="utf-8") as f:
+            if self.data_dir:
+                os.makedirs(self.data_dir, exist_ok=True)
+            with open(self.trades_file, "w", encoding="utf-8") as f:
                 json.dump(self.closed_trades, f, indent=2)
-            with open(LIVE_POSITIONS_FILE, "w", encoding="utf-8") as f:
+            with open(self.positions_file, "w", encoding="utf-8") as f:
                 json.dump(self.open_positions, f, indent=2)
-            with open(BOT_STATE_FILE, "w", encoding="utf-8") as f:
+            with open(self.state_file, "w", encoding="utf-8") as f:
                 json.dump({
                     "initial_capital": self.initial_capital,
                     "current_balance": self.current_balance,
@@ -816,7 +827,7 @@ class LiveCryptoBot:
     def _archive_entry(self, category: str, entry: Dict[str, Any]):
         """Persist structured records into the permanent historical archive JSON file."""
         try:
-            os.makedirs(REPORTS_DIR, exist_ok=True)
+            os.makedirs(self.reports_dir, exist_ok=True)
             archive_data = {
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "total_trades_archived": 0,
@@ -825,9 +836,9 @@ class LiveCryptoBot:
                 "weekly_macro_optimizations": [],
                 "monthly_macro_audits": []
             }
-            if os.path.exists(HISTORICAL_ARCHIVE_FILE):
+            if os.path.exists(self.archive_file):
                 try:
-                    with open(HISTORICAL_ARCHIVE_FILE, "r", encoding="utf-8") as f:
+                    with open(self.archive_file, "r", encoding="utf-8") as f:
                         archive_data = json.load(f)
                 except Exception:
                     pass
@@ -840,7 +851,7 @@ class LiveCryptoBot:
                 archive_data["total_trades_archived"] = len(archive_data["trades"])
             archive_data["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            with open(HISTORICAL_ARCHIVE_FILE, "w", encoding="utf-8") as f:
+            with open(self.archive_file, "w", encoding="utf-8") as f:
                 json.dump(archive_data, f, indent=2)
         except Exception as e:
             print(f"[LiveBot:Archive] Notice: Error archiving data: {e}")

@@ -2,6 +2,8 @@ import unittest
 import asyncio
 import os
 import json
+import tempfile
+import shutil
 import pandas as pd
 import numpy as np
 from live_bot import LiveCryptoBot
@@ -9,17 +11,25 @@ from live_bot import LiveCryptoBot
 class TestLiveBotEngine(unittest.TestCase):
 
     def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
         self.bot = LiveCryptoBot(
             initial_capital=100.0,
             fixed_risk_usd=1.0,
             timeframe="15m", 
             max_open_positions=3, 
             target_rr=2.0, 
-            scan_interval_sec=5
+            scan_interval_sec=5,
+            data_dir=self.test_dir
         )
         self.bot.open_positions = {}
         self.bot.closed_trades = []
         self.bot.current_balance = 100.0
+
+    def tearDown(self):
+        try:
+            shutil.rmtree(self.test_dir)
+        except Exception:
+            pass
 
     def test_bot_initialization(self):
         self.assertEqual(self.bot.initial_capital, 100.0)
@@ -347,7 +357,7 @@ class TestLiveBotEngine(unittest.TestCase):
         self.bot.save_state()
 
         # 2. Simulate server restart by creating a new instance
-        bot_rebooted = LiveCryptoBot(initial_capital=100.0, fixed_risk_usd=1.0)
+        bot_rebooted = LiveCryptoBot(initial_capital=100.0, fixed_risk_usd=1.0, data_dir=self.test_dir)
         
         # 3. Assert full recovery
         self.assertEqual(bot_rebooted.current_balance, 105.42)

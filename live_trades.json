@@ -1,1 +1,59 @@
-[]
+[
+  {
+    "trade_id": 999,
+    "symbol": "BTCUSDT",
+    "sector": "LAYER_1",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_price": 60000.0,
+    "exit_price": 62000.0,
+    "bars_held": 1,
+    "net_r": 2.0,
+    "pnl_usd": 2.0,
+    "outcome": "WIN",
+    "exit_time_str": "2026-08-20 18:40:00"
+  },
+  {
+    "trade_id": 1,
+    "symbol": "BTCUSDT",
+    "sector": "LAYER_1",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1700000000,
+    "entry_time_str": "2026-08-20 12:00:00",
+    "exit_time": 1700002700,
+    "exit_time_str": "2026-08-20 18:48:56",
+    "entry_price": 100.0,
+    "exit_price": 109.5,
+    "sl_price": 109.5,
+    "tp_price": 120.0,
+    "target_rr": 2.0,
+    "risk_amount_usd": 1.0,
+    "position_qty": 1.0,
+    "position_value_usd": 100.0,
+    "outcome": "TRAILING_STOP_WIN",
+    "raw_r": 0.95,
+    "net_r": 0.87,
+    "pnl_usd": 0.87,
+    "account_balance": 102.87,
+    "mfe_r": 1.65,
+    "mae_r": 0.0,
+    "bars_held": 3,
+    "friction_breakdown": "Gross: +0.95R | Friction: -0.08R | Net: +0.87R ($+0.87 USD)",
+    "trade_efficiency": "MFE: +1.65R | MAE: -0.0R",
+    "pre_trade_context": {
+      "reason": "Squeeze momentum breakout with high RVOL"
+    },
+    "diagnostic": {
+      "summary": "Dynamic trailing stop locked in +0.87R profit as momentum cooled off after peaking at +1.65R MFE.",
+      "catalyst_type": "ATR Trailing Stop Protected Profit",
+      "key_factors": [
+        "Dynamic stop protection prevented giving back gains",
+        "MFE reached +1.65R before trailing SL secured profit"
+      ],
+      "risk_management_quality": "High"
+    }
+  }
+]
