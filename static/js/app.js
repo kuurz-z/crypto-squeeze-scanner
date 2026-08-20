@@ -882,7 +882,14 @@ function renderBotMetrics(t) {
   if (winLossCount) winLossCount.innerText = `${t.win_count || 0}W - ${t.loss_count || 0}L (${t.total_closed_trades || 0} Trades)`;
 
   const pfEl = document.getElementById('bot-profit-factor');
-  if (pfEl) pfEl.innerText = (t.profit_factor || 0.0).toFixed(2);
+  if (pfEl) {
+    const pf = t.profit_factor || 0.0;
+    if (pf >= 999.0 || (t.win_count > 0 && t.loss_count === 0)) {
+      pfEl.innerHTML = '<span>MAX <span class="text-xs font-normal opacity-75">(0 Losses)</span></span>';
+    } else {
+      pfEl.innerText = pf.toFixed(2);
+    }
+  }
 
   // BTC Macro Trend Gatekeeper Status Badge
   const btcBadge = document.getElementById('btc-gatekeeper-badge');
