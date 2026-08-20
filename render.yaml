@@ -1,8 +1,9 @@
 ﻿services:
   - type: web
     name: crypto-squeeze-bot
-    env: docker
+    runtime: python
     plan: free
-    region: singapore
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port 
     autoDeploy: true
-    healthCheckPath: /api/bot/status
