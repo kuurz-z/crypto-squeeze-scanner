@@ -1147,7 +1147,7 @@ function renderBotJournal(trades) {
   feed.innerHTML = pageItems.map(t => {
     const tradeId = t.trade_id || 1;
     const isLong = t.direction === 'LONG';
-    const dirColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-500/30' : 'text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/50 border-purple-300 dark:border-purple-500/30';
+    const dirColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-500/30 font-bold' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-500/30 font-bold';
     const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : round((t.net_r || 0) * 1.0, 2);
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
     const isWin = (t.net_r > 0) || (pnlUsd > 0) || (t.outcome && t.outcome.includes('WIN'));
