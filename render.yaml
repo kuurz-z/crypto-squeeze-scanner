@@ -1,0 +1,8 @@
+﻿services:
+  - type: web
+    name: crypto-squeeze-bot
+    env: docker
+    plan: free
+    region: singapore
+    autoDeploy: true
+    healthCheckPath: /api/bot/status
