@@ -85,18 +85,18 @@ class TestLiveBotEngine(unittest.TestCase):
             "entry_price": 100.0,
             "current_price": 100.0,
             "sl_price": 90.0,
-            "tp_price": 120.0,
+            "tp_price": 125.0,
             "risk_distance": 10.0,
             "risk_amount_usd": 1.0,
-            "target_rr": 2.0,
+            "target_rr": 2.5,
             "pre_trade_context": {"reason": "Test setup"}
         }
 
-        # Mock candle advancing to +1.1R (High = 111.0, Close = 110.5, Low = 105.0)
+        # Mock candle advancing to +1.85R (High = 118.5, Close = 118.0, Low = 105.0)
         df_step1 = pd.DataFrame([{
             'time': 1700000900,
-            'close': 110.5,
-            'high': 111.0,
+            'close': 118.0,
+            'high': 118.5,
             'low': 105.0,
             'volume': 1000,
             'atr14': 7.0,
@@ -110,11 +110,11 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertTrue(pos.get('is_breakeven'))
         self.assertGreater(pos['sl_price'], 100.0)  # SL raised to entry + fees
 
-        # Mock candle advancing to +1.6R (High = 116.5, Close = 116.0, Low = 114.0)
+        # Mock candle advancing to +2.3R (High = 123.0, Close = 122.5, Low = 114.0)
         df_step2 = pd.DataFrame([{
             'time': 1700001800,
-            'close': 116.0,
-            'high': 116.5,
+            'close': 122.5,
+            'high': 123.0,
             'low': 114.0,
             'volume': 1200,
             'atr14': 7.0,
@@ -127,14 +127,14 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertIsNotNone(pos)
         self.assertTrue(pos.get('is_trailing'))
         self.assertEqual(pos.get('exit_status'), "Trailing Active ⚡")
-        self.assertEqual(pos['sl_price'], 109.5)  # 116.5 - 7.0 ATR
+        self.assertEqual(pos['sl_price'], 115.5)
 
-        # Mock candle triggering trailing stop (Low = 108.0 <= 109.5 SL)
+        # Mock candle triggering trailing stop (Low = 115.0 <= 116.0 SL)
         df_step3 = pd.DataFrame([{
             'time': 1700002700,
-            'close': 108.5,
-            'high': 112.0,
-            'low': 108.0,
+            'close': 115.5,
+            'high': 118.0,
+            'low': 115.0,
             'volume': 800,
             'atr14': 7.0,
             'momentum': -1.0,
@@ -159,17 +159,19 @@ class TestLiveBotEngine(unittest.TestCase):
         dates = pd.date_range(start='2026-08-01', periods=60, freq='15min')
         mock_df = pd.DataFrame({
             'time': [int(d.timestamp()) for d in dates],
-            'open': np.linspace(100, 150, 60),
-            'high': np.linspace(101, 152, 60),
-            'low': np.linspace(99, 149, 60),
-            'close': np.linspace(100, 151, 60),
+            'open': [120.0] * 59 + [146.0],
+            'high': [125.0] * 59 + [152.0],
+            'low': [118.0] * 59 + [144.5],
+            'close': [122.0] * 59 + [148.0],
             'volume': [1000] * 59 + [5000],
-            'squeeze_on': [True] * 58 + [False, False],
-            'bb_upper': [140] * 60,
+            'squeeze_on': [False] * 60,
+            'bb_upper': [160] * 60,
             'bb_lower': [100] * 60,
-            'ema50': [120] * 60,
+            'ema20': [145.0] * 60,
+            'ema50': [140.0] * 60,
+            'ema200': [120.0] * 60,
             'atr14': [5.0] * 60,
-            'rsi14': [65.0] * 60,
+            'rsi14': [48.0] * 60,
             'momentum': [2.0] * 60,
             'rvol': [2.5] * 60
         })
@@ -219,17 +221,19 @@ class TestLiveBotEngine(unittest.TestCase):
         dates = pd.date_range(start='2026-08-01', periods=60, freq='15min')
         mock_df = pd.DataFrame({
             'time': [int(d.timestamp()) for d in dates],
-            'open': np.linspace(10, 15, 60),
-            'high': np.linspace(10.1, 15.2, 60),
-            'low': np.linspace(9.9, 14.9, 60),
-            'close': np.linspace(10, 15.1, 60),
+            'open': [12.0] * 59 + [14.0],
+            'high': [13.0] * 59 + [15.2],
+            'low': [11.0] * 59 + [13.9],
+            'close': [12.5] * 59 + [15.0],
             'volume': [1000] * 59 + [5000],
-            'squeeze_on': [True] * 58 + [False, False],
-            'bb_upper': [14] * 60,
+            'squeeze_on': [False] * 60,
+            'bb_upper': [16] * 60,
             'bb_lower': [10] * 60,
-            'ema50': [12] * 60,
+            'ema20': [14.0] * 60,
+            'ema50': [13.0] * 60,
+            'ema200': [11.0] * 60,
             'atr14': [0.5] * 60,
-            'rsi14': [65.0] * 60,
+            'rsi14': [48.0] * 60,
             'momentum': [2.0] * 60,
             'rvol': [2.5] * 60
         })
@@ -489,21 +493,23 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertIn("HOMEUSDT", self.bot.symbol_loss_cooldowns)
         self.assertGreater(self.bot.symbol_loss_cooldowns["HOMEUSDT"], ph_now())
 
-        # 3. Simulate another scan immediately with breakout signal
+        # 3. Simulate another scan immediately with pullback signal
         dates = pd.date_range("2026-01-01", periods=60, freq="15min")
         df_entry = pd.DataFrame({
             "time": [int(d.timestamp()) for d in dates],
-            "open": np.linspace(0.009, 0.019, 60),
-            "high": np.linspace(0.0105, 0.021, 60),
-            "low": np.linspace(0.0085, 0.0185, 60),
-            "close": np.linspace(0.01, 0.02, 60),
+            "open": [0.015] * 59 + [0.017],
+            "high": [0.016] * 59 + [0.021],
+            "low": [0.014] * 59 + [0.0169],
+            "close": [0.0155] * 59 + [0.020],
             "volume": np.full(60, 5000.0),
-            "squeeze_on": [True] * 58 + [False, False],
-            "bb_upper": [0.018] * 60,
+            "squeeze_on": [False] * 60,
+            "bb_upper": [0.025] * 60,
             "bb_lower": [0.010] * 60,
-            "ema50": [0.014] * 60,
+            "ema20": [0.017] * 60,
+            "ema50": [0.015] * 60,
+            "ema200": [0.012] * 60,
             "atr14": [0.001] * 60,
-            "rsi14": [65.0] * 60,
+            "rsi14": [48.0] * 60,
             "momentum": [1.0] * 60,
             "rvol": [2.5] * 60
         })
@@ -513,6 +519,7 @@ class TestLiveBotEngine(unittest.TestCase):
 
         # 4. Fast-forward past cooldown
         self.bot.symbol_loss_cooldowns["HOMEUSDT"] = ph_now() - timedelta(seconds=1)
+        self.bot.symbol_last_entry_candle.clear()
         asyncio.run(self.bot._scan_new_entries({"HOMEUSDT": df_entry}))
         # Now allowed to re-enter
         self.assertIn("HOMEUSDT", self.bot.open_positions)
@@ -739,6 +746,31 @@ class TestLiveBotEngine(unittest.TestCase):
         # 2. 404 when closing again
         response_404 = client.post("/api/bot/positions/TESTUSDT/close", json={})
         self.assertEqual(response_404.status_code, 404)
+
+    def test_telemetry_returns_all_closed_trades_unlimited(self):
+        # Populate bot with 25 closed trades
+        self.bot.closed_trades = [
+            {
+                "trade_id": i,
+                "symbol": f"COIN{i}USDT",
+                "direction": "LONG",
+                "entry_time_str": "2026-08-20 12:00:00",
+                "exit_time_str": "2026-08-20 13:00:00",
+                "entry_price": 10.0,
+                "exit_price": 11.0,
+                "outcome": "WIN",
+                "net_r": 1.0,
+                "pnl_usd": 1.0,
+                "bars_held": 2
+            }
+            for i in range(1, 26)
+        ]
+        telemetry = self.bot.get_telemetry()
+        self.assertEqual(len(telemetry["recent_journal"]), 25)
+        self.assertEqual(telemetry["total_closed_trades"], 25)
+        # Verify newest trade is first
+        self.assertEqual(telemetry["recent_journal"][0]["trade_id"], 25)
+        self.assertEqual(telemetry["recent_journal"][-1]["trade_id"], 1)
 
 if __name__ == '__main__':
     unittest.main()

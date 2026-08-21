@@ -9,3 +9,7 @@ env/
 .DS_Store
 Thumbs.db
 *.db
+*.db-journal
+reports/ai_evolution_report_*.md
+reports/capital_depleted_summary_*.md
+reports/trade_journal_*.md

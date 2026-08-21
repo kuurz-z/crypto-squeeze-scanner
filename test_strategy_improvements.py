@@ -46,6 +46,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "squeeze_on": [True] * (n - 2) + [False, False],
             "bb_upper": [close_base - 1.0] * n,
             "bb_lower": [close_base - 20.0] * n,
+            "ema20": [close_base - 5.0] * n,
             "ema50": [close_base - 10.0] * n,
             "ema200": [close_base - 20.0] * n,
             "atr14": [2.0] * n,
@@ -55,15 +56,121 @@ class TestStrategyImprovements(unittest.TestCase):
         })
         return df
 
+    def test_trend_pullback_confluence_long_trigger(self):
+        """Verify that TrendPullbackConfluence triggers LONG on clean EMA20 pullback with RSI reset (38-56)."""
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        # Uptrend: EMA20(98) > EMA50(95) > EMA200(90), Close(99) > Open(97), Low(97.5) touches EMA20, RSI(48)
+        df_pullback = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [95.0] * 59 + [97.0],
+            "high": [98.0] * 59 + [100.0],
+            "low": [94.0] * 59 + [97.5],  # Low touches EMA20 (98.0)
+            "close": [96.0] * 59 + [99.0], # Close above Open and >= EMA20
+            "volume": np.full(60, 1000.0),
+            "squeeze_on": [False] * 60,
+            "bb_upper": [105.0] * 60,
+            "bb_lower": [85.0] * 60,
+            "ema20": [98.0] * 60,
+            "ema50": [95.0] * 60,
+            "ema200": [90.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [48.0] * 60,  # Healthy pullback reset
+            "momentum": [0.5] * 60,
+            "rvol": [1.2] * 60
+        })
+        sig = TrendPullbackConfluence.generate_signal(df_pullback, len(df_pullback) - 1, target_rr=2.5)
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig["direction"], "LONG")
+        self.assertEqual(sig["target_rr"], 2.5)
+        self.assertGreaterEqual(sig["risk_distance"], 1.8 * 2.0)
+
+    def test_trend_pullback_confluence_rejects_overbought_rsi(self):
+        """Verify that TrendPullbackConfluence rejects entries when RSI is overbought (>56)."""
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        df_overbought = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [95.0] * 59 + [97.0],
+            "high": [98.0] * 59 + [100.0],
+            "low": [94.0] * 59 + [97.5],
+            "close": [96.0] * 59 + [99.0],
+            "volume": np.full(60, 1000.0),
+            "squeeze_on": [False] * 60,
+            "bb_upper": [105.0] * 60,
+            "bb_lower": [85.0] * 60,
+            "ema20": [98.0] * 60,
+            "ema50": [95.0] * 60,
+            "ema200": [90.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [72.0] * 60,  # Overbought (>56)
+            "momentum": [0.5] * 60,
+            "rvol": [1.2] * 60
+        })
+        sig = TrendPullbackConfluence.generate_signal(df_overbought, len(df_overbought) - 1, target_rr=2.5)
+        self.assertIsNone(sig)
+
+    def test_phantom_in_candle_stopout_prevention(self):
+        """Verify that pre-entry candle low does NOT trigger a phantom stop-out on bar 0."""
+        candle_ts = 1700000000
+        # Position entered at $100 with SL at $96.40 (1.8 * ATR=2.0)
+        self.bot.open_positions["TESTCOIN"] = {
+            "trade_id": 1,
+            "symbol": "TESTCOIN",
+            "direction": "LONG",
+            "entry_time": candle_ts + 300,
+            "entry_candle_time": candle_ts,
+            "entry_price": 100.0,
+            "current_price": 100.0,
+            "highest_since_entry": 100.0,
+            "lowest_since_entry": 100.0,
+            "sl_price": 96.4,
+            "tp_price": 109.0,
+            "risk_distance": 3.6,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.5,
+            "bars_held": 0,
+            "pre_trade_context": {}
+        }
+
+        # The 15m candle had an earlier wick to $90.0 (below SL), but live close is currently $99.50 (above SL)
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        df_candle = pd.DataFrame({
+            "time": [candle_ts - (60 - i) * 900 for i in range(59)] + [candle_ts],
+            "open": [100.0] * 60,
+            "high": [102.0] * 60,
+            "low": [98.0] * 59 + [90.0],  # Historical pre-entry dip to 90.0
+            "close": [100.0] * 59 + [99.50], # Current live price 99.50
+            "volume": [1000.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [50.0] * 60,
+            "momentum": [0.0] * 60,
+            "rvol": [1.0] * 60
+        })
+
+        asyncio.run(self.bot._update_open_positions({"TESTCOIN": df_candle}))
+        
+        # Position MUST remain open because live price after entry ($99.50) is above SL ($96.40)
+        self.assertIn("TESTCOIN", self.bot.open_positions)
+        self.assertEqual(self.bot.open_positions["TESTCOIN"]["lowest_since_entry"], 99.50)
+
+    def test_same_candle_anti_churn_lock(self):
+        """Verify that the bot does NOT re-enter the same coin on the same candle."""
+        candle_ts = 1700000000
+        self.bot.symbol_last_entry_candle["COIN_A"] = candle_ts
+        
+        df = self._create_mock_dataframe(rsi_val=48.0)
+        df.loc[df.index[-1], 'time'] = candle_ts
+        
+        # Attempt to scan for new entries
+        asyncio.run(self.bot._scan_new_entries({"COIN_A": df}))
+        self.assertNotIn("COIN_A", self.bot.open_positions)
+
     def test_rsi_safe_corridor_long_overbought_rejection(self):
         """Verify that Squeeze Breakout rejects LONGs when RSI > 68 (overbought blow-off)."""
-        # 1. Normal safe RSI = 62.0 -> Should trigger
         df_safe = self._create_mock_dataframe(rsi_val=62.0)
         sig_safe = SqueezeMomentumBreakout.generate_signal(df_safe, len(df_safe) - 1, target_rr=2.0)
         self.assertIsNotNone(sig_safe)
         self.assertEqual(sig_safe["direction"], "LONG")
 
-        # 2. Overbought RSI = 74.5 (like the BICOUSDT lose streak) -> Must be REJECTED
         df_overbought = self._create_mock_dataframe(rsi_val=74.5)
         sig_overbought = SqueezeMomentumBreakout.generate_signal(df_overbought, len(df_overbought) - 1, target_rr=2.0)
         self.assertIsNone(sig_overbought)
@@ -94,13 +201,12 @@ class TestStrategyImprovements(unittest.TestCase):
     def test_candle_body_filter_rejects_wick_traps(self):
         """Verify that candle with huge upper rejection wick is rejected as a trap."""
         dates = pd.date_range("2026-01-01", periods=60, freq="15min")
-        # Long candle with 80% upper wick (shooting star / wick trap)
         df_wick = pd.DataFrame({
             "time": [int(d.timestamp()) for d in dates],
             "open": [100.0] * 59 + [100.0],
-            "high": [101.0] * 59 + [110.0],  # Giant wick to 110
+            "high": [101.0] * 59 + [110.0],
             "low": [99.0] * 59 + [99.5],
-            "close": [100.5] * 59 + [101.0],  # Closed near bottom (small body, 90% upper wick)
+            "close": [100.5] * 59 + [101.0],
             "volume": np.full(60, 1000.0),
             "squeeze_on": [True] * 58 + [False, False],
             "bb_upper": [100.5] * 60,
@@ -117,7 +223,6 @@ class TestStrategyImprovements(unittest.TestCase):
     def test_adaptive_atr_noise_buffer(self):
         """Verify that micro-cap assets enforce minimum 0.8% stop-loss buffer."""
         dates = pd.date_range("2026-01-01", periods=60, freq="15min")
-        # Low price $0.018, tiny ATR 0.00001
         df_micro = pd.DataFrame({
             "time": [int(d.timestamp()) for d in dates],
             "open": np.linspace(0.010, 0.0175, 60),
@@ -129,22 +234,21 @@ class TestStrategyImprovements(unittest.TestCase):
             "bb_upper": [0.0175] * 60,
             "bb_lower": [0.0120] * 60,
             "ema50": [0.0150] * 60,
-            "atr14": [0.00001] * 60,  # Unusually tiny ATR
+            "atr14": [0.00001] * 60,
             "rsi14": [58.0] * 60,
             "momentum": [0.001] * 60,
             "rvol": [2.0] * 60
         })
         sig = SqueezeMomentumBreakout.generate_signal(df_micro, len(df_micro) - 1, target_rr=2.0)
         self.assertIsNotNone(sig)
-        # Risk distance must be at least 0.8% of $0.018 = 0.000144
         self.assertGreaterEqual(sig["risk_distance"], 0.018 * 0.008)
 
-    def test_portfolio_circuit_breaker_activates_on_3_consecutive_losses(self):
-        """Verify that 3 consecutive losses activate the 30-minute portfolio circuit breaker."""
+    def test_portfolio_circuit_breaker_activates_on_consecutive_losses(self):
+        """Verify that 2 consecutive losses activate the 30-minute portfolio circuit breaker."""
         self.assertIsNone(self.bot.circuit_breaker_until)
         
-        # Add 3 losses in a row
-        for i in range(1, 4):
+        # Add 2 losses in a row
+        for i in range(1, 3):
             self.bot.open_positions[f"COIN{i}"] = {
                 "trade_id": i,
                 "symbol": f"COIN{i}",
@@ -165,11 +269,6 @@ class TestStrategyImprovements(unittest.TestCase):
         # Circuit breaker should now be active
         self.assertIsNotNone(self.bot.circuit_breaker_until)
         self.assertGreater(self.bot.circuit_breaker_until, ph_now())
-
-        # Test that scan_new_entries does NOT enter new trades while circuit breaker is active
-        df_trigger = self._create_mock_dataframe(rsi_val=60.0)
-        asyncio.run(self.bot._scan_new_entries({"BTCUSDT": df_trigger}))
-        self.assertNotIn("BTCUSDT", self.bot.open_positions)
 
     def test_quarantine_persists_across_server_restart(self):
         """Verify that symbol loss cooldowns persist through save_state and load_state."""

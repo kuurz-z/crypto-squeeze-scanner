@@ -1,6 +1,6 @@
 {
   "initial_capital": 100.0,
-  "current_balance": 102.76,
+  "current_balance": 110.12,
   "fixed_risk_usd": 1.0,
   "auto_trading_enabled": true,
   "is_depleted": false,
@@ -52,5 +52,5 @@
   "last_daily_snapshot": "2026-08-20 22:53:54",
   "last_weekly_opt": null,
   "last_monthly_opt": "2026-08-20 22:53:54",
-  "updated_at": "2026-08-21 01:00:40"
+  "updated_at": "2026-08-21 17:39:16"
 }

@@ -144,11 +144,11 @@ class LiveCryptoBot:
         self.cooldown_minutes: int = self.timeframe_profile.get("cooldown_minutes", 45)
         
         self.champion_stats: Dict[str, Any] = {
-            "name": "Squeeze_Momentum_Breakout",
+            "name": "Trend_Pullback_Confluence",
             "timeframe": self.timeframe,
-            "win_rate": 42.0,
-            "expectancy_r": 0.25,
-            "score": 2.0,
+            "win_rate": 43.1,
+            "expectancy_r": 0.19,
+            "score": 2.5,
             "upgrades_count": 0,
             "crowned_at": ph_now().strftime("%Y-%m-%d %H:%M:%S")
         }
@@ -166,17 +166,15 @@ class LiveCryptoBot:
         }
         
         self.circuit_breaker_until: Optional[datetime] = None
-        self.active_strategy_name = "Squeeze_Momentum_Breakout"
+        self.active_strategy_name = "Trend_Pullback_Confluence"
         self.active_params = {
-            "rvol_min": 1.20,
-            "atr_sl_mult": 1.40,
-            "target_rr": self.target_rr,
-            "rsi_min_long": 50.0,
-            "rsi_max_long": 68.0,
-            "rsi_min_short": 32.0,
-            "rsi_max_short": 50.0,
-            "min_body_ratio": 0.25,
-            "max_wick_ratio": 0.50,
+            "rvol_min": 1.0,
+            "atr_sl_mult": 1.80,
+            "target_rr": 2.5,
+            "rsi_min_long": 38.0,
+            "rsi_max_long": 56.0,
+            "rsi_min_short": 44.0,
+            "rsi_max_short": 62.0,
             "min_risk_dist_pct": 0.008
         }
         
@@ -190,7 +188,7 @@ class LiveCryptoBot:
         self.load_state()
         self.save_state()
 
-    def reset_account(self, initial_capital: float = 100.0, fixed_risk_usd: float = 1.0, target_rr: float = 2.0):
+    def reset_account(self, initial_capital: float = 100.0, fixed_risk_usd: float = 1.0, target_rr: float = 2.5):
         """Reset paper wallet balance to specified USD capital and clear depletion flags without wiping trade history."""
         self.initial_capital = initial_capital
         self.current_balance = initial_capital
@@ -577,10 +575,10 @@ class LiveCryptoBot:
     async def _update_open_positions(self, data_map: Dict[str, pd.DataFrame]):
         """
         Dynamic 4-Layer Exit Engine with Unlimited Profit Runner Capability:
-        - Layer 1: Initial Fixed Stop Loss (-$1.00 USD Risk).
-        - Layer 2: Automated Breakeven De-risking at +1.0R (SL moves to entry + fees).
-        - Layer 3: Dynamic ATR Trailing Stop at +1.5R (Locking in profit).
-        - Layer 4: Unlimited Profit Runner at >= +2.0R (Trails 0.8x ATR to capture +3R, +4.5R, +6R+).
+        - Layer 1: Initial Fixed Stop Loss (-$1.00 USD Risk, 1.8x ATR buffer).
+        - Layer 2: Automated Breakeven De-risking at +1.8R (SL moves to entry + fees, giving trade breathing room).
+        - Layer 3: Dynamic ATR Trailing Stop at +2.2R (Locking in profit).
+        - Layer 4: Unlimited Profit Runner at >= +2.5R (Trails 0.8x ATR to capture +3R, +4.5R, +6R+).
         """
         closed_symbols = []
         for sym, pos in list(self.open_positions.items()):
@@ -595,9 +593,11 @@ class LiveCryptoBot:
             curr_time = int(time.time())
             candle_time = int(last_bar['time']) if 'time' in last_bar else 0
             entry_candle_time = pos.get('entry_candle_time', 0)
+            bars_held = pos.get('bars_held', 0)
 
-            # Prevent phantom stop-outs: If still on the entry candle, only evaluate against live price action since entry
-            if entry_candle_time > 0 and candle_time == entry_candle_time:
+            # Prevent phantom stop-outs: If still on the entry candle (or bar 0/1), only evaluate against live price action since entry
+            is_entry_candle = (bars_held <= 1) or (entry_candle_time > 0 and candle_time == entry_candle_time)
+            if is_entry_candle:
                 pos['highest_since_entry'] = max(pos.get('highest_since_entry', curr_price), curr_price)
                 pos['lowest_since_entry'] = min(pos.get('lowest_since_entry', curr_price), curr_price)
                 eval_high = pos['highest_since_entry']
@@ -632,20 +632,20 @@ class LiveCryptoBot:
 
             mfe = pos.get('mfe_r', 0.0)
 
-            # LAYER 2: Breakeven De-risking at +1.0R
-            if mfe >= 1.0 and not pos.get('is_breakeven'):
+            # LAYER 2: Breakeven De-risking at +1.8R (giving trades room to develop)
+            if mfe >= 1.8 and not pos.get('is_breakeven'):
                 pos['is_breakeven'] = True
                 pos['exit_status'] = "BE Protected 🛡️"
-                be_sl = entry_p + (0.08 * risk_dist) if is_long else entry_p - (0.08 * risk_dist)
+                be_sl = entry_p + (0.05 * risk_dist) if is_long else entry_p - (0.05 * risk_dist)
                 pos['sl_price'] = round(be_sl, 6 if entry_p < 1 else 2)
-                print(f"[LiveBot:ExitEngine] {sym} reached +1.0R! SL raised to Breakeven (${pos['sl_price']}) to guarantee zero risk.")
+                print(f"[LiveBot:ExitEngine] {sym} reached +1.8R! SL raised to Breakeven (${pos['sl_price']}) to guarantee zero risk.")
 
-            # LAYER 3: Dynamic ATR Trailing Stop at +1.5R
-            if mfe >= 1.5:
+            # LAYER 3: Dynamic ATR Trailing Stop at +2.2R
+            if mfe >= 2.2:
                 pos['is_trailing'] = True
                 if not pos.get('is_unlimited_runner'):
                     pos['exit_status'] = "Trailing Active ⚡"
-                atr_val = float(last_bar['atr14']) if 'atr14' in last_bar else risk_dist / 1.3
+                atr_val = float(last_bar['atr14']) if 'atr14' in last_bar else risk_dist / 1.8
                 if is_long:
                     trail_sl = round(eval_high - (1.0 * atr_val), 6 if entry_p < 1 else 2)
                     if trail_sl > pos['sl_price']:
@@ -655,7 +655,7 @@ class LiveCryptoBot:
                     if trail_sl < pos['sl_price']:
                         pos['sl_price'] = trail_sl
 
-            # LAYER 4: Dynamic Unlimited Profit Runner Engine (>= 1:2.0 RR Floor with No Upper Ceiling)
+            # LAYER 4: Dynamic Unlimited Profit Runner Engine (>= 1:2.5 RR Floor with No Upper Ceiling)
             mom = float(last_bar['momentum']) if 'momentum' in last_bar else 0.0
             rsi = float(last_bar['rsi14']) if 'rsi14' in last_bar else 50.0
             rvol = float(last_bar['rvol']) if 'rvol' in last_bar else 1.0
@@ -668,7 +668,7 @@ class LiveCryptoBot:
                 if strong_trend_continuing:
                     pos['is_unlimited_runner'] = True
                     pos['exit_status'] = f"Runner {mfe:+.1f}R 🚀"
-                    atr_val = float(last_bar['atr14']) if 'atr14' in last_bar else risk_dist / 1.3
+                    atr_val = float(last_bar['atr14']) if 'atr14' in last_bar else risk_dist / 1.8
                     if is_long:
                         runner_sl = round(eval_high - (0.8 * atr_val), 6 if entry_p < 1 else 2)
                         if runner_sl > pos['sl_price']:
@@ -893,7 +893,7 @@ class LiveCryptoBot:
                 strat_cls = s
                 break
         if strat_cls is None:
-            strat_cls = SqueezeMomentumBreakout
+            strat_cls = TrendPullbackConfluence
 
         return strat_cls.generate_signal(
             df, 
@@ -1825,10 +1825,10 @@ class LiveCryptoBot:
         print(f"[LiveBot:Monthly Tournament] Initiating End-of-Month Strategy Championship for {month_str}...")
 
         tournament_competitors = [
-            {"name": "Squeeze_Momentum_Breakout", "timeframe": "15m", "params": {"rvol_min": 1.20, "atr_sl_mult": 1.30, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_short": 50.0}},
-            {"name": "Liquidity_Sweep_Reversal", "timeframe": "15m", "params": {"rvol_min": 1.25, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 52.0, "rsi_max_short": 48.0}},
-            {"name": "Trend_Pullback_Confluence", "timeframe": "30m", "params": {"rvol_min": 1.15, "atr_sl_mult": 1.50, "target_rr": 2.0, "rsi_min_long": 48.0, "rsi_max_short": 52.0}},
-            {"name": "Squeeze_Momentum_Breakout", "timeframe": "30m", "params": {"rvol_min": 1.25, "atr_sl_mult": 1.35, "target_rr": 2.5, "rsi_min_long": 50.0, "rsi_max_short": 50.0}}
+            {"name": "Trend_Pullback_Confluence", "timeframe": "15m", "params": {"rvol_min": 1.0, "atr_sl_mult": 1.80, "target_rr": 2.5, "rsi_min_long": 38.0, "rsi_max_long": 56.0, "rsi_min_short": 44.0, "rsi_max_short": 62.0}},
+            {"name": "Trend_Pullback_Confluence", "timeframe": "30m", "params": {"rvol_min": 1.0, "atr_sl_mult": 1.80, "target_rr": 2.5, "rsi_min_long": 38.0, "rsi_max_long": 56.0, "rsi_min_short": 44.0, "rsi_max_short": 62.0}},
+            {"name": "Squeeze_Momentum_Breakout", "timeframe": "15m", "params": {"rvol_min": 1.20, "atr_sl_mult": 1.40, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_short": 50.0}},
+            {"name": "Liquidity_Sweep_Reversal", "timeframe": "15m", "params": {"rvol_min": 1.10, "atr_sl_mult": 1.40, "target_rr": 2.0, "rsi_min_long": 52.0, "rsi_max_short": 48.0}},
         ]
 
         leaderboard = []
@@ -2174,7 +2174,7 @@ class LiveCryptoBot:
             "circuit_breaker_until": self.circuit_breaker_until.strftime("%Y-%m-%d %H:%M:%S") if self.circuit_breaker_until and self.circuit_breaker_until > ph_now() else None,
             "quarantined_symbols": [sym for sym, dt in self.symbol_loss_cooldowns.items() if dt > ph_now()],
             "latest_signals": self.latest_signals[-15:],
-            "recent_journal": self.closed_trades[-20:][::-1]
+            "recent_journal": self.closed_trades[::-1]
         }
 
 # Global singleton bot instance initialized with $100.00 USD Capital, $1.00 Fixed Risk, 1:2.0 RR, and Max 10 Concurrent Trades

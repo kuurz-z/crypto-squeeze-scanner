@@ -1,20 +1,22 @@
 [
   {
     "month": "2026_08",
-    "crowned_at": "2026-08-21 01:00:42",
-    "strategy_name": "Liquidity_Sweep_Reversal",
+    "crowned_at": "2026-08-21 17:39:17",
+    "strategy_name": "Trend_Pullback_Confluence",
     "timeframe": "15m",
     "params": {
-      "rvol_min": 1.25,
-      "atr_sl_mult": 1.4,
+      "rvol_min": 1.0,
+      "atr_sl_mult": 1.8,
       "target_rr": 2.5,
-      "rsi_min_long": 52.0,
-      "rsi_max_short": 48.0
+      "rsi_min_long": 38.0,
+      "rsi_max_long": 56.0,
+      "rsi_min_short": 44.0,
+      "rsi_max_short": 62.0
     },
-    "win_rate_pct": 32.65,
-    "reproducibility_score": 75.7,
-    "net_expectancy_r": 0.063,
-    "profit_factor": 1.09,
-    "tested_trades": 49
+    "win_rate_pct": 55.84,
+    "reproducibility_score": 100.0,
+    "net_expectancy_r": 0.875,
+    "profit_factor": 2.83,
+    "tested_trades": 77
   }
 ]
