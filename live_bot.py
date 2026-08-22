@@ -2114,9 +2114,8 @@ class LiveCryptoBot:
         profit_factor = round(total_win_r / total_loss_r, 2) if total_loss_r > 0 else (999.0 if total_win_r > 0 else 0.0)
         expectancy_r = round(total_net_r / total_trades, 3) if total_trades > 0 else 0.0
 
-        # USD Balances - dynamically synced with trade ledger
+        # USD Balances - preserve actual wallet balance
         total_realized_pnl_usd = round(sum(t.get('pnl_usd', round(t.get('net_r', 0) * self.fixed_risk_usd, 2)) for t in self.closed_trades), 2)
-        self.current_balance = round(self.initial_capital + total_realized_pnl_usd, 2)
 
         unrealized_pnl_usd = round(sum(p.get('unrealized_pnl_usd', 0.0) for p in self.open_positions.values()), 2)
         equity_usd = round(self.current_balance + unrealized_pnl_usd, 2)

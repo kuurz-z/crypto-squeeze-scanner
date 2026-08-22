@@ -259,9 +259,11 @@ async def get_saved_strategies_api():
 
 @app.post("/api/bot/reset")
 async def reset_bot_wallet():
-    """Reset the live bot wallet balance to $100.00 USD."""
+    """Reset the live bot wallet balance to $100.00 USD without clearing trade history."""
     bot_instance.reset_account(100.0)
-    return {"message": "Account wallet reset to $100.00 USD.", "balance": 100.0}
+    if not bot_instance.is_running:
+        await bot_instance.start()
+    return {"message": "Account wallet reset to $100.00 USD (trade history preserved).", "balance": 100.0}
 
 @app.get("/api/bot/depletion_report")
 async def get_depletion_report():

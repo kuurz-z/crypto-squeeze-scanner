@@ -491,11 +491,11 @@ function setupViewNavigation() {
   const resetBtn = document.getElementById('btn-bot-reset-balance');
   if (resetBtn) {
     resetBtn.addEventListener('click', async () => {
-      if (confirm('Reset paper wallet balance to $100.00 USD and clear trade history?')) {
+      if (confirm('Reset account balance to $100.00 USD? (Your full trade history and diagnostic records will be preserved).')) {
         try {
           const res = await fetch('/api/bot/reset', { method: 'POST' });
           const data = await res.json();
-          alert('Account balance reset to $100.00 USD!');
+          alert('Account balance reset to $100.00 USD! Full trade history preserved.');
           fetchBotTelemetry();
         } catch (e) {
           console.error('Error resetting balance:', e);
@@ -603,7 +603,6 @@ function setupViewNavigation() {
   if (cancelFundModalBtn) cancelFundModalBtn.addEventListener('click', closeFundModal);
 
   // Hook buttons to open Fund Modal
-  if (resetBtn) resetBtn.addEventListener('click', openFundModal);
   if (depletedRestartBtn) depletedRestartBtn.addEventListener('click', openFundModal);
 
   // Quick pills handling

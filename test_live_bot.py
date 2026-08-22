@@ -65,13 +65,26 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertEqual(t['status'], 'DEPLETED_STOPPED')
 
     def test_account_reset(self):
-        self.bot.current_balance = 0.0
+        # Simulate having previous losing trades
+        self.bot.closed_trades = [
+            {"trade_id": 1, "symbol": "BONKUSDT", "outcome": "LOSS", "net_r": -1.08, "pnl_usd": -1.08},
+            {"trade_id": 2, "symbol": "BONKUSDT", "outcome": "LOSS", "net_r": -1.08, "pnl_usd": -1.08}
+        ]
+        self.bot.current_balance = 0.50
         self.bot.is_depleted = True
         self.bot.reset_account(100.0)
 
+        # Balance must be $100.00
         self.assertEqual(self.bot.current_balance, 100.0)
         self.assertFalse(self.bot.is_depleted)
         self.assertIsNone(self.bot.depletion_report_file)
+        # Trade history must be strictly preserved
+        self.assertEqual(len(self.bot.closed_trades), 2)
+
+        # Telemetry must report $100.00 balance and not overwrite it with historical losses
+        t = self.bot.get_telemetry()
+        self.assertEqual(t['current_balance'], 100.0)
+        self.assertEqual(t['total_closed_trades'], 2)
 
     def test_dynamic_exit_breakeven_and_trailing(self):
         # Open a mock LONG position
