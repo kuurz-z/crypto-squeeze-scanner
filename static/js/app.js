@@ -59,11 +59,74 @@ function toggleFavorite(e, symbol) {
   updateActiveSymbolStar();
 }
 
+const FILTER_TAB_CONFIG = {
+  all: {
+    active: 'bg-indigo-600 text-white font-bold shadow-sm shadow-indigo-500/30 border border-indigo-600',
+    inactive: 'bg-slate-100 dark:bg-[#1e293b] text-slate-600 dark:text-gray-300 border border-slate-200 dark:border-gray-700/60 hover:bg-slate-200 dark:hover:bg-gray-700 hover:text-slate-900 dark:hover:text-white',
+    iconActive: '',
+    iconInactive: ''
+  },
+  favorites: {
+    active: 'bg-amber-500 text-white font-bold shadow-sm shadow-amber-500/30 border border-amber-500',
+    inactive: 'bg-amber-500/10 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-300/60 dark:border-amber-500/20 hover:bg-amber-500/20 dark:hover:bg-amber-500/20',
+    badgeActive: 'bg-white/30 text-white font-black',
+    badgeInactive: 'bg-amber-500/20 text-amber-800 dark:text-amber-300 font-bold',
+    iconActive: 'text-amber-100',
+    iconInactive: 'text-amber-500'
+  },
+  signals: {
+    active: 'bg-emerald-600 text-white font-bold shadow-sm shadow-emerald-500/30 border border-emerald-600',
+    inactive: 'bg-emerald-500/10 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-300/60 dark:border-emerald-500/20 hover:bg-emerald-500/20 dark:hover:bg-emerald-500/20',
+    iconActive: 'text-emerald-100',
+    iconInactive: 'text-emerald-500'
+  },
+  squeeze: {
+    active: 'bg-amber-600 text-white font-bold shadow-sm shadow-amber-600/30 border border-amber-600',
+    inactive: 'bg-amber-500/10 dark:bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-300/60 dark:border-amber-500/20 hover:bg-amber-500/20 dark:hover:bg-amber-500/20',
+    iconActive: 'text-amber-100',
+    iconInactive: 'text-amber-500'
+  },
+  tension: {
+    active: 'bg-gradient-to-r from-orange-500 to-rose-600 text-white font-bold shadow-sm shadow-orange-500/30 border border-orange-500',
+    inactive: 'bg-orange-500/10 dark:bg-orange-500/10 text-orange-700 dark:text-orange-400 border border-orange-300/60 dark:border-orange-500/20 hover:bg-orange-500/20 dark:hover:bg-orange-500/20',
+    iconActive: 'text-orange-100',
+    iconInactive: 'text-orange-500'
+  }
+};
+
+function updateFilterTabStyles(selectedFilter = currentFilter) {
+  document.querySelectorAll('.filter-tab').forEach(tab => {
+    const fKey = tab.dataset.filter;
+    const cfg = FILTER_TAB_CONFIG[fKey];
+    if (!cfg) return;
+
+    const isActive = (fKey === selectedFilter);
+    tab.className = `filter-tab py-1.5 px-1 rounded-lg text-[11px] transition-all duration-150 cursor-pointer select-none focus:outline-none text-center flex items-center justify-center gap-1 ${isActive ? cfg.active : cfg.inactive}`;
+
+    const icon = tab.querySelector('i');
+    if (icon) {
+      // Remove any existing color class
+      icon.className = icon.className.replace(/\btext-[a-z0-9\-\/]+/g, '').trim();
+      const col = isActive ? cfg.iconActive : cfg.iconInactive;
+      if (col) icon.classList.add(col);
+    }
+  });
+
+  // Specifically sync the Favs badge
+  const favBadge = document.getElementById('fav-count-badge');
+  if (favBadge) {
+    const isFavActive = (selectedFilter === 'favorites');
+    const fCfg = FILTER_TAB_CONFIG.favorites;
+    favBadge.className = `text-[9px] px-1.5 py-0.2 rounded-full leading-none transition-colors ${isFavActive ? fCfg.badgeActive : fCfg.badgeInactive}`;
+  }
+}
+
 function updateFavoriteBadges() {
   const badge = document.getElementById('fav-count-badge');
   if (badge) {
     badge.innerText = favoriteSymbols.size;
   }
+  updateFilterTabStyles(currentFilter);
   updateActiveSymbolStar();
 }
 
@@ -246,14 +309,10 @@ function setupEventListeners() {
   // Filter tabs
   document.querySelectorAll('.filter-tab').forEach(tab => {
     tab.addEventListener('click', (e) => {
-      document.querySelectorAll('.filter-tab').forEach(t => {
-        t.classList.remove('bg-indigo-600', 'text-white', 'shadow');
-        t.classList.add('bg-slate-100', 'dark:bg-[#1e293b]');
-      });
-      tab.classList.add('bg-indigo-600', 'text-white', 'shadow');
-      tab.classList.remove('bg-slate-100', 'dark:bg-[#1e293b]');
-      
-      currentFilter = tab.dataset.filter;
+      const newFilter = tab.dataset.filter;
+      if (!newFilter) return;
+      currentFilter = newFilter;
+      updateFilterTabStyles(currentFilter);
       renderScannerTable();
     });
   });
