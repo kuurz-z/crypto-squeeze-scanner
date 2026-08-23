@@ -49,3 +49,18 @@ html.dark .selected-row {
   animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+/* Favorite Star Button Micro-interactions */
+.favorite-star-btn {
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+.favorite-star-btn:hover {
+  transform: scale(1.2);
+}
+.favorite-star-btn:active {
+  transform: scale(0.9);
+}
+.star-glow {
+  filter: drop-shadow(0 0 3px rgba(251, 191, 36, 0.6));
+}
+
+

@@ -1,6 +1,8 @@
 import os
+import time
 import mimetypes
 import aiohttp
+import numpy as np
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, Response
@@ -15,10 +17,14 @@ mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("image/x-icon", ".ico")
 mimetypes.add_type("text/html", ".html")
 
-from scanner import scan_market, fetch_klines, compute_indicators, calculate_rr_levels, fetch_top_usdt_pairs
+from scanner import scan_market, fetch_klines, compute_indicators, calculate_rr_levels, fetch_top_usdt_pairs, get_http_session
 from backtester import backtest_symbol, backtest_portfolio
 from live_bot import bot_instance
 from strategy_memory import load_saved_strategies
+
+# In-memory candle cache with 10s TTL
+_candle_cache = {}
+CANDLE_CACHE_TTL = 10.0
 
 app = FastAPI(title="Quant Squeeze & Pattern Scanner", version="1.0.0")
 
@@ -84,14 +90,15 @@ async def serve_index():
 @app.get("/api/scan")
 async def get_market_scan(
     interval: str = Query("1h", description="Candle interval: 15m, 30m, 1h, 4h, 1d"),
-    limit: int = Query(50, description="Number of top liquid pairs to scan")
+    limit: int = Query(50, description="Number of top liquid pairs to scan"),
+    force_refresh: bool = Query(False, description="Bypass cache and force fresh scan")
 ):
     """Scan top crypto pairs and return squeeze states, momentum, and active breakout triggers."""
     valid_intervals = ["15m", "30m", "1h", "4h", "1d"]
     if interval not in valid_intervals:
         raise HTTPException(status_code=400, detail=f"Interval must be one of {valid_intervals}")
     
-    results = await scan_market(interval=interval, limit_pairs=min(limit, 100))
+    results = await scan_market(interval=interval, limit_pairs=min(limit, 100), force_refresh=force_refresh)
     return {
         "interval": interval,
         "total_scanned": len(results),
@@ -106,95 +113,121 @@ async def get_symbol_candles(
 ):
     """Return OHLCV candles, technical indicators, squeeze status, and RR levels for chart rendering."""
     clean_sym = symbol.upper().replace("/", "").replace("-", "")
-    async with aiohttp.ClientSession() as session:
-        df = await fetch_klines(session, clean_sym, interval=interval, limit=min(limit, 1000))
-        if df is None or len(df) < 50:
-            raise HTTPException(status_code=404, detail=f"No data available for symbol {clean_sym}")
+    cache_key = f"{clean_sym}_{interval}_{limit}"
+    now = time.time()
+    
+    if cache_key in _candle_cache:
+        cached = _candle_cache[cache_key]
+        if now - cached["timestamp"] < CANDLE_CACHE_TTL:
+            return cached["data"]
+
+    session = await get_http_session()
+    df = await fetch_klines(session, clean_sym, interval=interval, limit=min(limit, 1000))
+    if df is None or len(df) < 50:
+        raise HTTPException(status_code=404, detail=f"No data available for symbol {clean_sym}")
+    
+    df = compute_indicators(df)
+    
+    # Fast record generation
+    candles = []
+    ema200_line = []
+    ema50_line = []
+    bb_upper_line = []
+    bb_lower_line = []
+    kc_upper_line = []
+    kc_lower_line = []
+    squeeze_dots = []
+    momentum_bars = []
+    
+    times = df['time'].to_numpy()
+    opens = df['open'].to_numpy()
+    highs = df['high'].to_numpy()
+    lows = df['low'].to_numpy()
+    closes = df['close'].to_numpy()
+    ema200s = df['ema200'].to_numpy()
+    ema50s = df['ema50'].to_numpy()
+    bb_uppers = df['bb_upper'].to_numpy()
+    bb_lowers = df['bb_lower'].to_numpy()
+    kc_uppers = df['kc_upper'].to_numpy()
+    kc_lowers = df['kc_lower'].to_numpy()
+    squeeze_ons = df['squeeze_on'].to_numpy()
+    momentums = df['momentum'].to_numpy()
+    
+    for i in range(len(df)):
+        t = int(times[i])
+        c = float(closes[i])
+        decimals = 6 if c < 1 else 2
         
-        df = compute_indicators(df)
+        candles.append({
+            "time": t,
+            "open": float(opens[i]),
+            "high": float(highs[i]),
+            "low": float(lows[i]),
+            "close": c,
+        })
         
-        # Prepare TradingView Lightweight Charts compatible data arrays
-        candles = []
-        ema200_line = []
-        ema50_line = []
-        bb_upper_line = []
-        bb_lower_line = []
-        kc_upper_line = []
-        kc_lower_line = []
-        squeeze_dots = []
-        momentum_bars = []
-        
-        for _, row in df.iterrows():
-            t = int(row['time'])
-            candles.append({
-                "time": t,
-                "open": float(row['open']),
-                "high": float(row['high']),
-                "low": float(row['low']),
-                "close": float(row['close']),
-            })
+        if not np.isnan(ema200s[i]):
+            ema200_line.append({"time": t, "value": round(float(ema200s[i]), decimals)})
+        if not np.isnan(ema50s[i]):
+            ema50_line.append({"time": t, "value": round(float(ema50s[i]), decimals)})
+        if not np.isnan(bb_uppers[i]):
+            bb_upper_line.append({"time": t, "value": round(float(bb_uppers[i]), decimals)})
+        if not np.isnan(bb_lowers[i]):
+            bb_lower_line.append({"time": t, "value": round(float(bb_lowers[i]), decimals)})
+        if not np.isnan(kc_uppers[i]):
+            kc_upper_line.append({"time": t, "value": round(float(kc_uppers[i]), decimals)})
+        if not np.isnan(kc_lowers[i]):
+            kc_lower_line.append({"time": t, "value": round(float(kc_lowers[i]), decimals)})
             
-            if not row.isna()['ema200']:
-                ema200_line.append({"time": t, "value": round(float(row['ema200']), 6 if row['ema200'] < 1 else 2)})
-            if not row.isna()['ema50']:
-                ema50_line.append({"time": t, "value": round(float(row['ema50']), 6 if row['ema50'] < 1 else 2)})
-            if not row.isna()['bb_upper']:
-                bb_upper_line.append({"time": t, "value": round(float(row['bb_upper']), 6 if row['bb_upper'] < 1 else 2)})
-            if not row.isna()['bb_lower']:
-                bb_lower_line.append({"time": t, "value": round(float(row['bb_lower']), 6 if row['bb_lower'] < 1 else 2)})
-            if not row.isna()['kc_upper']:
-                kc_upper_line.append({"time": t, "value": round(float(row['kc_upper']), 6 if row['kc_upper'] < 1 else 2)})
-            if not row.isna()['kc_lower']:
-                kc_lower_line.append({"time": t, "value": round(float(row['kc_lower']), 6 if row['kc_lower'] < 1 else 2)})
-                
-            # Squeeze dots color
-            squeeze_dots.append({
-                "time": t,
-                "value": 0,
-                "color": "#ef4444" if row['squeeze_on'] else "#10b981"
-            })
-            
-            # Momentum histogram bar color
-            mom_val = float(row['momentum']) if not row.isna()['momentum'] else 0.0
-            momentum_bars.append({
-                "time": t,
-                "value": round(mom_val, 6 if abs(mom_val) < 1 else 2),
-                "color": "#10b981" if mom_val >= 0 else "#ef4444"
-            })
-            
-        last_row = df.iloc[-1]
-        last_price = float(last_row['close'])
-        last_atr = float(last_row['atr14'])
-        trend_state = "BULLISH" if last_price > last_row['ema200'] else "BEARISH"
+        squeeze_dots.append({
+            "time": t,
+            "value": 0,
+            "color": "#ef4444" if squeeze_ons[i] else "#10b981"
+        })
         
-        rr_levels = calculate_rr_levels(
-            price=last_price, 
-            atr=last_atr, 
-            direction="LONG" if trend_state == "BULLISH" else "SHORT"
-        )
+        mom_val = float(momentums[i]) if not np.isnan(momentums[i]) else 0.0
+        momentum_bars.append({
+            "time": t,
+            "value": round(mom_val, decimals),
+            "color": "#10b981" if mom_val >= 0 else "#ef4444"
+        })
         
-        return {
-            "symbol": clean_sym,
-            "interval": interval,
-            "candles": candles,
-            "ema200": ema200_line,
-            "ema50": ema50_line,
-            "bb_upper": bb_upper_line,
-            "bb_lower": bb_lower_line,
-            "kc_upper": kc_upper_line,
-            "kc_lower": kc_lower_line,
-            "squeeze_dots": squeeze_dots,
-            "momentum_bars": momentum_bars,
-            "current_metrics": {
-                "price": round(last_price, 6 if last_price < 1 else 2),
-                "is_squeeze": bool(last_row['squeeze_on']),
-                "squeeze_bars": int(last_row['squeeze_bars']),
-                "signal": str(last_row['signal']),
-                "trend": trend_state,
-                "atr": round(last_atr, 6 if last_atr < 1 else 2),
-                "rr_levels": rr_levels
-            }
+    last_row = df.iloc[-1]
+    last_price = float(last_row['close'])
+    last_atr = float(last_row['atr14'])
+    trend_state = "BULLISH" if last_price > last_row['ema200'] else "BEARISH"
+    
+    rr_levels = calculate_rr_levels(
+        price=last_price, 
+        atr=last_atr, 
+        direction="LONG" if trend_state == "BULLISH" else "SHORT"
+    )
+    
+    response_data = {
+        "symbol": clean_sym,
+        "interval": interval,
+        "candles": candles,
+        "ema200": ema200_line,
+        "ema50": ema50_line,
+        "bb_upper": bb_upper_line,
+        "bb_lower": bb_lower_line,
+        "kc_upper": kc_upper_line,
+        "kc_lower": kc_lower_line,
+        "squeeze_dots": squeeze_dots,
+        "momentum_bars": momentum_bars,
+        "current_metrics": {
+            "price": round(last_price, 6 if last_price < 1 else 2),
+            "is_squeeze": bool(last_row['squeeze_on']),
+            "squeeze_bars": int(last_row['squeeze_bars']),
+            "signal": str(last_row['signal']),
+            "trend": trend_state,
+            "atr": round(last_atr, 6 if last_atr < 1 else 2),
+            "rr_levels": rr_levels
         }
+    }
+    
+    _candle_cache[cache_key] = {"timestamp": now, "data": response_data}
+    return response_data
 
 @app.get("/api/backtest")
 async def run_backtest(

@@ -1,6 +1,6 @@
 {
   "created_at": "2026-08-20 22:53:35",
-  "total_trades_archived": 15,
+  "total_trades_archived": 16,
   "trades": [
     {
       "trade_id": 999,
@@ -646,10 +646,165 @@
         "risk_management_quality": "High"
       },
       "report_file": "reports\\trade_journal_#999_TESTUSDT_FORCED_CLOSE.md"
+    },
+    {
+      "trade_id": 43,
+      "symbol": "ZECUSDT",
+      "sector": "GENERAL_ALT",
+      "strategy": "Squeeze_Momentum_Breakout",
+      "timeframe": "15m",
+      "direction": "LONG",
+      "entry_time": 1787241600,
+      "entry_time_str": "2026-08-21 00:32:27",
+      "exit_time": 1787463700,
+      "exit_time_str": "2026-08-23 13:41:40",
+      "entry_price": 582.68,
+      "exit_price": 616.85,
+      "sl_price": 779.09,
+      "tp_price": 616.85,
+      "target_rr": 2.5,
+      "risk_amount_usd": 1.0,
+      "position_qty": 0.0732,
+      "position_value_usd": 42.65,
+      "outcome": "WIN",
+      "raw_r": 2.5,
+      "net_r": 2.42,
+      "pnl_usd": 2.42,
+      "account_balance": 115.3,
+      "mfe_r": 15.09,
+      "mae_r": 0.0,
+      "bars_held": 1,
+      "friction_breakdown": "Gross: +2.50R | Friction: -0.08R | Net: +2.42R ($+2.42 USD)",
+      "trade_efficiency": "MFE: +15.09R | MAE: -0.0R",
+      "pre_trade_context": {
+        "regime": "Bullish Trend & Volatility Expansion",
+        "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+        "rvol": 1.41,
+        "rsi": 69.2,
+        "momentum": 8.1578,
+        "ema_alignment": "Close > EMA50",
+        "volatility_atr": 9.7629
+      },
+      "diagnostic": {
+        "summary": "Rapid target hit in 1 bars. Strong order flow propelled price directly to 2.5R target without significant drawdown.",
+        "catalyst_type": "Impulsive Momentum Expansion",
+        "key_factors": [
+          "High institutional velocity",
+          "Low adverse excursion (MAE: 0.0R)"
+        ],
+        "risk_management_quality": "High"
+      },
+      "report_file": "reports\\trade_journal_#43_ZECUSDT_WIN.md"
     }
   ],
   "micro_optimizations": [],
-  "weekly_macro_optimizations": [],
+  "weekly_macro_optimizations": [
+    {
+      "period": "WEEKLY",
+      "timestamp": "2026-08-23 13:41:41",
+      "lookback_bars": 500,
+      "timeframes_tested": [
+        "15m",
+        "30m"
+      ],
+      "optimal_timeframe": "15m",
+      "optimal_params": {
+        "rvol_min": 1.3,
+        "atr_sl_mult": 1.35,
+        "target_rr": 3.0,
+        "rsi_min_long": 52.0,
+        "rsi_max_long": 68.0,
+        "rsi_min_short": 32.0,
+        "rsi_max_short": 48.0,
+        "min_body_ratio": 0.35,
+        "max_wick_ratio": 0.4
+      },
+      "metrics": {
+        "timeframe": "15m",
+        "tested_trades": 17,
+        "win_rate_pct": 47.06,
+        "total_net_r": 13.64,
+        "expectancy_r": 0.802,
+        "profit_factor": 2.4,
+        "params": {
+          "rvol_min": 1.3,
+          "atr_sl_mult": 1.35,
+          "target_rr": 3.0,
+          "rsi_min_long": 52.0,
+          "rsi_max_long": 68.0,
+          "rsi_min_short": 32.0,
+          "rsi_max_short": 48.0,
+          "min_body_ratio": 0.35,
+          "max_wick_ratio": 0.4
+        }
+      },
+      "sector_breakdown": {
+        "LAYER_1": {
+          "trades": 6,
+          "win_rate_pct": 66.7,
+          "net_r": 9.52
+        },
+        "GENERAL_ALT": {
+          "trades": 6,
+          "win_rate_pct": 33.3,
+          "net_r": 1.52
+        },
+        "DEFI": {
+          "trades": 3,
+          "win_rate_pct": 33.3,
+          "net_r": 0.76
+        },
+        "MEMES": {
+          "trades": 1,
+          "win_rate_pct": 100.0,
+          "net_r": 2.92
+        },
+        "AI_COMPUTE": {
+          "trades": 1,
+          "win_rate_pct": 0.0,
+          "net_r": -1.08
+        }
+      },
+      "report_file": "reports\\weekly_optimization_report_2026_W34_0823_134141.md"
+    }
+  ],
   "monthly_macro_audits": [],
-  "last_updated": "2026-08-21 17:39:16"
+  "last_updated": "2026-08-23 13:41:50",
+  "daily_snapshots": [
+    {
+      "date": "2026_08_23",
+      "timestamp": "2026-08-23 13:41:41",
+      "account_balance": 115.3,
+      "equity_usd": 115.3,
+      "total_pnl_usd": 15.3,
+      "total_pnl_pct": 15.3,
+      "total_trades": 37,
+      "win_rate_pct": 16.22,
+      "total_net_r": -24.05,
+      "champion_strategy": {
+        "name": "Squeeze_Momentum_Breakout",
+        "timeframe": "15m",
+        "win_rate": 42.0,
+        "expectancy_r": 0.25,
+        "score": 85.0,
+        "upgrades_count": 0,
+        "crowned_at": "2026-08-20 22:53:54"
+      },
+      "active_params": {
+        "rvol_min": 1.2,
+        "atr_sl_mult": 1.4,
+        "target_rr": 2.0,
+        "rsi_min_long": 50.0,
+        "rsi_max_long": 68.0,
+        "rsi_min_short": 32.0,
+        "rsi_max_short": 50.0,
+        "min_body_ratio": 0.25,
+        "max_wick_ratio": 0.5,
+        "min_risk_dist_pct": 0.008
+      },
+      "active_timeframe": "15m",
+      "open_positions_count": 0,
+      "report_file": "reports\\daily_strategy_snapshot_2026_08_23.md"
+    }
+  ]
 }

@@ -113,10 +113,11 @@
                    class="w-full bg-slate-50 dark:bg-[#1e293b] border border-slate-200 dark:border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:bg-white dark:focus:bg-[#1e293b] transition">
           </div>
 
-          <div class="flex gap-1.5 text-[11px] font-medium" id="filter-tabs">
-            <button data-filter="all" class="filter-tab flex-1 py-1.5 rounded bg-indigo-600 text-white font-semibold shadow text-center">All</button>
-            <button data-filter="signals" class="filter-tab flex-1 py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-emerald-600 dark:text-emerald-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-1.5 font-medium"><i class="fa-solid fa-bolt-lightning text-xs"></i> Signals</button>
-            <button data-filter="squeeze" class="filter-tab flex-1 py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-amber-600 dark:text-amber-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-1.5 font-medium"><i class="fa-solid fa-compress text-xs"></i> Squeezes</button>
+          <div class="grid grid-cols-4 gap-1 text-[11px] font-medium" id="filter-tabs">
+            <button data-filter="all" class="filter-tab py-1.5 rounded bg-indigo-600 text-white font-semibold shadow text-center">All</button>
+            <button data-filter="favorites" class="filter-tab py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-amber-600 dark:text-amber-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-1 font-medium" title="Show only favorited coins"><i class="fa-solid fa-star text-amber-500 text-xs"></i> Favs <span id="fav-count-badge" class="text-[9px] px-1 py-0.2 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold">0</span></button>
+            <button data-filter="signals" class="filter-tab py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-emerald-600 dark:text-emerald-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-1 font-medium"><i class="fa-solid fa-bolt-lightning text-xs"></i> Signals</button>
+            <button data-filter="squeeze" class="filter-tab py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-amber-600 dark:text-amber-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-1 font-medium"><i class="fa-solid fa-compress text-xs"></i> Squeezes</button>
           </div>
         </div>
 
@@ -153,7 +154,12 @@
       <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-4 shadow-sm dark:shadow-xl transition-colors">
         <div class="flex flex-wrap items-center justify-between gap-4 border-b border-slate-200 dark:border-gray-800/80 pb-3 mb-3">
           <div class="flex items-center gap-3">
-            <span id="active-symbol-badge" class="text-xl font-extrabold text-slate-900 dark:text-white tracking-wider">BTCUSDT</span>
+            <div class="flex items-center gap-1.5">
+              <span id="active-symbol-badge" class="text-xl font-extrabold text-slate-900 dark:text-white tracking-wider">BTCUSDT</span>
+              <button id="btn-toggle-fav-active" class="p-1 text-slate-300 hover:text-amber-400 dark:text-slate-600 dark:hover:text-amber-400 transition cursor-pointer" title="Toggle Favorite">
+                <i id="active-fav-star" class="fa-regular fa-star text-base"></i>
+              </button>
+            </div>
             <span id="active-price-badge" class="text-lg font-mono font-bold text-emerald-600 dark:text-emerald-400">$0.00</span>
             <span id="active-trend-badge" class="text-xs px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/20 font-semibold uppercase">200 EMA Uptrend</span>
           </div>

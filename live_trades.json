@@ -1680,6 +1680,54 @@
     }
   },
   {
+    "trade_id": 43,
+    "symbol": "ZECUSDT",
+    "sector": "GENERAL_ALT",
+    "strategy": "Squeeze_Momentum_Breakout",
+    "timeframe": "15m",
+    "direction": "LONG",
+    "entry_time": 1787241600,
+    "entry_time_str": "2026-08-21 00:32:27",
+    "exit_time": 1787463700,
+    "exit_time_str": "2026-08-23 13:41:40",
+    "entry_price": 582.68,
+    "exit_price": 616.85,
+    "sl_price": 779.09,
+    "tp_price": 616.85,
+    "target_rr": 2.5,
+    "risk_amount_usd": 1.0,
+    "position_qty": 0.0732,
+    "position_value_usd": 42.65,
+    "outcome": "WIN",
+    "raw_r": 2.5,
+    "net_r": 2.42,
+    "pnl_usd": 2.42,
+    "account_balance": 115.3,
+    "mfe_r": 15.09,
+    "mae_r": 0.0,
+    "bars_held": 1,
+    "friction_breakdown": "Gross: +2.50R | Friction: -0.08R | Net: +2.42R ($+2.42 USD)",
+    "trade_efficiency": "MFE: +15.09R | MAE: -0.0R",
+    "diagnostic": {
+      "summary": "Rapid target hit in 1 bars. Strong order flow propelled price directly to 2.5R target without significant drawdown.",
+      "catalyst_type": "Impulsive Momentum Expansion",
+      "key_factors": [
+        "High institutional velocity",
+        "Low adverse excursion (MAE: 0.0R)"
+      ],
+      "risk_management_quality": "High"
+    },
+    "pre_trade_context": {
+      "regime": "Bullish Trend & Volatility Expansion",
+      "reason": "Squeeze fired bullishly above BB upper band with volume surge",
+      "rvol": 1.41,
+      "rsi": 69.2,
+      "momentum": 8.1578,
+      "ema_alignment": "Close > EMA50",
+      "volatility_atr": 9.7629
+    }
+  },
+  {
     "trade_id": 999,
     "symbol": "TESTUSDT",
     "sector": "MEMES",
@@ -1688,8 +1736,8 @@
     "direction": "LONG",
     "entry_time": 1700000000,
     "entry_time_str": "2026-08-20 12:00:00",
-    "exit_time": 1787299105,
-    "exit_time_str": "2026-08-21 15:58:25",
+    "exit_time": 1787371311,
+    "exit_time_str": "2026-08-22 12:01:51",
     "entry_price": 1.0,
     "exit_price": 1.1,
     "sl_price": 0.9,
@@ -1702,7 +1750,7 @@
     "raw_r": 1.0,
     "net_r": 0.92,
     "pnl_usd": 0.92,
-    "account_balance": 109.2,
+    "account_balance": 112.88,
     "mfe_r": 0.0,
     "mae_r": 0.0,
     "bars_held": 2,
@@ -1720,48 +1768,5 @@
     "pre_trade_context": {
       "reason": "API test"
     }
-  },
-  {
-    "trade_id": 999,
-    "symbol": "TESTUSDT",
-    "sector": "MEMES",
-    "strategy": "Squeeze_Momentum_Breakout",
-    "timeframe": "15m",
-    "direction": "LONG",
-    "entry_time": 1700000000,
-    "entry_time_str": "2026-08-20 12:00:00",
-    "exit_time": 1787305156,
-    "exit_time_str": "2026-08-21 17:39:16",
-    "entry_price": 1.0,
-    "exit_price": 1.1,
-    "sl_price": 0.9,
-    "tp_price": 1.2,
-    "target_rr": 2.0,
-    "risk_amount_usd": 1.0,
-    "position_qty": 1.0,
-    "position_value_usd": 0.0,
-    "outcome": "FORCED_CLOSE",
-    "raw_r": 1.0,
-    "net_r": 0.92,
-    "pnl_usd": 0.92,
-    "account_balance": 110.12,
-    "mfe_r": 0.0,
-    "mae_r": 0.0,
-    "bars_held": 2,
-    "friction_breakdown": "Gross: +1.00R | Friction: -0.08R | Net: +0.92R ($+0.92 USD)",
-    "trade_efficiency": "MFE: +0.0R | MAE: -0.0R",
-    "pre_trade_context": {
-      "reason": "API test"
-    },
-    "diagnostic": {
-      "summary": "Position manually closed by trader at market price $1.1 (+0.92R PnL).",
-      "catalyst_type": "Manual Forced Close",
-      "key_factors": [
-        "User-initiated manual position termination",
-        "Exit Price: $1.1 (Net PnL: $+0.92 USD)"
-      ],
-      "risk_management_quality": "High"
-    },
-    "report_file": "reports\\trade_journal_#999_TESTUSDT_FORCED_CLOSE.md"
   }
 ]

@@ -1,10 +1,82 @@
 // Application State
 let currentInterval = '15m';
 let currentSymbol = 'BTCUSDT';
-let currentFilter = 'all'; // 'all' | 'signals' | 'squeeze'
+let currentFilter = 'all'; // 'all' | 'favorites' | 'signals' | 'squeeze'
 let searchQuery = '';
 let scannerData = [];
 let autoRefreshTimer = null;
+
+// High-Performance In-Memory Client Caches for Instant (0ms) Timeframe Switching
+const clientScanCache = {};   // { '15m': { timestamp, data }, '30m': { timestamp, data } }
+const clientCandleCache = {}; // { 'BTCUSDT_15m': { timestamp, data } }
+
+// Favorites Management
+const FAVORITES_STORAGE_KEY = 'quant_scanner_favorites';
+let favoriteSymbols = new Set();
+
+function loadFavorites() {
+  try {
+    const raw = localStorage.getItem(FAVORITES_STORAGE_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        favoriteSymbols = new Set(arr);
+      }
+    }
+  } catch (e) {
+    console.error('Error loading favorites from localStorage:', e);
+    favoriteSymbols = new Set();
+  }
+  updateFavoriteBadges();
+}
+
+function saveFavorites() {
+  try {
+    localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify(Array.from(favoriteSymbols)));
+  } catch (e) {
+    console.error('Error saving favorites to localStorage:', e);
+  }
+  updateFavoriteBadges();
+}
+
+function isFavorite(symbol) {
+  return favoriteSymbols.has(symbol);
+}
+
+function toggleFavorite(e, symbol) {
+  if (e) {
+    e.stopPropagation();
+    if (typeof e.preventDefault === 'function') e.preventDefault();
+  }
+  if (!symbol) return;
+  if (favoriteSymbols.has(symbol)) {
+    favoriteSymbols.delete(symbol);
+  } else {
+    favoriteSymbols.add(symbol);
+  }
+  saveFavorites();
+  renderScannerTable();
+  updateActiveSymbolStar();
+}
+
+function updateFavoriteBadges() {
+  const badge = document.getElementById('fav-count-badge');
+  if (badge) {
+    badge.innerText = favoriteSymbols.size;
+  }
+  updateActiveSymbolStar();
+}
+
+function updateActiveSymbolStar() {
+  const activeStar = document.getElementById('active-fav-star');
+  if (!activeStar) return;
+  const isFav = favoriteSymbols.has(currentSymbol);
+  if (isFav) {
+    activeStar.className = 'fa-solid fa-star text-amber-400 star-glow scale-110';
+  } else {
+    activeStar.className = 'fa-regular fa-star text-slate-300 dark:text-slate-600 hover:text-amber-400 dark:hover:text-amber-400';
+  }
+}
 
 /**
  * Format any timestamp, date string, or Date object into Philippine Standard Time (PHT, UTC+8 / Asia/Manila).
@@ -57,12 +129,35 @@ function formatPhDateTime(val) {
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initCharts();
+  loadFavorites();
   setupEventListeners();
   
   // Initial load
-  fetchScan();
+  fetchScan(true);
   loadSymbolChart(currentSymbol);
   
+  // Pre-warm the alternate timeframe cache in background for instantaneous switching
+  setTimeout(() => {
+    const otherTf = currentInterval === '15m' ? '30m' : '15m';
+    fetch(`/api/scan?interval=${otherTf}&limit=60`)
+      .then(r => r.ok ? r.json() : null)
+      .then(json => {
+        if (json && json.data) {
+          clientScanCache[otherTf] = { timestamp: Date.now(), data: json.data };
+        }
+      })
+      .catch(() => {});
+
+    fetch(`/api/candles/${currentSymbol}?interval=${otherTf}&limit=300`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && data.candles) {
+          clientCandleCache[`${currentSymbol}_${otherTf}`] = { timestamp: Date.now(), data };
+        }
+      })
+      .catch(() => {});
+  }, 1200);
+
   // Periodic background refresh every 30s
   autoRefreshTimer = setInterval(() => {
     fetchScan(false);
@@ -110,9 +205,12 @@ function applyTheme(theme) {
 }
 
 function setupEventListeners() {
-  // Timeframe buttons
+  // Timeframe buttons (Optimized 0ms Instant Switch)
   document.querySelectorAll('.tf-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
+      const newTf = btn.dataset.tf;
+      if (currentInterval === newTf) return;
+
       document.querySelectorAll('.tf-btn').forEach(b => {
         b.classList.remove('bg-indigo-600', 'text-white', 'shadow');
         b.classList.add('text-slate-600', 'dark:text-gray-400');
@@ -120,8 +218,24 @@ function setupEventListeners() {
       btn.classList.add('bg-indigo-600', 'text-white', 'shadow');
       btn.classList.remove('text-slate-600', 'dark:text-gray-400');
       
-      currentInterval = btn.dataset.tf;
-      fetchScan(true);
+      currentInterval = newTf;
+      
+      // Instant Optimistic Switch from Client Cache (0ms latency)
+      if (clientScanCache[currentInterval]) {
+        scannerData = clientScanCache[currentInterval].data;
+        renderScannerTable();
+        updateBacktestDropdown(scannerData);
+      }
+      
+      const chartKey = `${currentSymbol}_${currentInterval}`;
+      if (clientCandleCache[chartKey]) {
+        const cachedChart = clientCandleCache[chartKey].data;
+        updateChartData(cachedChart);
+        updateTopMetrics(cachedChart);
+      }
+
+      // Fetch fresh live data in background without blocking UI
+      fetchScan(false);
       loadSymbolChart(currentSymbol);
     });
   });
@@ -150,11 +264,29 @@ function setupEventListeners() {
     });
   }
 
-  // Refresh button
+  // Refresh button (Forces bypass of cache)
   const refreshBtn = document.getElementById('btn-refresh');
   if (refreshBtn) {
     refreshBtn.addEventListener('click', () => {
-      fetchScan(true);
+      const refreshIcon = refreshBtn.querySelector('i');
+      if (refreshIcon) refreshIcon.classList.add('fa-spin');
+      
+      Promise.all([
+        fetchScan(false, true),
+        loadSymbolChart(currentSymbol, true)
+      ]).finally(() => {
+        setTimeout(() => {
+          if (refreshIcon) refreshIcon.classList.remove('fa-spin');
+        }, 500);
+      });
+    });
+  }
+
+  // Active Symbol Favorite Toggle Button
+  const activeFavBtn = document.getElementById('btn-toggle-fav-active');
+  if (activeFavBtn) {
+    activeFavBtn.addEventListener('click', (e) => {
+      toggleFavorite(e, currentSymbol);
     });
   }
 
@@ -188,16 +320,24 @@ function updateBacktestDropdown(coins) {
   let html = `<option value="ALL">🌐 All Coins (Portfolio)</option>`;
   uniqueSymbols.forEach(sym => {
     const isSel = (sym === currentVal) ? 'selected' : '';
-    html += `<option value="${sym}" ${isSel}>${sym}</option>`;
+    const starPrefix = favoriteSymbols.has(sym) ? '★ ' : '';
+    html += `<option value="${sym}" ${isSel}>${starPrefix}${sym}</option>`;
   });
   
   btSelect.innerHTML = html;
   btSelect.value = currentVal;
 }
 
-async function fetchScan(showSpinner = true) {
+async function fetchScan(showSpinner = true, force = false) {
   const tbody = document.getElementById('scanner-tbody');
-  if (showSpinner && tbody && scannerData.length === 0) {
+  
+  // Instant render from cache if available and not forced
+  if (clientScanCache[currentInterval] && !force) {
+    scannerData = clientScanCache[currentInterval].data;
+    renderScannerTable();
+    updateBacktestDropdown(scannerData);
+    updateFavoriteBadges();
+  } else if (showSpinner && tbody && scannerData.length === 0) {
     tbody.innerHTML = `
       <tr>
         <td colspan="5" class="py-8 text-center text-slate-400 dark:text-gray-500">
@@ -209,12 +349,21 @@ async function fetchScan(showSpinner = true) {
   }
 
   try {
-    const res = await fetch(`/api/scan?interval=${currentInterval}&limit=60`);
+    const res = await fetch(`/api/scan?interval=${currentInterval}&limit=60${force ? '&force_refresh=true' : ''}`);
     if (!res.ok) throw new Error('Scan failed');
     const json = await res.json();
-    scannerData = json.data || [];
-    renderScannerTable();
-    updateBacktestDropdown(scannerData);
+    const data = json.data || [];
+    
+    // Store in client-side instant cache
+    clientScanCache[currentInterval] = { timestamp: Date.now(), data };
+    
+    // If user is still on this interval, update UI smoothly
+    if (json.interval === currentInterval) {
+      scannerData = data;
+      renderScannerTable();
+      updateBacktestDropdown(scannerData);
+      updateFavoriteBadges();
+    }
   } catch (err) {
     console.error('Scan error:', err);
     if (tbody && scannerData.length === 0) {
@@ -236,6 +385,8 @@ function renderScannerTable() {
       return item.signal !== 'NONE' || item.recent_signal !== 'NONE';
     } else if (currentFilter === 'squeeze') {
       return item.is_squeeze === true;
+    } else if (currentFilter === 'favorites') {
+      return favoriteSymbols.has(item.symbol);
     }
     return true;
   });
@@ -243,13 +394,28 @@ function renderScannerTable() {
   if (badge) badge.innerText = `${filtered.length} Pairs`;
 
   if (filtered.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-400 dark:text-gray-500">No coins match the filter.</td></tr>`;
+    if (currentFilter === 'favorites') {
+      tbody.innerHTML = `
+        <tr>
+          <td colspan="5" class="py-8 px-4 text-center text-slate-400 dark:text-gray-500">
+            <i class="fa-regular fa-star text-2xl text-amber-400 mb-2 block animate-pulse"></i>
+            <p class="font-semibold text-slate-700 dark:text-gray-300 text-xs">No favorite coins added yet</p>
+            <p class="text-[11px] text-slate-400 dark:text-gray-500 mt-1">Click the <i class="fa-regular fa-star text-amber-500"></i> star icon next to any coin to bookmark and monitor it here.</p>
+          </td>
+        </tr>
+      `;
+    } else {
+      tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-400 dark:text-gray-500">No coins match the filter.</td></tr>`;
+    }
     return;
   }
 
   tbody.innerHTML = filtered.map(item => {
     const isSelected = item.symbol === currentSymbol ? 'selected-row' : '';
     const formattedPrice = item.price < 1 ? item.price.toFixed(5) : item.price.toFixed(2);
+    const isFav = favoriteSymbols.has(item.symbol);
+    const starClass = isFav ? 'fa-solid fa-star text-amber-400 star-glow' : 'fa-regular fa-star text-slate-300 dark:text-slate-600 hover:text-amber-400 dark:hover:text-amber-400';
+    const starTitle = isFav ? 'Remove from favorites' : 'Add to favorites';
     
     // Squeeze badge
     let squeezeHtml = '';
@@ -278,7 +444,10 @@ function renderScannerTable() {
     return `
       <tr class="cursor-pointer hover:bg-slate-50 dark:hover:bg-gray-800/60 ${isSelected}" onclick="onSelectCoin('${item.symbol}')">
         <td class="py-2.5 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap align-top">
-          <div class="h-5 flex items-center gap-1.5 leading-5">
+          <div class="h-5 flex items-center gap-2 leading-5">
+            <button class="favorite-star-btn cursor-pointer p-0.5 focus:outline-none" title="${starTitle}" onclick="toggleFavorite(event, '${item.symbol}')">
+              <i class="${starClass} text-xs"></i>
+            </button>
             <i class="fa-brands fa-bitcoin text-indigo-600 dark:text-indigo-400 text-xs"></i>
             <span>${item.symbol.replace('USDT', '')}</span><span class="text-[10px] text-slate-400 dark:text-gray-500 font-normal">/USDT</span>
           </div>
@@ -306,6 +475,7 @@ function onSelectCoin(symbol) {
   currentSymbol = symbol;
   renderScannerTable();
   loadSymbolChart(symbol);
+  updateActiveSymbolStar();
   
   // Sync backtest select dropdown
   const btSelect = document.getElementById('bt-symbol');
@@ -314,14 +484,29 @@ function onSelectCoin(symbol) {
   }
 }
 
-async function loadSymbolChart(symbol) {
+async function loadSymbolChart(symbol, force = false) {
+  const chartKey = `${symbol}_${currentInterval}`;
+  
+  // Instant render from client cache if available and not forced
+  if (clientCandleCache[chartKey] && !force) {
+    const cached = clientCandleCache[chartKey].data;
+    updateChartData(cached);
+    updateTopMetrics(cached);
+  }
+
   try {
     const res = await fetch(`/api/candles/${symbol}?interval=${currentInterval}&limit=300`);
     if (!res.ok) throw new Error('Failed to load chart');
     const data = await res.json();
     
-    updateChartData(data);
-    updateTopMetrics(data);
+    // Store in client cache
+    clientCandleCache[chartKey] = { timestamp: Date.now(), data };
+    
+    // If still viewing this symbol and interval, update chart smoothly
+    if (data.symbol === currentSymbol && data.interval === currentInterval) {
+      updateChartData(data);
+      updateTopMetrics(data);
+    }
   } catch (err) {
     console.error('Error loading chart:', err);
   }
@@ -332,6 +517,7 @@ function updateTopMetrics(data) {
   if (!m) return;
 
   document.getElementById('active-symbol-badge').innerText = data.symbol;
+  updateActiveSymbolStar();
   document.getElementById('active-price-badge').innerText = `$${m.price < 1 ? m.price.toFixed(5) : m.price.toFixed(2)}`;
   
   // Trend

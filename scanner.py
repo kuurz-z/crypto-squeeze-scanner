@@ -1,11 +1,35 @@
 import asyncio
 import aiohttp
+import time
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Any, Optional
 
 BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
 BINANCE_TICKER_24HR_URL = "https://api.binance.com/api/v3/ticker/24hr"
+
+# Shared persistent session and connection pooling
+_session: Optional[aiohttp.ClientSession] = None
+_top_pairs_cache: Dict[str, Any] = {"timestamp": 0.0, "pairs": []}
+_scan_cache: Dict[str, Any] = {}
+SCAN_CACHE_TTL = 15.0  # 15 seconds cache for scan results
+TOP_PAIRS_CACHE_TTL = 300.0  # 5 minutes cache for 24h ticker ranking
+
+async def get_http_session() -> aiohttp.ClientSession:
+    """Get or initialize a high-throughput persistent aiohttp ClientSession."""
+    global _session
+    if _session is None or _session.closed:
+        connector = aiohttp.TCPConnector(limit=100, limit_per_host=50, keepalive_timeout=60, ttl_dns_cache=300)
+        _session = aiohttp.ClientSession(connector=connector)
+    return _session
+
+async def close_http_session():
+    """Cleanly close persistent http session."""
+    global _session
+    if _session is not None and not _session.closed:
+        await _session.close()
+        _session = None
+
 
 # Excluded symbols (stablecoins, wrapped tokens, leveraged tokens)
 EXCLUDED_KEYWORDS = [
@@ -25,21 +49,27 @@ DEFAULT_TOP_COINS = [
 ]
 
 async def fetch_top_usdt_pairs(limit: int = 60) -> List[str]:
-    """Fetch top USDT pairs by 24h quote volume from Binance."""
+    """Fetch top USDT pairs by 24h quote volume from Binance with 5-min caching."""
+    now = time.time()
+    if _top_pairs_cache["pairs"] and (now - _top_pairs_cache["timestamp"] < TOP_PAIRS_CACHE_TTL):
+        return _top_pairs_cache["pairs"][:limit]
+
+    session = await get_http_session()
     try:
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
-            async with session.get(BINANCE_TICKER_24HR_URL) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    usdt_pairs = [
-                        item for item in data 
-                        if item['symbol'].endswith('USDT') 
-                        and not any(x == item['symbol'] or x in item['symbol'] for x in EXCLUDED_KEYWORDS)
-                    ]
-                    usdt_pairs.sort(key=lambda x: float(x.get('quoteVolume', 0)), reverse=True)
-                    top_symbols = [item['symbol'] for item in usdt_pairs[:limit]]
-                    if top_symbols:
-                        return top_symbols
+        async with session.get(BINANCE_TICKER_24HR_URL, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+            if resp.status == 200:
+                data = await resp.json()
+                usdt_pairs = [
+                    item for item in data 
+                    if item['symbol'].endswith('USDT') 
+                    and not any(x == item['symbol'] or x in item['symbol'] for x in EXCLUDED_KEYWORDS)
+                ]
+                usdt_pairs.sort(key=lambda x: float(x.get('quoteVolume', 0)), reverse=True)
+                top_symbols = [item['symbol'] for item in usdt_pairs[:100]]
+                if top_symbols:
+                    _top_pairs_cache["timestamp"] = now
+                    _top_pairs_cache["pairs"] = top_symbols
+                    return top_symbols[:limit]
     except Exception as e:
         print(f"Error fetching 24hr tickers: {e}, falling back to default list.")
     return DEFAULT_TOP_COINS[:limit]
@@ -242,18 +272,27 @@ async def scan_single_symbol(session: aiohttp.ClientSession, symbol: str, interv
         "rr_targets": rr_targets
     }
 
-async def scan_market(interval: str = "1h", limit_pairs: int = 50) -> List[Dict[str, Any]]:
-    """Scan all top market pairs concurrently using aiohttp."""
+async def scan_market(interval: str = "1h", limit_pairs: int = 50, force_refresh: bool = False) -> List[Dict[str, Any]]:
+    """Scan all top market pairs concurrently using aiohttp with fast in-memory caching."""
+    cache_key = f"{interval}_{limit_pairs}"
+    now = time.time()
+    if not force_refresh and cache_key in _scan_cache:
+        cached = _scan_cache[cache_key]
+        if now - cached["timestamp"] < SCAN_CACHE_TTL:
+            return cached["data"]
+
     symbols = await fetch_top_usdt_pairs(limit=limit_pairs)
-    async with aiohttp.ClientSession() as session:
-        tasks = [scan_single_symbol(session, sym, interval=interval) for sym in symbols]
-        results = await asyncio.gather(*tasks, return_exceptions=False)
-        valid_results = [r for r in results if r is not None]
+    session = await get_http_session()
+    tasks = [scan_single_symbol(session, sym, interval=interval) for sym in symbols]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    valid_results = [r for r in results if isinstance(r, dict) and r is not None]
+    
+    def sort_priority(item):
+        sig_score = 100 if item.get('signal') in ['LONG', 'SHORT'] else (50 if item.get('recent_signal') != 'NONE' else 0)
+        sqz_score = (item.get('squeeze_bars', 0) * 2) if item.get('is_squeeze') else 0
+        return sig_score + sqz_score
         
-        def sort_priority(item):
-            sig_score = 100 if item['signal'] in ['LONG', 'SHORT'] else (50 if item['recent_signal'] != 'NONE' else 0)
-            sqz_score = (item['squeeze_bars'] * 2) if item['is_squeeze'] else 0
-            return sig_score + sqz_score
-            
-        valid_results.sort(key=sort_priority, reverse=True)
-        return valid_results
+    valid_results.sort(key=sort_priority, reverse=True)
+    _scan_cache[cache_key] = {"timestamp": now, "data": valid_results}
+    return valid_results
+
