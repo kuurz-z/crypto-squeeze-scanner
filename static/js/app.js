@@ -396,7 +396,7 @@ function updateRateLimitDisplay(rl) {
   const botText = document.getElementById('bot-rate-limit-text');
 
   const used = rl.used_weight_1m || 0;
-  const limit = rl.weight_limit_1m || 1200;
+  const limit = rl.weight_limit_1m || 6000;
   const status = rl.status || 'HEALTHY';
 
   if (headerVal) {

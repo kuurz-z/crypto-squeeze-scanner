@@ -4,7 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Any, Optional
-from data_loader import rate_limit_manager
+from data_loader import rate_limit_manager, fetch_symbol_klines
 
 BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
 BINANCE_TICKER_24HR_URL = "https://api.binance.com/api/v3/ticker/24hr"
@@ -76,38 +76,11 @@ async def fetch_top_usdt_pairs(limit: int = 60) -> List[str]:
     return DEFAULT_TOP_COINS[:limit]
 
 async def fetch_klines(session: aiohttp.ClientSession, symbol: str, interval: str = "1h", limit: int = 300) -> Optional[pd.DataFrame]:
-    """Fetch historical kline data for a symbol and return formatted DataFrame with rate-limit tracking."""
-    await rate_limit_manager.pace()
-    params = {"symbol": symbol, "interval": interval, "limit": limit}
-    try:
-        t0 = time.perf_counter()
-        async with session.get(BINANCE_KLINES_URL, params=params, timeout=aiohttp.ClientTimeout(total=6)) as resp:
-            latency_ms = (time.perf_counter() - t0) * 1000
-            rate_limit_manager.update_from_headers(resp.headers, latency_ms)
-
-            if resp.status == 429:
-                retry_after = int(resp.headers.get('Retry-After', 30))
-                rate_limit_manager.trigger_backoff(retry_after)
-                return None
-
-            if resp.status == 200:
-                raw = await resp.json()
-                if not raw or len(raw) < 50:
-                    return None
-                
-                df = pd.DataFrame(raw, columns=[
-                    'open_time', 'open', 'high', 'low', 'close', 'volume',
-                    'close_time', 'quote_volume', 'trades', 'taker_buy_base',
-                    'taker_buy_quote', 'ignore'
-                ])
-                
-                df['time'] = (df['open_time'] // 1000).astype(int)
-                for col in ['open', 'high', 'low', 'close', 'volume']:
-                    df[col] = df[col].astype(float)
-                
-                return df[['time', 'open', 'high', 'low', 'close', 'volume']]
-    except Exception as e:
-        return None
+    """Fetch historical kline data for a symbol using the shared global cache and rate-limit tracking."""
+    df = await fetch_symbol_klines(session, symbol, interval=interval, limit=limit)
+    if df is not None and len(df) >= 50:
+        return df[['time', 'open', 'high', 'low', 'close', 'volume']]
+    return None
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Compute mathematical indicators: EMA200, EMA50, Bollinger Bands, Keltner Channels, ATR, Squeeze."""

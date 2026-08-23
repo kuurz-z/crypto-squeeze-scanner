@@ -13,8 +13,9 @@ class RateLimitManager:
     Global adaptive rate-limit controller and request weight manager for Binance API.
     Inspects response headers (x-mbx-used-weight-1m), tracks latency, dynamically paces
     concurrency, and manages graceful backoff to guarantee zero 429/IP bans.
+    Binance Spot IP limit is 6,000 weight/minute.
     """
-    def __init__(self, weight_limit_1m: int = 1200):
+    def __init__(self, weight_limit_1m: int = 6000):
         self.weight_limit_1m = weight_limit_1m
         self.used_weight_1m: int = 0
         self.last_update_ts: float = 0.0
@@ -55,12 +56,12 @@ class RateLimitManager:
         if self.last_update_ts > 0 and (now - self.last_update_ts) > 65.0:
             self.used_weight_1m = 0
 
-        # 3. Dynamic pacing
-        if self.used_weight_1m >= 1050:
+        # 3. Dynamic pacing based on 6,000 weight limit
+        if self.used_weight_1m >= 5200:
             await asyncio.sleep(0.35)
-        elif self.used_weight_1m >= 900:
+        elif self.used_weight_1m >= 4500:
             await asyncio.sleep(0.10)
-        elif self.used_weight_1m >= 750:
+        elif self.used_weight_1m >= 3500:
             await asyncio.sleep(0.03)
 
     def get_telemetry(self) -> Dict[str, Any]:
@@ -70,10 +71,10 @@ class RateLimitManager:
             self.used_weight_1m = 0
             
         pct = round((self.used_weight_1m / self.weight_limit_1m) * 100.0, 1)
-        if self.used_weight_1m < 750:
+        if self.used_weight_1m < 3500:
             status = "HEALTHY"
             badge_color = "emerald"
-        elif self.used_weight_1m < 1000:
+        elif self.used_weight_1m < 4800:
             status = "PACED"
             badge_color = "amber"
         else:
@@ -134,13 +135,34 @@ async def fetch_top_crypto_pairs(limit: int = 100) -> List[str]:
         print(f"[DataLoader] Notice: Failed to fetch live tickers ({e}), using default top liquid coins.")
     return DEFAULT_TOP_COINS[:limit]
 
+# Shared global in-memory kline cache across scanner, chart, and live bot
+_shared_kline_cache: Dict[str, Dict[str, Any]] = {}
+KLINE_TTL_MAP = {
+    "5m": 18.0,
+    "15m": 35.0,
+    "30m": 60.0,
+    "1h": 120.0,
+    "4h": 240.0,
+    "1d": 600.0,
+}
+
 async def fetch_symbol_klines(
     session: aiohttp.ClientSession, 
     symbol: str, 
     interval: str = "15m", 
-    limit: int = 500
+    limit: int = 500,
+    force_refresh: bool = False
 ) -> Optional[pd.DataFrame]:
-    """Fetch OHLCV candlestick data with rate-limit header tracking, adaptive pacing, and backoff."""
+    """Fetch OHLCV candlestick data with global in-memory TTL caching, rate-limit header tracking, adaptive pacing, and backoff."""
+    cache_key = f"{symbol}_{interval}_{limit}"
+    now = time.time()
+    ttl = KLINE_TTL_MAP.get(interval, 25.0)
+
+    if not force_refresh and cache_key in _shared_kline_cache:
+        cached = _shared_kline_cache[cache_key]
+        if (now - cached["ts"]) < ttl:
+            return cached["df"].copy()
+
     await rate_limit_manager.pace()
     params = {"symbol": symbol, "interval": interval, "limit": limit}
     try:
@@ -170,7 +192,9 @@ async def fetch_symbol_klines(
                     df[col] = df[col].astype(float)
                 
                 df['symbol'] = symbol
-                return df[['time', 'open', 'high', 'low', 'close', 'volume', 'symbol']]
+                res_df = df[['time', 'open', 'high', 'low', 'close', 'volume', 'symbol']]
+                _shared_kline_cache[cache_key] = {"ts": now, "df": res_df}
+                return res_df
     except Exception as e:
         print(f"[DataLoader] Warning fetching {symbol}: {e}")
         return None
