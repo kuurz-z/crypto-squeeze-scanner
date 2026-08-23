@@ -1,15 +1,36 @@
+# Python bytecode & environments
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
 .venv/
 venv/
 env/
 .env
+
+# OS Files & IDE
 .DS_Store
 Thumbs.db
+.vscode/
+.idea/
+
+# Local SQLite Databases & Logs
 *.db
 *.db-journal
-reports/ai_evolution_report_*.md
-reports/capital_depleted_summary_*.md
-reports/trade_journal_*.md
+*.sqlite
+*.sqlite3
+
+# Live Bot Runtime States (Keeps local balance & positions isolated from live repo)
+bot_state.json
+live_positions.json
+live_trades.json
+
+# Dynamic Generated Reports & Archives
+reports/*.md
+reports/*.json
+!reports/.gitkeep
+
+# Automation & Browser Testing Artifacts
+.playwright-mcp/
+*.png
+.pytest_cache/
+
