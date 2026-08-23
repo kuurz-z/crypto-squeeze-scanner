@@ -77,7 +77,7 @@ async def fetch_top_usdt_pairs(limit: int = 60) -> List[str]:
         print(f"Error fetching 24hr tickers: {e}, falling back to default list.")
     return DEFAULT_TOP_COINS[:limit]
 
-async def fetch_klines(session: aiohttp.ClientSession, symbol: str, interval: str = "1h", limit: int = 300) -> Optional[pd.DataFrame]:
+async def fetch_klines(session: aiohttp.ClientSession, symbol: str, interval: str = "30m", limit: int = 300) -> Optional[pd.DataFrame]:
     """Fetch historical kline data for a symbol using the shared global cache and rate-limit tracking."""
     df = await fetch_symbol_klines(session, symbol, interval=interval, limit=limit)
     if df is not None and len(df) >= 50:
@@ -237,7 +237,7 @@ def calculate_rr_levels(price: float, atr: float, direction: str) -> Dict[str, f
         "tp4_4rr": round(tp4, 6 if tp4 < 1 else 2),
     }
 
-async def scan_single_symbol(session: aiohttp.ClientSession, symbol: str, interval: str = "1h") -> Optional[Dict[str, Any]]:
+async def scan_single_symbol(session: aiohttp.ClientSession, symbol: str, interval: str = "30m") -> Optional[Dict[str, Any]]:
     """Scan and compute real-time metrics for a single symbol."""
     df = await fetch_klines(session, symbol, interval=interval, limit=250)
     if df is None or len(df) < 50:
@@ -317,7 +317,7 @@ async def scan_single_symbol(session: aiohttp.ClientSession, symbol: str, interv
         "rr_targets": rr_targets
     }
 
-async def scan_market(interval: str = "1h", limit_pairs: int = 50, force_refresh: bool = False) -> List[Dict[str, Any]]:
+async def scan_market(interval: str = "30m", limit_pairs: int = 50, force_refresh: bool = False) -> List[Dict[str, Any]]:
     """Scan all top market pairs concurrently using aiohttp with fast in-memory caching and safe rate limits."""
     safe_limit = max(10, min(100, int(limit_pairs)))
     cache_key = f"{interval}_{safe_limit}"

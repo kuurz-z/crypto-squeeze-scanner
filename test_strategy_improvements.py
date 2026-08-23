@@ -165,18 +165,18 @@ class TestStrategyImprovements(unittest.TestCase):
         self.assertNotIn("COIN_A", self.bot.open_positions)
 
     def test_rsi_safe_corridor_long_overbought_rejection(self):
-        """Verify that Squeeze Breakout rejects LONGs when RSI > 68 (overbought blow-off)."""
+        """Verify that Squeeze Breakout rejects LONGs when RSI is extreme overbought blow-off (> 76)."""
         df_safe = self._create_mock_dataframe(rsi_val=62.0)
         sig_safe = SqueezeMomentumBreakout.generate_signal(df_safe, len(df_safe) - 1, target_rr=2.0)
         self.assertIsNotNone(sig_safe)
         self.assertEqual(sig_safe["direction"], "LONG")
 
-        df_overbought = self._create_mock_dataframe(rsi_val=74.5)
+        df_overbought = self._create_mock_dataframe(rsi_val=82.5)
         sig_overbought = SqueezeMomentumBreakout.generate_signal(df_overbought, len(df_overbought) - 1, target_rr=2.0)
         self.assertIsNone(sig_overbought)
 
     def test_rsi_safe_corridor_short_oversold_rejection(self):
-        """Verify that Squeeze Breakout rejects SHORTs when RSI < 32 (oversold bottom)."""
+        """Verify that Squeeze Breakout rejects SHORTs when RSI is extreme oversold bottom (< 24)."""
         dates = pd.date_range("2026-01-01", periods=60, freq="15min")
         df_short = pd.DataFrame({
             "time": [int(d.timestamp()) for d in dates],
@@ -191,7 +191,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "ema50": [105.0] * 60,
             "ema200": [110.0] * 60,
             "atr14": [2.0] * 60,
-            "rsi14": [25.0] * 60,  # Deeply oversold
+            "rsi14": [18.0] * 60,  # Deeply oversold (< 24)
             "momentum": [-1.5] * 60,
             "rvol": [2.0] * 60
         })

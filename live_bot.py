@@ -308,19 +308,20 @@ class LiveCryptoBot:
             if pos.get("timeframe") not in ALLOWED_ENTRY_TIMEFRAMES:
                 pos["timeframe"] = self.timeframe
 
-        # 3. Load Engine State & Wallets (Database + File Fallback)
+        # 3. Load Engine State & Wallets (File + Database Fallback)
         state = None
-        try:
-            state = self.db.get_state("bot_state")
-        except Exception:
-            pass
-
-        if not state and os.path.exists(self.state_file):
+        if os.path.exists(self.state_file):
             try:
                 with open(self.state_file, "r", encoding="utf-8") as f:
                     state = json.load(f)
             except Exception:
                 state = None
+
+        if not state:
+            try:
+                state = self.db.get_state("bot_state")
+            except Exception:
+                pass
 
         if state:
             try:
@@ -540,12 +541,15 @@ class LiveCryptoBot:
                         self.mtf_data[sym][mtf_tf] = df
 
             # 2. Update Bitcoin Macro Trend Gatekeeper status with Dual/Triple Alignment
-            btc_df = (
-                data_maps.get("15m", {}).get("BTCUSDT") 
-                or data_maps.get("30m", {}).get("BTCUSDT") 
-                or data_maps.get("5m", {}).get("BTCUSDT")
-            )
-            btc_30m = self.mtf_data.get("BTCUSDT", {}).get("30m", data_maps.get("30m", {}).get("BTCUSDT"))
+            btc_df = data_maps.get("15m", {}).get("BTCUSDT")
+            if btc_df is None:
+                btc_df = data_maps.get("30m", {}).get("BTCUSDT")
+            if btc_df is None:
+                btc_df = data_maps.get("5m", {}).get("BTCUSDT")
+
+            btc_30m = self.mtf_data.get("BTCUSDT", {}).get("30m")
+            if btc_30m is None:
+                btc_30m = data_maps.get("30m", {}).get("BTCUSDT")
             btc_1h = self.mtf_data.get("BTCUSDT", {}).get("1h")
             btc_4h = self.mtf_data.get("BTCUSDT", {}).get("4h")
             self._evaluate_btc_macro(btc_df, btc_30m=btc_30m, btc_1h=btc_1h, btc_4h=btc_4h)
@@ -655,7 +659,13 @@ class LiveCryptoBot:
             pos_tf = pos.get('timeframe', '15m')
             if isinstance(data_map, dict) and any(isinstance(v, dict) for v in data_map.values()):
                 # Multi-timeframe map
-                df = data_map.get(pos_tf, {}).get(sym) or data_map.get("15m", {}).get(sym) or data_map.get("30m", {}).get(sym) or data_map.get("5m", {}).get(sym)
+                df = data_map.get(pos_tf, {}).get(sym)
+                if df is None:
+                    df = data_map.get("15m", {}).get(sym)
+                if df is None:
+                    df = data_map.get("30m", {}).get(sym)
+                if df is None:
+                    df = data_map.get("5m", {}).get(sym)
             else:
                 # Single-timeframe fallback
                 df = data_map.get(sym) if isinstance(data_map, dict) else None
@@ -774,8 +784,9 @@ class LiveCryptoBot:
             max_hold_bars = tf_profile.get("max_holding_bars", 64)
 
             # SAFEGUARD: Time Stagnation Exit (dead chop without movement)
-            if pos.get('bars_held', 0) >= stagnation_bars and abs(unrealized_dist / risk_dist) < 0.4:
-                print(f"[LiveBot:ExitEngine] {sym} Time Stagnation reached ({stagnation_bars} bars on {pos_tf}). Exiting dead chop.")
+            # Protect active momentum trades: If trade reached >= +0.8R MFE or active trailing, exempt from premature cut
+            if pos.get('bars_held', 0) >= stagnation_bars and abs(unrealized_dist / risk_dist) < 0.4 and not (mfe >= 0.8 or pos.get('is_trailing')):
+                print(f"[LiveBot:ExitEngine] {sym} Time Stagnation reached ({stagnation_bars} bars on {pos_tf} in dead chop). Exiting trade.")
                 await self._close_position(sym, exit_price=curr_price, exit_time=curr_time, outcome="TIME_EXIT", df=df)
                 closed_symbols.append(sym)
                 continue
@@ -993,6 +1004,17 @@ class LiveCryptoBot:
         target_rr = self.active_params.get("target_rr", self.target_rr)
         tf = timeframe or (self.timeframe if self.timeframe in ["5m", "15m", "30m"] else "15m")
         
+        # Support Dynamic Ensemble or Multi-Strategy scanning
+        if self.active_strategy_name in ["Dynamic_Ensemble", "Multi_Strategy", "ALL", "Trend_and_Squeeze"]:
+            sig = TrendPullbackConfluence.generate_signal(
+                df, idx, target_rr=target_rr, params=self.active_params, htf_data=htf_data, timeframe=tf
+            )
+            if sig:
+                return sig
+            return SqueezeMomentumBreakout.generate_signal(
+                df, idx, target_rr=target_rr, params=self.active_params, htf_data=htf_data, timeframe=tf
+            )
+
         # Match strategy class by active name
         strat_cls = None
         for s in AVAILABLE_STRATEGIES:
@@ -2214,7 +2236,8 @@ class LiveCryptoBot:
         """Return full real-time telemetry metrics for dashboard visualization."""
         total_trades = len(self.closed_trades)
         wins = [t for t in self.closed_trades if t.get('net_r', 0) > 0]
-        losses = [t for t in self.closed_trades if t.get('net_r', 0) <= 0]
+        be_trades = [t for t in self.closed_trades if t.get('outcome') in ['BE_EXIT', 'BREAKEVEN_DEFENSE'] or (t.get('net_r', 0) == 0 and t.get('outcome') != 'LOSS')]
+        losses = [t for t in self.closed_trades if t.get('net_r', 0) < 0 and t not in be_trades]
         
         win_rate = round((len(wins) / total_trades * 100.0), 2) if total_trades > 0 else 0.0
         total_net_r = round(sum(t.get('net_r', 0) for t in self.closed_trades), 2)

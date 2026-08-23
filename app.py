@@ -90,7 +90,7 @@ async def serve_index():
 
 @app.get("/api/scan")
 async def get_market_scan(
-    interval: str = Query("1h", description="Candle interval: 5m, 15m, 30m, 1h, 4h, 1d"),
+    interval: str = Query("30m", description="Candle interval: 5m, 15m, 30m, 1h, 4h, 1d"),
     limit: int = Query(50, description="Number of top liquid pairs to scan"),
     force_refresh: bool = Query(False, description="Bypass cache and force fresh scan")
 ):
@@ -110,7 +110,7 @@ async def get_market_scan(
 @app.get("/api/candles/{symbol}")
 async def get_symbol_candles(
     symbol: str,
-    interval: str = Query("1h", description="Candle interval"),
+    interval: str = Query("30m", description="Candle interval"),
     limit: int = Query(300, description="Number of bars")
 ):
     """Return OHLCV candles, technical indicators, squeeze status, and RR levels for chart rendering."""
@@ -234,7 +234,7 @@ async def get_symbol_candles(
 @app.get("/api/backtest")
 async def run_backtest(
     symbol: str = Query("BTCUSDT", description="Symbol to backtest or ALL"),
-    interval: str = Query("1h", description="Candle timeframe"),
+    interval: str = Query("30m", description="Candle timeframe"),
     bars: int = Query(1000, description="Historical candles count"),
     target_rr: float = Query(2.0, description="Target Risk-to-Reward multiple (1.0 to 4.0)")
 ):

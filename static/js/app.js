@@ -1,14 +1,20 @@
 // Application State
-let currentInterval = '15m';
+let currentInterval = '30m';
 let currentSymbol = 'BTCUSDT';
-let currentFilter = 'all'; // 'all' | 'favorites' | 'signals' | 'squeeze'
+let currentFilter = 'all'; // 'all' | 'favorites' | 'signals' | 'squeeze' | 'tension'
 let searchQuery = '';
 let scannerData = [];
 let autoRefreshTimer = null;
 
+const ALL_TIMEFRAMES = ['5m', '15m', '30m', '1h', '4h'];
+
 // High-Performance In-Memory Client Caches for Instant (0ms) Timeframe Switching
-const clientScanCache = {};   // { '15m': { timestamp, data }, '30m': { timestamp, data } }
-const clientCandleCache = {}; // { 'BTCUSDT_15m': { timestamp, data } }
+const clientScanCache = {};   // { '30m': { timestamp, data }, ... }
+const clientCandleCache = {}; // { 'BTCUSDT_30m': { timestamp, data }, ... }
+
+// In-flight fetch controllers to abort stale requests when switching tabs rapidly
+let scanAbortController = null;
+let chartAbortController = null;
 
 // Favorites Management
 const FAVORITES_STORAGE_KEY = 'quant_scanner_favorites';
@@ -189,44 +195,72 @@ function formatPhDateTime(val) {
   }
 }
 
+/**
+ * Pre-fetches scanner data and candlestick data for a given timeframe in background.
+ * Uses low priority so it never delays active user interactions.
+ */
+function prefetchTimeframe(tf, symbol = currentSymbol) {
+  if (!tf || !ALL_TIMEFRAMES.includes(tf)) return;
+
+  // 1. Prefetch Scan Data if missing or >20s old
+  const scanEntry = clientScanCache[tf];
+  if (!scanEntry || (Date.now() - scanEntry.timestamp > 20000)) {
+    fetch(`/api/scan?interval=${tf}&limit=60`)
+      .then(r => r.ok ? r.json() : null)
+      .then(json => {
+        if (json && json.data) {
+          clientScanCache[tf] = { timestamp: Date.now(), data: json.data };
+        }
+      })
+      .catch(() => {});
+  }
+
+  // 2. Prefetch Candle Data for symbol if missing or >20s old
+  const chartKey = `${symbol}_${tf}`;
+  const candleEntry = clientCandleCache[chartKey];
+  if (!candleEntry || (Date.now() - candleEntry.timestamp > 20000)) {
+    fetch(`/api/candles/${symbol}?interval=${tf}&limit=300`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && data.candles) {
+          clientCandleCache[chartKey] = { timestamp: Date.now(), data };
+        }
+      })
+      .catch(() => {});
+  }
+}
+
+/**
+ * Pre-warms all alternative timeframes (5m, 15m, 1h, 4h) in background with staggered micro-delays
+ */
+function prewarmAllTimeframes(symbol = currentSymbol) {
+  const queue = ALL_TIMEFRAMES.filter(tf => tf !== currentInterval);
+  queue.forEach((tf, index) => {
+    setTimeout(() => {
+      prefetchTimeframe(tf, symbol);
+    }, 50 + index * 100);
+  });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initCharts();
   loadFavorites();
   setupEventListeners();
   
-  // Initial load
+  // Initial load (30m default)
   fetchScan(true);
   loadSymbolChart(currentSymbol);
   
-  // Pre-warm 5m, 15m, and 30m caches in background for instantaneous zero-latency switching
+  // Background pre-warming for all timeframes (5m, 15m, 1h, 4h)
   setTimeout(() => {
-    ['5m', '15m', '30m'].forEach(tf => {
-      if (tf !== currentInterval) {
-        fetch(`/api/scan?interval=${tf}&limit=60`)
-          .then(r => r.ok ? r.json() : null)
-          .then(json => {
-            if (json && json.data) {
-              clientScanCache[tf] = { timestamp: Date.now(), data: json.data };
-            }
-          })
-          .catch(() => {});
-
-        fetch(`/api/candles/${currentSymbol}?interval=${tf}&limit=300`)
-          .then(r => r.ok ? r.json() : null)
-          .then(data => {
-            if (data && data.candles) {
-              clientCandleCache[`${currentSymbol}_${tf}`] = { timestamp: Date.now(), data };
-            }
-          })
-          .catch(() => {});
-      }
-    });
-  }, 800);
+    prewarmAllTimeframes(currentSymbol);
+  }, 250);
 
   // Periodic background refresh every 30s
   autoRefreshTimer = setInterval(() => {
     fetchScan(false);
+    prewarmAllTimeframes(currentSymbol);
   }, 30000);
 });
 
@@ -271,8 +305,19 @@ function applyTheme(theme) {
 }
 
 function setupEventListeners() {
-  // Timeframe buttons (Optimized 0ms Instant Switch for Scanner & Chart)
+  // Timeframe buttons (Optimized 0ms Instant Switch with Hover/Touch Pre-warming)
   document.querySelectorAll('.tf-btn').forEach(btn => {
+    const tf = btn.dataset.tf;
+
+    // Fast pre-warm on mouse hover or touch start (pre-fetches before click triggers!)
+    btn.addEventListener('mouseenter', () => {
+      if (tf !== currentInterval) prefetchTimeframe(tf, currentSymbol);
+    }, { passive: true });
+
+    btn.addEventListener('touchstart', () => {
+      if (tf !== currentInterval) prefetchTimeframe(tf, currentSymbol);
+    }, { passive: true });
+
     btn.addEventListener('click', (e) => {
       const newTf = btn.dataset.tf;
       if (currentInterval === newTf) return;
@@ -291,6 +336,7 @@ function setupEventListeners() {
         scannerData = clientScanCache[newTf].data;
         renderScannerTable();
         updateBacktestDropdown(scannerData);
+        updateFavoriteBadges();
       }
       
       const chartKey = `${currentSymbol}_${newTf}`;
@@ -303,6 +349,9 @@ function setupEventListeners() {
       // Fetch fresh live data in background without blocking UI
       fetchScan(false);
       loadSymbolChart(currentSymbol);
+
+      // Pre-warm other timeframes for the active symbol
+      prewarmAllTimeframes(currentSymbol);
     });
   });
 
@@ -411,8 +460,16 @@ async function fetchScan(showSpinner = true, force = false) {
     `;
   }
 
+  // Abort previous in-flight scan request if switching tabs quickly
+  if (scanAbortController) {
+    scanAbortController.abort();
+  }
+  scanAbortController = new AbortController();
+
   try {
-    const res = await fetch(`/api/scan?interval=${scanTf}&limit=60${force ? '&force_refresh=true' : ''}`);
+    const res = await fetch(`/api/scan?interval=${scanTf}&limit=60${force ? '&force_refresh=true' : ''}`, {
+      signal: scanAbortController.signal
+    });
     if (!res.ok) throw new Error('Scan failed');
     const json = await res.json();
     const data = json.data || [];
@@ -425,13 +482,14 @@ async function fetchScan(showSpinner = true, force = false) {
     }
     
     // If user is still on this interval, update UI smoothly
-    if (json.interval === scanTf) {
+    if (json.interval === currentInterval) {
       scannerData = data;
       renderScannerTable();
       updateBacktestDropdown(scannerData);
       updateFavoriteBadges();
     }
   } catch (err) {
+    if (err.name === 'AbortError') return;
     console.error('Scan error:', err);
     if (tbody && scannerData.length === 0) {
       tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-rose-500">Failed to fetch live scan data.</td></tr>`;
@@ -658,21 +716,32 @@ function onSelectCoin(symbol) {
   if (btSelect && symbol !== 'ALL') {
     btSelect.value = symbol;
   }
+
+  // Pre-warm other timeframes for the newly selected symbol in background
+  prewarmAllTimeframes(symbol);
 }
 
 async function loadSymbolChart(symbol, force = false) {
   const chartTf = currentInterval;
   const chartKey = `${symbol}_${chartTf}`;
   
-  // Instant render from client cache if available and not forced
+  // Instant render from client cache if available and not forced (0ms)
   if (clientCandleCache[chartKey] && !force) {
     const cached = clientCandleCache[chartKey].data;
     updateChartData(cached);
     updateTopMetrics(cached);
   }
 
+  // Abort previous in-flight chart request if switching rapidly
+  if (chartAbortController) {
+    chartAbortController.abort();
+  }
+  chartAbortController = new AbortController();
+
   try {
-    const res = await fetch(`/api/candles/${symbol}?interval=${chartTf}&limit=300`);
+    const res = await fetch(`/api/candles/${symbol}?interval=${chartTf}&limit=300`, {
+      signal: chartAbortController.signal
+    });
     if (!res.ok) throw new Error('Failed to load chart');
     const data = await res.json();
     
@@ -680,11 +749,12 @@ async function loadSymbolChart(symbol, force = false) {
     clientCandleCache[chartKey] = { timestamp: Date.now(), data };
     
     // If still viewing this symbol and interval, update chart smoothly
-    if (data.symbol === currentSymbol) {
+    if (data.symbol === currentSymbol && data.interval === currentInterval) {
       updateChartData(data);
       updateTopMetrics(data);
     }
   } catch (err) {
+    if (err.name === 'AbortError') return;
     console.error('Error loading chart:', err);
   }
 }

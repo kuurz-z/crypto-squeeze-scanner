@@ -236,11 +236,11 @@ class SqueezeMomentumBreakout(StrategyBase):
 
         p = params or {}
         rvol_min = p.get("rvol_min", 1.15)
-        atr_sl_mult = p.get("atr_sl_mult", 1.40)
-        rsi_min_long = p.get("rsi_min_long", 50.0)
-        rsi_max_long = p.get("rsi_max_long", 68.0)
-        rsi_min_short = p.get("rsi_min_short", 32.0)
-        rsi_max_short = p.get("rsi_max_short", 50.0)
+        atr_sl_mult = p.get("atr_sl_mult", 1.60)
+        rsi_min_long = p.get("rsi_min_long", 48.0)
+        rsi_max_long = p.get("rsi_max_long", 76.0)
+        rsi_min_short = p.get("rsi_min_short", 24.0)
+        rsi_max_short = p.get("rsi_max_short", 52.0)
         min_body_ratio = p.get("min_body_ratio", 0.25)
         max_wick_ratio = p.get("max_wick_ratio", 0.50)
         min_risk_dist_pct = p.get("min_risk_dist_pct", 0.008)
