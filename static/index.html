@@ -123,29 +123,41 @@
                    class="w-full bg-slate-50 dark:bg-[#1e293b] border border-slate-200 dark:border-gray-700 rounded-lg pl-8 pr-3 py-1.5 text-xs text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:border-indigo-500 focus:bg-white dark:focus:bg-[#1e293b] transition">
           </div>
 
-          <div class="grid grid-cols-4 gap-1 text-[11px] font-medium" id="filter-tabs">
+          <div class="grid grid-cols-5 gap-1 text-[11px] font-medium" id="filter-tabs">
             <button data-filter="all" class="filter-tab py-1.5 rounded bg-indigo-600 text-white font-semibold shadow text-center">All</button>
-            <button data-filter="favorites" class="filter-tab py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-amber-600 dark:text-amber-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-1 font-medium" title="Show only favorited coins"><i class="fa-solid fa-star text-amber-500 text-xs"></i> Favs <span id="fav-count-badge" class="text-[9px] px-1 py-0.2 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold">0</span></button>
-            <button data-filter="signals" class="filter-tab py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-emerald-600 dark:text-emerald-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-1 font-medium"><i class="fa-solid fa-bolt-lightning text-xs"></i> Signals</button>
-            <button data-filter="squeeze" class="filter-tab py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-amber-600 dark:text-amber-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-1 font-medium"><i class="fa-solid fa-compress text-xs"></i> Squeezes</button>
+            <button data-filter="favorites" class="filter-tab py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-amber-600 dark:text-amber-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-0.5 font-medium" title="Show only favorited coins"><i class="fa-solid fa-star text-amber-500 text-[10px]"></i> Favs <span id="fav-count-badge" class="text-[8px] px-1 py-0.2 rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-300 font-bold">0</span></button>
+            <button data-filter="signals" class="filter-tab py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-emerald-600 dark:text-emerald-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-0.5 font-medium"><i class="fa-solid fa-bolt-lightning text-[10px]"></i> Signals</button>
+            <button data-filter="squeeze" class="filter-tab py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-amber-600 dark:text-amber-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-0.5 font-medium"><i class="fa-solid fa-compress text-[10px]"></i> Squeeze</button>
+            <button data-filter="tension" class="filter-tab py-1.5 rounded bg-slate-100 dark:bg-[#1e293b] text-orange-600 dark:text-orange-400 hover:bg-slate-200 dark:hover:bg-gray-700 border border-slate-200 dark:border-transparent text-center flex items-center justify-center gap-0.5 font-medium" title="High-Tension explosive squeeze setups"><i class="fa-solid fa-fire text-orange-500 text-[10px]"></i> Tension</button>
           </div>
         </div>
 
         <!-- Table Container -->
         <div class="flex-1 overflow-y-auto max-h-[580px] custom-scrollbar border border-slate-200 dark:border-gray-800/80 rounded-lg bg-white dark:bg-[#111827]">
           <table class="w-full text-left text-xs border-collapse">
-            <thead class="bg-slate-50 dark:bg-[#1e293b] text-slate-500 dark:text-gray-400 sticky top-0 uppercase text-[10px] tracking-wider z-10 border-b border-slate-200 dark:border-gray-800">
+            <thead class="bg-slate-50 dark:bg-[#1e293b] text-slate-500 dark:text-gray-400 sticky top-0 uppercase text-[10px] tracking-wider z-10 border-b border-slate-200 dark:border-gray-800 select-none">
               <tr>
-                <th class="py-2.5 px-3">Coin</th>
-                <th class="py-2.5 px-2">Price</th>
-                <th class="py-2.5 px-2 text-center">Squeeze</th>
+                <th class="py-2.5 px-3 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition" onclick="handleTableSort('symbol')">
+                  <div class="flex items-center gap-1">Coin <span id="sort-icon-symbol" class="text-[8px] text-slate-400"></span></div>
+                </th>
+                <th class="py-2.5 px-2 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition" onclick="handleTableSort('price')">
+                  <div class="flex items-center gap-1">Price <span id="sort-icon-price" class="text-[8px] text-slate-400"></span></div>
+                </th>
+                <th class="py-2.5 px-2 text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition" onclick="handleTableSort('squeeze')">
+                  <div class="flex items-center justify-center gap-1">Squeeze <span id="sort-icon-squeeze" class="text-[8px] text-slate-400"></span></div>
+                </th>
+                <th class="py-2.5 px-2 text-center cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition" onclick="handleTableSort('buyer_ratio')" title="Order Flow: Aggressive Taker Buyers vs. Sellers %">
+                  <div class="flex items-center justify-center gap-1">Order Flow <span id="sort-icon-buyer_ratio" class="text-[8px] text-slate-400"></span></div>
+                </th>
                 <th class="py-2.5 px-2 text-center">Signal</th>
-                <th class="py-2.5 px-2 text-right">Trend</th>
+                <th class="py-2.5 px-2 text-right cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition" onclick="handleTableSort('trend')">
+                  <div class="flex items-center justify-end gap-1">Trend <span id="sort-icon-trend" class="text-[8px] text-slate-400"></span></div>
+                </th>
               </tr>
             </thead>
             <tbody id="scanner-tbody" class="divide-y divide-slate-100 dark:divide-gray-800 text-slate-700 dark:text-gray-300">
               <tr>
-                <td colspan="5" class="py-8 text-center text-slate-400 dark:text-gray-500">
+                <td colspan="6" class="py-8 text-center text-slate-400 dark:text-gray-500">
                   <i class="fa-solid fa-spinner fa-spin text-lg text-indigo-500 mb-2"></i>
                   <p>Scanning top liquid pairs...</p>
                 </td>

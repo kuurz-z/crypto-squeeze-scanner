@@ -36,7 +36,9 @@ async def close_http_session():
 EXCLUDED_KEYWORDS = [
     'UPUSDT', 'DOWNUSDT', 'BEARUSDT', 'BULLUSDT', 'USDCUSDT', 'FDUSDUSDT', 
     'TUSDUSDT', 'EURUSDT', 'DAIUSDT', 'USD1USDT', 'USDEUSDT', 'EURIUSDT', 
-    'AEURUSDT', 'USDPUSDT', 'PYUSDUSDT', 'USDDUSDT', 'WBTCUSDT', 'WETHUSDT'
+    'AEURUSDT', 'USDPUSDT', 'PYUSDUSDT', 'USDDUSDT', 'WBTCUSDT', 'WETHUSDT',
+    'RLUSDUSDT', 'BUSDUSDT', 'USTCUSDT', 'UUSDT', 'USD0USDT', 'USDMUSDT',
+    'BFDUSDUSDT', 'USDEUSDT'
 ]
 
 # Default fallback list of liquid USDT trading pairs
@@ -79,11 +81,14 @@ async def fetch_klines(session: aiohttp.ClientSession, symbol: str, interval: st
     """Fetch historical kline data for a symbol using the shared global cache and rate-limit tracking."""
     df = await fetch_symbol_klines(session, symbol, interval=interval, limit=limit)
     if df is not None and len(df) >= 50:
-        return df[['time', 'open', 'high', 'low', 'close', 'volume']]
+        cols = ['time', 'open', 'high', 'low', 'close', 'volume']
+        if 'taker_buy_base' in df.columns:
+            cols.append('taker_buy_base')
+        return df[cols]
     return None
 
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Compute mathematical indicators: EMA200, EMA50, Bollinger Bands, Keltner Channels, ATR, Squeeze."""
+    """Compute mathematical indicators: EMA200, EMA50, Bollinger Bands, Keltner Channels, ATR, Squeeze, Compression Ratio, and Order Flow."""
     if len(df) < 50:
         return df
 
@@ -112,9 +117,23 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     # Squeeze Condition: True if BB is inside KC
     df['squeeze_on'] = (df['bb_upper'] < df['kc_upper']) & (df['bb_lower'] > df['kc_lower'])
     
+    # Squeeze Compression Depth Ratio (< 1.0 when in squeeze; lower = tighter spring)
+    bb_width = (df['bb_upper'] - df['bb_lower']).replace(0, np.nan)
+    kc_width = (df['kc_upper'] - df['kc_lower']).replace(0, np.nan)
+    df['compression_ratio'] = (bb_width / kc_width).fillna(1.0)
+    
     # Volume SMA 20 & Volume Surge
     df['vol_sma20'] = df['volume'].rolling(window=20).mean()
     df['vol_surge'] = df['volume'] > (1.3 * df['vol_sma20'])
+    
+    # Order Flow: Taker Buy Volume Ratio (Dominance %)
+    if 'taker_buy_base' in df.columns:
+        df['buyer_ratio'] = (df['taker_buy_base'] / df['volume'].replace(0, np.nan) * 100.0).fillna(50.0)
+    else:
+        # Fallback Close Location Value (CLV)
+        total_r = (df['high'] - df['low']).replace(0, 1e-6)
+        clv = ((df['close'] - df['low']) - (df['high'] - df['close'])) / total_r
+        df['buyer_ratio'] = ((clv + 1.0) / 2.0 * 100.0).fillna(50.0)
     
     # Momentum (Linear regression/Momentum oscillator)
     highest_20 = df['high'].rolling(window=20).max()
@@ -128,6 +147,17 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df['squeeze_bars'] = df.groupby(squeeze_blocks).cumcount()
     df['squeeze_bars'] = np.where(df['squeeze_on'], df['squeeze_bars'] + 1, 0)
     df['squeeze_released'] = (~df['squeeze_on']) & (df['squeeze_on'].shift(1) == True)
+    
+    # Squeeze Tension Score
+    df['tension_score'] = np.where(
+        df['squeeze_on'], 
+        df['squeeze_bars'] * np.maximum(0.0, 1.0 - df['compression_ratio']) * 100.0, 
+        0.0
+    )
+    
+    # 5-bar swing high/low for breakout clearance
+    df['swing_high_5'] = df['high'].rolling(window=5).max().shift(1)
+    df['swing_low_5'] = df['low'].rolling(window=5).min().shift(1)
     
     # Relative Strength Index (RSI 14)
     change = df['close'].diff()
@@ -144,24 +174,28 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     long_wick = (df['high'] - df['close']) / total_range
     short_wick = (df['close'] - df['low']) / total_range
     
-    # Signal classification
+    # Signal classification with Anti-Fakeout and Order Flow confirmation
     df['signal'] = 'NONE'
     
-    # Long condition with safe RSI corridor (50-68) and solid body close
+    # Long condition: Squeeze release + Above EMA50 + Break above 5-bar swing high + Positive Momentum + Buyer dominance + Safe RSI + Solid Body
     long_cond = (
         df['squeeze_released'] & 
         (df['close'] > df['ema50']) & 
+        (df['close'] > df['swing_high_5'].fillna(0)) &
         (df['momentum'] > 0) & 
         df['vol_surge'] &
+        (df['buyer_ratio'] >= 48.0) &
         (df['rsi14'] >= 50.0) & (df['rsi14'] <= 68.0) &
         (long_body >= 0.35) & (long_wick <= 0.45)
     )
-    # Short condition with safe RSI corridor (32-50) and solid body close
+    # Short condition: Squeeze release + Below EMA50 + Break below 5-bar swing low + Negative Momentum + Seller dominance + Safe RSI + Solid Body
     short_cond = (
         df['squeeze_released'] & 
         (df['close'] < df['ema50']) & 
+        (df['close'] < df['swing_low_5'].fillna(1e9)) &
         (df['momentum'] < 0) & 
         df['vol_surge'] &
+        (df['buyer_ratio'] <= 52.0) &
         (df['rsi14'] >= 32.0) & (df['rsi14'] <= 50.0) &
         (short_body >= 0.35) & (short_wick <= 0.45)
     )
@@ -212,9 +246,33 @@ async def scan_single_symbol(session: aiohttp.ClientSession, symbol: str, interv
     df = compute_indicators(df)
     last_row = df.iloc[-1]
     
+    # Dynamic Peg / Stablecoin / Dead Token Filter
+    close_val = float(last_row['close'])
+    if close_val <= 0:
+        return None
+    recent_range_pct = (df['high'].iloc[-24:].max() - df['low'].iloc[-24:].min()) / close_val if len(df) >= 24 else 1.0
+    std_ratio = float(last_row['std20']) / close_val if 'std20' in last_row else 1.0
+    if recent_range_pct < 0.003 or std_ratio < 0.0006:
+        # Asset has virtually no volatility (<0.3% range over 24 bars) -> Pegged/Flat coin
+        return None
+    
     is_squeeze = bool(last_row['squeeze_on'])
     squeeze_bars = int(last_row['squeeze_bars'])
+    comp_ratio = round(float(last_row.get('compression_ratio', 1.0)), 2)
+    tension_score = round(float(last_row.get('tension_score', 0.0)), 1)
+    buyer_ratio = round(float(last_row.get('buyer_ratio', 50.0)), 1)
     signal = str(last_row['signal'])
+    
+    # Squeeze Lifecycle Stage Classification (Traffic Light)
+    if is_squeeze:
+        if squeeze_bars >= 6 or comp_ratio <= 0.75:
+            squeeze_stage = "HIGH_TENSION"  # 🟠 High energy / tight spring
+        else:
+            squeeze_stage = "COILING"       # 🟡 Building up / early squeeze
+    elif bool(last_row.get('squeeze_released', False)) or signal in ['LONG', 'SHORT']:
+        squeeze_stage = "FIRED"             # 🟢 Breakout active
+    else:
+        squeeze_stage = "NONE"              # ⚪ Normal
     
     recent_signal = "NONE"
     for i in range(1, min(4, len(df))):
@@ -227,7 +285,6 @@ async def scan_single_symbol(session: aiohttp.ClientSession, symbol: str, interv
     pct_from_ema200 = ((last_row['close'] - last_row['ema200']) / last_row['ema200']) * 100.0
     
     # MTF Trend Estimation
-    close_val = float(last_row['close'])
     ema50_val = float(last_row['ema50'])
     rsi_val = float(last_row['rsi14'])
     mtf_1h = "BULLISH" if (close_val > ema50_val and rsi_val >= 48) else ("BEARISH" if (close_val < ema50_val and rsi_val <= 52) else "NEUTRAL")
@@ -239,11 +296,15 @@ async def scan_single_symbol(session: aiohttp.ClientSession, symbol: str, interv
     
     return {
         "symbol": symbol,
-        "price": float(last_row['close']),
+        "price": close_val,
         "volume": float(last_row['volume']),
         "change_pct": round(((last_row['close'] - df.iloc[-24]['close']) / df.iloc[-24]['close'] * 100.0) if len(df) >= 24 else 0.0, 2),
         "is_squeeze": is_squeeze,
         "squeeze_bars": squeeze_bars,
+        "squeeze_stage": squeeze_stage,
+        "compression_ratio": comp_ratio,
+        "tension_score": tension_score,
+        "buyer_ratio": buyer_ratio,
         "signal": signal,
         "recent_signal": recent_signal,
         "trend": trend,
@@ -274,8 +335,10 @@ async def scan_market(interval: str = "1h", limit_pairs: int = 50, force_refresh
     
     def sort_priority(item):
         sig_score = 100 if item.get('signal') in ['LONG', 'SHORT'] else (50 if item.get('recent_signal') != 'NONE' else 0)
-        sqz_score = (item.get('squeeze_bars', 0) * 2) if item.get('is_squeeze') else 0
-        return sig_score + sqz_score
+        stage = item.get('squeeze_stage', 'NONE')
+        stage_score = 40 if stage == 'HIGH_TENSION' else (20 if stage == 'COILING' else (60 if stage == 'FIRED' else 0))
+        tension = float(item.get('tension_score', 0))
+        return sig_score + stage_score + min(tension, 30.0)
         
     valid_results.sort(key=sort_priority, reverse=True)
     _scan_cache[cache_key] = {"timestamp": now, "data": valid_results}

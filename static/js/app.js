@@ -415,6 +415,34 @@ function updateRateLimitDisplay(rl) {
   }
 }
 
+// Table Sorting State
+let sortColumn = 'default';
+let sortDirection = 'desc';
+
+function handleTableSort(column) {
+  if (sortColumn === column) {
+    sortDirection = sortDirection === 'asc' ? 'desc' : 'asc';
+  } else {
+    sortColumn = column;
+    sortDirection = (column === 'symbol') ? 'asc' : 'desc';
+  }
+  updateSortIcons();
+  renderScannerTable();
+}
+
+function updateSortIcons() {
+  ['symbol', 'price', 'squeeze', 'buyer_ratio', 'trend'].forEach(col => {
+    const el = document.getElementById(`sort-icon-${col}`);
+    if (el) {
+      if (sortColumn === col) {
+        el.innerHTML = sortDirection === 'asc' ? '<i class="fa-solid fa-arrow-up text-indigo-500"></i>' : '<i class="fa-solid fa-arrow-down text-indigo-500"></i>';
+      } else {
+        el.innerHTML = '';
+      }
+    }
+  });
+}
+
 function renderScannerTable() {
   const tbody = document.getElementById('scanner-tbody');
   const badge = document.getElementById('scan-count-badge');
@@ -428,11 +456,38 @@ function renderScannerTable() {
       return item.signal !== 'NONE' || item.recent_signal !== 'NONE';
     } else if (currentFilter === 'squeeze') {
       return item.is_squeeze === true;
+    } else if (currentFilter === 'tension') {
+      return item.squeeze_stage === 'HIGH_TENSION' || (item.is_squeeze && item.squeeze_bars >= 6) || (item.compression_ratio && item.compression_ratio <= 0.75);
     } else if (currentFilter === 'favorites') {
       return favoriteSymbols.has(item.symbol);
     }
     return true;
   });
+
+  // Apply Column Sorting
+  if (sortColumn !== 'default') {
+    filtered.sort((a, b) => {
+      let valA, valB;
+      if (sortColumn === 'symbol') {
+        valA = a.symbol;
+        valB = b.symbol;
+        return sortDirection === 'asc' ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      } else if (sortColumn === 'price') {
+        valA = a.price || 0;
+        valB = b.price || 0;
+      } else if (sortColumn === 'squeeze') {
+        valA = a.is_squeeze ? ((a.squeeze_bars || 0) + (a.tension_score || 0)) : (a.squeeze_stage === 'FIRED' ? 50 : 0);
+        valB = b.is_squeeze ? ((b.squeeze_bars || 0) + (b.tension_score || 0)) : (b.squeeze_stage === 'FIRED' ? 50 : 0);
+      } else if (sortColumn === 'buyer_ratio') {
+        valA = a.buyer_ratio || 50;
+        valB = b.buyer_ratio || 50;
+      } else if (sortColumn === 'trend') {
+        valA = a.pct_from_ema200 || a.change_pct || 0;
+        valB = b.pct_from_ema200 || b.change_pct || 0;
+      }
+      return sortDirection === 'asc' ? valA - valB : valB - valA;
+    });
+  }
 
   if (badge) badge.innerText = `${filtered.length} Pairs`;
 
@@ -440,7 +495,7 @@ function renderScannerTable() {
     if (currentFilter === 'favorites') {
       tbody.innerHTML = `
         <tr>
-          <td colspan="5" class="py-8 px-4 text-center text-slate-400 dark:text-gray-500">
+          <td colspan="6" class="py-8 px-4 text-center text-slate-400 dark:text-gray-500">
             <i class="fa-regular fa-star text-2xl text-amber-400 mb-2 block animate-pulse"></i>
             <p class="font-semibold text-slate-700 dark:text-gray-300 text-xs">No favorite coins added yet</p>
             <p class="text-[11px] text-slate-400 dark:text-gray-500 mt-1">Click the <i class="fa-regular fa-star text-amber-500"></i> star icon next to any coin to bookmark and monitor it here.</p>
@@ -448,7 +503,7 @@ function renderScannerTable() {
         </tr>
       `;
     } else {
-      tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-slate-400 dark:text-gray-500">No coins match the filter.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="py-6 text-center text-slate-400 dark:text-gray-500">No coins match the filter.</td></tr>`;
     }
     return;
   }
@@ -460,12 +515,28 @@ function renderScannerTable() {
     const starClass = isFav ? 'fa-solid fa-star text-amber-400 star-glow' : 'fa-regular fa-star text-slate-300 dark:text-slate-600 hover:text-amber-400 dark:hover:text-amber-400';
     const starTitle = isFav ? 'Remove from favorites' : 'Add to favorites';
     
-    // Squeeze badge
+    // Traffic Light Squeeze Badge
     let squeezeHtml = '';
-    if (item.is_squeeze) {
-      squeezeHtml = `<span class="px-2 py-0.5 rounded text-[10px] bg-amber-500/15 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-400/40 dark:border-amber-500/30 font-medium inline-flex items-center gap-1"><i class="fa-solid fa-compress text-[9px]"></i> ${item.squeeze_bars} bars</span>`;
+    if (item.squeeze_stage === 'HIGH_TENSION') {
+      squeezeHtml = `<span class="px-2 py-0.5 rounded text-[10px] bg-orange-500/15 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 border border-orange-400/40 dark:border-orange-500/40 font-bold inline-flex items-center gap-1 shadow-sm" title="Compression Ratio: ${item.compression_ratio}x (High Tension)"><i class="fa-solid fa-fire text-orange-500 text-[9px] animate-pulse"></i> ${item.squeeze_bars}b (${item.compression_ratio}x)</span>`;
+    } else if (item.squeeze_stage === 'COILING' || item.is_squeeze) {
+      squeezeHtml = `<span class="px-2 py-0.5 rounded text-[10px] bg-amber-500/15 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-400/40 dark:border-amber-500/30 font-medium inline-flex items-center gap-1" title="Coiling spring: ${item.squeeze_bars} bars"><i class="fa-solid fa-compress text-[9px]"></i> ${item.squeeze_bars} bars</span>`;
+    } else if (item.squeeze_stage === 'FIRED') {
+      squeezeHtml = `<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-400/40 dark:border-emerald-500/40 font-bold inline-flex items-center gap-1 animate-pulse"><i class="fa-solid fa-bolt text-emerald-500 text-[9px]"></i> Fired</span>`;
     } else {
       squeezeHtml = `<span class="text-[10px] text-slate-400 dark:text-gray-600">--</span>`;
+    }
+
+    // Order Flow / Buyer Dominance Meter
+    let orderFlowHtml = '';
+    const bRatio = item.buyer_ratio !== undefined ? item.buyer_ratio : 50.0;
+    if (bRatio >= 55.0) {
+      orderFlowHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center gap-1" title="Taker Market Buys: ${bRatio}%"><i class="fa-solid fa-arrow-trend-up text-[8px]"></i> ${bRatio.toFixed(0)}% Buy</span>`;
+    } else if (bRatio <= 45.0) {
+      const sRatio = (100.0 - bRatio).toFixed(0);
+      orderFlowHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 inline-flex items-center gap-1" title="Taker Market Sells: ${sRatio}%"><i class="fa-solid fa-arrow-trend-down text-[8px]"></i> ${sRatio}% Sell</span>`;
+    } else {
+      orderFlowHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium text-slate-500 dark:text-gray-400 bg-slate-100 dark:bg-gray-800 border border-slate-200 dark:border-gray-700" title="Balanced Flow">${bRatio.toFixed(0)}%</span>`;
     }
 
     // Signal badge
@@ -500,6 +571,9 @@ function renderScannerTable() {
         </td>
         <td class="py-2.5 px-2 text-center whitespace-nowrap align-top">
           <div class="h-5 flex items-center justify-center leading-5">${squeezeHtml}</div>
+        </td>
+        <td class="py-2.5 px-2 text-center whitespace-nowrap align-top">
+          <div class="h-5 flex items-center justify-center leading-5">${orderFlowHtml}</div>
         </td>
         <td class="py-2.5 px-2 text-center whitespace-nowrap align-top">
           <div class="h-5 flex items-center justify-center leading-5">${signalHtml}</div>

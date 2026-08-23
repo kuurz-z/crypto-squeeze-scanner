@@ -35,6 +35,11 @@ def compute_crypto_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df['squeeze_on'] = (df['bb_upper'] < df['kc_upper']) & (df['bb_lower'] > df['kc_lower'])
     df['squeeze_off'] = ~df['squeeze_on']
 
+    # Squeeze Compression Depth Ratio
+    bb_w = (df['bb_upper'] - df['bb_lower']).replace(0, np.nan)
+    kc_w = (df['kc_upper'] - df['kc_lower']).replace(0, np.nan)
+    df['compression_ratio'] = (bb_w / kc_w).fillna(1.0)
+
     # Momentum Oscillator (Linear Regression of price minus midline)
     midline = (df['sma20'] + (df['high'].rolling(20).max() + df['low'].rolling(20).min()) / 2) / 2
     delta = df['close'] - midline
@@ -53,6 +58,16 @@ def compute_crypto_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df['rvol'] = df['volume'] / df['vol_sma20'].replace(0, np.nan)
     df['rvol'] = df['rvol'].fillna(1.0)
     
+    # Order Flow: Taker Buy Volume Ratio
+    if 'taker_buy_base' in df.columns:
+        df['buyer_ratio'] = (df['taker_buy_base'] / df['volume'].replace(0, np.nan) * 100.0).fillna(50.0)
+    else:
+        tot_r = (df['high'] - df['low']).replace(0, 1e-6)
+        clv = ((df['close'] - df['low']) - (df['high'] - df['close'])) / tot_r
+        df['buyer_ratio'] = ((clv + 1.0) / 2.0 * 100.0).fillna(50.0)
+    
+    df['swing_high_5'] = df['high'].rolling(window=5).max().shift(1)
+    df['swing_low_5'] = df['low'].rolling(window=5).min().shift(1)
     df['swing_high_20'] = df['high'].rolling(window=20).max().shift(1)
     df['swing_low_20'] = df['low'].rolling(window=20).min().shift(1)
 
@@ -255,8 +270,11 @@ class SqueezeMomentumBreakout(StrategyBase):
         total_range = max(high - low, 1e-6)
         risk_dist = max(atr_sl_mult * atr, close * min_risk_dist_pct)
 
-        # Long Setup: Squeeze release + Bullish Breakout + Volume expansion + Bullish Regime + Safe RSI Corridor + Solid Body
-        if close > curr['bb_upper'] and mom > 0 and rvol >= rvol_min and close > ema50 and (rsi_min_long <= rsi <= rsi_max_long):
+        # Long Setup: Squeeze release + Bullish Breakout + Volume expansion + Bullish Regime + Safe RSI Corridor + Solid Body + Swing Clearance
+        swing_h5 = float(curr.get('swing_high_5', close)) if 'swing_high_5' in curr and not pd.isna(curr['swing_high_5']) else close
+        buyer_r = float(curr.get('buyer_ratio', 50.0)) if 'buyer_ratio' in curr and not pd.isna(curr['buyer_ratio']) else 50.0
+
+        if close > curr['bb_upper'] and close >= (swing_h5 * 0.999) and mom > 0 and rvol >= rvol_min and close > ema50 and (rsi_min_long <= rsi <= rsi_max_long) and buyer_r >= 45.0:
             # Check 5m(30m) / 15m(1h) / 30m(4h) Multi-Timeframe Alignment
             anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
             mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
@@ -301,6 +319,7 @@ class SqueezeMomentumBreakout(StrategyBase):
                         "rvol": round(rvol, 2),
                         "rsi": round(rsi, 1),
                         "momentum": round(mom, 4),
+                        "buyer_ratio": round(buyer_r, 1),
                         "ema_alignment": "Close > EMA50",
                         "body_ratio": round(body / total_range, 2),
                         "volatility_atr": round(atr, 4),
@@ -309,8 +328,10 @@ class SqueezeMomentumBreakout(StrategyBase):
                     }
                 }
 
-        # Short Setup: Squeeze release + Bearish Breakdown + Volume expansion + Bearish Regime + Safe RSI Corridor + Solid Body
-        if close < curr['bb_lower'] and mom < 0 and rvol >= rvol_min and close < ema50 and (rsi_min_short <= rsi <= rsi_max_short):
+        # Short Setup: Squeeze release + Bearish Breakdown + Volume expansion + Bearish Regime + Safe RSI Corridor + Solid Body + Swing Clearance
+        swing_l5 = float(curr.get('swing_low_5', close)) if 'swing_low_5' in curr and not pd.isna(curr['swing_low_5']) else close
+
+        if close < curr['bb_lower'] and close <= (swing_l5 * 1.001) and mom < 0 and rvol >= rvol_min and close < ema50 and (rsi_min_short <= rsi <= rsi_max_short) and buyer_r <= 55.0:
             # Check 5m(30m) / 15m(1h) / 30m(4h) Multi-Timeframe Alignment
             anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
             mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
@@ -355,6 +376,7 @@ class SqueezeMomentumBreakout(StrategyBase):
                         "rvol": round(rvol, 2),
                         "rsi": round(rsi, 1),
                         "momentum": round(mom, 4),
+                        "buyer_ratio": round(buyer_r, 1),
                         "ema_alignment": "Close < EMA50",
                         "body_ratio": round(body / total_range, 2),
                         "volatility_atr": round(atr, 4),

@@ -1,21 +1,23 @@
 # 🏆 End-of-Month Strategy Championship Tournament (2026-08)
-*Generated on: 2026-08-21 17:39:17 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
+*Generated on: 2026-08-23 18:51:01 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
 
 ## 1. 👑 Crowned Monthly Grand Champion
 - **Champion Strategy**: `Trend_Pullback_Confluence`
 - **Timeframe**: `15m`
-- **Win Rate**: `55.84%` (Strict Floor: ≥ 40.0%)
+- **Win Rate**: `64.58%` (Strict Floor: ≥ 40.0%)
 - **Reproducibility Index**: `100.0 / 100`
-- **Net Expectancy**: `+0.875 R / trade`
-- **Profit Factor**: `2.83`
+- **Net Expectancy**: `+1.18 R / trade`
+- **Profit Factor**: `4.09`
 
 ## 2. Multi-Strategy Tournament Leaderboard
 | Rank | Strategy Name | Timeframe | Win Rate % | Reproducibility | Net Expectancy | PF | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| #1 | **Trend_Pullback_Confluence** | `15m` | **55.84%** | `100.0/100` | `+0.875R` | `2.83` | 👑 **MONTHLY CHAMPION** |
-| #2 | **Squeeze_Momentum_Breakout** | `15m` | **50.0%** | `96.7/100` | `+0.42R` | `1.78` | ✅ Qualified |
-| #3 | **Liquidity_Sweep_Reversal** | `15m` | **49.3%** | `96.0/100` | `+0.399R` | `1.73` | ✅ Qualified |
-| #4 | **Trend_Pullback_Confluence** | `30m` | **46.03%** | `98.7/100` | `+0.531R` | `1.91` | ✅ Qualified |
+| #1 | **Trend_Pullback_Confluence** | `15m` | **64.58%** | `100.0/100` | `+1.18R` | `4.09` | 👑 **MONTHLY CHAMPION** |
+| #2 | **Squeeze_Momentum_Breakout** | `15m` | **62.35%** | `100.0/100` | `+0.791R` | `2.94` | ✅ Qualified |
+| #3 | **Trend_Pullback_Confluence** | `30m` | **59.72%** | `100.0/100` | `+1.01R` | `3.32` | ✅ Qualified |
+| #4 | **Liquidity_Sweep_Reversal** | `15m` | **58.89%** | `100.0/100` | `+0.687R` | `2.55` | ✅ Qualified |
+| #5 | **Squeeze_Momentum_Breakout** | `5m` | **38.78%** | `82.2/100` | `+0.083R` | `1.13` | ❌ Rejected (<40% WR) |
+| #6 | **Trend_Pullback_Confluence** | `5m` | **32.73%** | `69.1/100` | `+-0.098R` | `0.86` | ❌ Rejected (<40% WR) |
 
 ## 3. Champion Parameters
 ```json

@@ -99,7 +99,8 @@ EXCLUDED_KEYWORDS = [
     'UPUSDT', 'DOWNUSDT', 'BEARUSDT', 'BULLUSDT', 'USDCUSDT', 'FDUSDUSDT', 
     'TUSDUSDT', 'EURUSDT', 'DAIUSDT', 'USD1USDT', 'USDEUSDT', 'EURIUSDT', 
     'AEURUSDT', 'USDPUSDT', 'PYUSDUSDT', 'USDDUSDT', 'WBTCUSDT', 'WETHUSDT',
-    'RLUSDUSDT', 'BUSDUSDT', 'USTCUSDT'
+    'RLUSDUSDT', 'BUSDUSDT', 'USTCUSDT', 'UUSDT', 'USD0USDT', 'USDMUSDT',
+    'BFDUSDUSDT', 'USDEUSDT'
 ]
 
 DEFAULT_TOP_COINS = [
@@ -188,13 +189,16 @@ async def fetch_symbol_klines(
                 ])
                 
                 df['time'] = (df['open_time'] // 1000).astype(int)
-                for col in ['open', 'high', 'low', 'close', 'volume']:
+                for col in ['open', 'high', 'low', 'close', 'volume', 'taker_buy_base']:
                     df[col] = df[col].astype(float)
                 
                 df['symbol'] = symbol
-                res_df = df[['time', 'open', 'high', 'low', 'close', 'volume', 'symbol']]
+                res_df = df[['time', 'open', 'high', 'low', 'close', 'volume', 'taker_buy_base', 'symbol']]
                 _shared_kline_cache[cache_key] = {"ts": now, "df": res_df}
                 return res_df
+    except Exception as e:
+        print(f"[DataLoader] Warning fetching {symbol}: {e}")
+        return None
     except Exception as e:
         print(f"[DataLoader] Warning fetching {symbol}: {e}")
         return None
