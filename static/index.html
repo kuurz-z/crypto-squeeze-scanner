@@ -64,10 +64,12 @@
 
     <!-- TIMEFRAME & CONTROLS -->
     <div class="flex items-center gap-3">
-      <!-- Timeframe selector (Strict 15m and 30m Entry Execution) -->
+      <!-- Timeframe selector (5m, 15m, 30m, and Triple Concurrent Execution) -->
       <div class="flex items-center bg-slate-100 dark:bg-[#1e293b] p-1 rounded-lg border border-slate-200 dark:border-gray-700 text-xs font-semibold" id="tf-group">
-        <button data-tf="15m" class="tf-btn px-3 py-1.5 rounded-md transition bg-indigo-600 text-white shadow font-bold" title="15m Intraday (Anchored to 1h HTF Trend)">15m <span class="text-[10px] opacity-80 font-medium">(1h MTF)</span></button>
-        <button data-tf="30m" class="tf-btn px-3 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white font-bold" title="30m Intraday (Anchored to 4h HTF Macro Trend)">30m <span class="text-[10px] opacity-80 font-medium">(4h MTF)</span></button>
+        <button data-tf="triple" class="tf-btn px-2.5 py-1.5 rounded-md transition bg-indigo-600 text-white shadow font-bold" title="Triple Concurrent Scan (5m/30m + 15m/1h + 30m/4h)"><i class="fa-solid fa-layer-group text-[10px] mr-1"></i>Triple <span class="text-[9px] opacity-80 font-medium">(5/15/30)</span></button>
+        <button data-tf="5m" class="tf-btn px-2.5 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white font-bold" title="5m Scalp (Anchored to 30m HTF Trend)">5m <span class="text-[9px] opacity-80 font-medium">(30m MTF)</span></button>
+        <button data-tf="15m" class="tf-btn px-2.5 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white font-bold" title="15m Intraday (Anchored to 1h HTF Trend)">15m <span class="text-[9px] opacity-80 font-medium">(1h MTF)</span></button>
+        <button data-tf="30m" class="tf-btn px-2.5 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white font-bold" title="30m Swing (Anchored to 4h HTF Macro Trend)">30m <span class="text-[9px] opacity-80 font-medium">(4h MTF)</span></button>
       </div>
 
       <!-- Auto refresh toggle -->
@@ -77,6 +79,13 @@
         <button id="btn-refresh" class="ml-1 text-slate-500 hover:text-slate-900 dark:text-gray-400 dark:hover:text-white transition p-1" title="Scan Now">
           <i class="fa-solid fa-arrows-rotate"></i>
         </button>
+      </div>
+
+      <!-- API Rate Limit Health Gauge -->
+      <div id="header-rate-limit-badge" class="hidden sm:flex items-center gap-1.5 bg-slate-100 dark:bg-[#1e293b] px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-gray-700 text-xs font-mono" title="Binance 1-Minute API Request Weight Budget">
+        <i class="fa-solid fa-gauge-high text-emerald-500 text-[11px]"></i>
+        <span class="text-slate-500 dark:text-gray-400 text-[10px]">API:</span>
+        <span id="header-rate-limit-val" class="font-bold text-emerald-600 dark:text-emerald-400 text-[11px]">0 / 1200</span>
       </div>
 
       <!-- Theme Switcher Button -->
@@ -370,12 +379,20 @@
             <span id="bot-autotrade-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5">
               <i class="fa-solid fa-robot"></i> <span id="bot-autotrade-text">Auto-Trading: ON ($100 Paper)</span>
             </span>
+            <!-- TIMEFRAME MATRIX BADGE -->
+            <span id="bot-tf-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 flex items-center gap-1.5" title="Concurrent Timeframe Matrix & Execution Engine">
+              <i class="fa-solid fa-layer-group text-purple-500"></i> <span id="bot-tf-text">Mode: Triple (5m/15m/30m)</span>
+            </span>
             <!-- BTC MACRO GATEKEEPER BADGE -->
             <span id="btc-gatekeeper-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5" title="Bitcoin Macro Trend Gatekeeper: Protects Altcoins from broad market selloffs">
               <i class="fa-brands fa-bitcoin text-amber-500"></i> <span id="btc-gatekeeper-text">BTC Gate: Checking...</span>
             </span>
+            <!-- API RATE LIMIT BUDGET BADGE -->
+            <span id="bot-rate-limit-badge" class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5" title="Binance API 1-Minute Weight Budget Usage">
+              <i class="fa-solid fa-shield-halved text-emerald-500"></i> <span id="bot-rate-limit-text">API Weight: 0/1200 (Safe 🟢)</span>
+            </span>
           </div>
-          <p class="text-xs text-slate-500 dark:text-gray-400 mt-0.5">24/7 Non-Stop Market Scanner with Dual-Mode Execution Gateway (Auto-Trading vs. Signals-Only Radar)</p>
+          <p class="text-xs text-slate-500 dark:text-gray-400 mt-0.5">24/7 Triple-Timeframe Matrix Scanner (5m/30m Scalp + 15m/1h Intraday + 30m/4h Swing) with Multi-Timeframe AI Perfection</p>
         </div>
       </div>
 
@@ -483,7 +500,7 @@
               </button>
             </div>
 
-            <span class="text-[10px] text-slate-400 font-mono">Max 10 Trades | &ge; 1:2 RR Floor</span>
+            <span class="text-[10px] text-slate-400 font-mono">Max 10 Trades | &ge; 1:2 RR Floor | Triple MTF Matrix</span>
           </div>
 
           <!-- TAB 1: ACTIVE LIVE POSITIONS -->
@@ -494,7 +511,7 @@
                   <th class="py-2.5 px-3">Coin</th>
                   <th class="py-2.5 px-2">Sector</th>
                   <th class="py-2.5 px-2 text-center">Type</th>
-                  <th class="py-2.5 px-3">Entry (TF)</th>
+                  <th class="py-2.5 px-3">Entry (TF / Anchor)</th>
                   <th class="py-2.5 px-2">Live Price</th>
                   <th class="py-2.5 px-2">Stop Loss</th>
                   <th class="py-2.5 px-2">Take Profit</th>
@@ -506,7 +523,7 @@
                 <tr>
                   <td colspan="9" class="py-6 text-center text-slate-400 dark:text-gray-500">
                     <i class="fa-solid fa-radar text-lg mb-1 block text-indigo-500"></i>
-                    No open positions right now. The bot is actively scanning 100 pairs for valid 1:2 RR setups.
+                    No open positions right now. The bot is actively scanning 100 pairs across 5m/30m, 15m/1h, and 30m/4h for valid &ge; 1:2 RR setups (Max 10 Concurrent Trades).
                   </td>
                 </tr>
               </tbody>
@@ -523,7 +540,7 @@
                     <th class="py-2.5 px-2">Coin</th>
                     <th class="py-2.5 px-2">Sector</th>
                     <th class="py-2.5 px-2 text-center">Type</th>
-                    <th class="py-2.5 px-3">Entry ➔ Exit (TF)</th>
+                    <th class="py-2.5 px-3">Entry ➔ Exit (TF / Anchor)</th>
                     <th class="py-2.5 px-2 text-center">Bars</th>
                     <th class="py-2.5 px-3 text-center">Outcome</th>
                     <th class="py-2.5 px-3 text-right">Realized PnL</th>
@@ -607,6 +624,10 @@
           </div>
           
           <div class="space-y-2 text-xs" id="bot-params-container">
+            <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
+              <span class="text-slate-500 dark:text-gray-400">Scanning Matrix:</span>
+              <span id="param-timeframe" class="font-mono font-bold text-purple-600 dark:text-purple-400">Triple (5m/15m/30m)</span>
+            </div>
             <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
               <span class="text-slate-500 dark:text-gray-400">Target Risk-to-Reward:</span>
               <span id="param-target-rr" class="font-mono font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
@@ -696,8 +717,8 @@
               <button id="btn-trigger-daily-snapshot" class="py-1.5 px-2 bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded text-[10px] font-semibold transition border border-slate-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-1">
                 <i class="fa-solid fa-floppy-disk text-blue-500 text-[10px]"></i> Save Daily Snapshot
               </button>
-              <button id="btn-trigger-weekly-macro" class="py-1.5 px-2 bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded text-[10px] font-semibold transition border border-slate-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-1">
-                <i class="fa-solid fa-bolt text-amber-500 text-[10px]"></i> Run Weekly (1h/4h)
+              <button id="btn-trigger-weekly-macro" class="py-1.5 px-2 bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded text-[10px] font-semibold transition border border-slate-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-1" title="Run Weekly Multi-Timeframe Strategy Benchmark">
+                <i class="fa-solid fa-bolt text-amber-500 text-[10px]"></i> Run Weekly (5m/15m/30m)
               </button>
               <button id="btn-trigger-monthly-tournament" class="py-1.5 px-2 bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded text-[10px] font-semibold transition border border-slate-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-1">
                 <i class="fa-solid fa-trophy text-purple-500 text-[10px]"></i> Monthly Tournament

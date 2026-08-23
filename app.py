@@ -20,6 +20,7 @@ mimetypes.add_type("text/html", ".html")
 from scanner import scan_market, fetch_klines, compute_indicators, calculate_rr_levels, fetch_top_usdt_pairs, get_http_session
 from backtester import backtest_symbol, backtest_portfolio
 from live_bot import bot_instance
+from data_loader import rate_limit_manager
 from strategy_memory import load_saved_strategies
 
 # In-memory candle cache with 10s TTL
@@ -89,12 +90,12 @@ async def serve_index():
 
 @app.get("/api/scan")
 async def get_market_scan(
-    interval: str = Query("1h", description="Candle interval: 15m, 30m, 1h, 4h, 1d"),
+    interval: str = Query("1h", description="Candle interval: 5m, 15m, 30m, 1h, 4h, 1d"),
     limit: int = Query(50, description="Number of top liquid pairs to scan"),
     force_refresh: bool = Query(False, description="Bypass cache and force fresh scan")
 ):
     """Scan top crypto pairs and return squeeze states, momentum, and active breakout triggers."""
-    valid_intervals = ["15m", "30m", "1h", "4h", "1d"]
+    valid_intervals = ["5m", "15m", "30m", "1h", "4h", "1d"]
     if interval not in valid_intervals:
         raise HTTPException(status_code=400, detail=f"Interval must be one of {valid_intervals}")
     
@@ -102,6 +103,7 @@ async def get_market_scan(
     return {
         "interval": interval,
         "total_scanned": len(results),
+        "api_rate_limit": rate_limit_manager.get_telemetry(),
         "data": results
     }
 
@@ -337,7 +339,7 @@ class SetTimeframeRequest(BaseModel):
 async def set_bot_timeframe(payload: SetTimeframeRequest):
     """Update active bot timeframe and synchronize dynamic holding profiles, cooldowns, and scan intervals."""
     tf = payload.timeframe.lower()
-    valid_tfs = ["15m", "30m", "1h", "4h", "1d"]
+    valid_tfs = ["5m", "15m", "30m", "triple", "dual", "1h", "4h", "1d"]
     if tf not in valid_tfs:
         raise HTTPException(status_code=400, detail=f"Timeframe must be one of {valid_tfs}")
     success = bot_instance.set_timeframe(tf)

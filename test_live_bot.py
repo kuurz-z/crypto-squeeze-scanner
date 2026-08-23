@@ -140,14 +140,14 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertIsNotNone(pos)
         self.assertTrue(pos.get('is_trailing'))
         self.assertEqual(pos.get('exit_status'), "Trailing Active ⚡")
-        self.assertEqual(pos['sl_price'], 115.5)
+        self.assertEqual(pos['sl_price'], 114.1)
 
-        # Mock candle triggering trailing stop (Low = 115.0 <= 116.0 SL)
+        # Mock candle triggering trailing stop (Low = 113.5 <= 114.1 SL)
         df_step3 = pd.DataFrame([{
             'time': 1700002700,
-            'close': 115.5,
+            'close': 114.0,
             'high': 118.0,
-            'low': 115.0,
+            'low': 113.5,
             'volume': 800,
             'atr14': 7.0,
             'momentum': -1.0,
@@ -784,6 +784,59 @@ class TestLiveBotEngine(unittest.TestCase):
         # Verify newest trade is first
         self.assertEqual(telemetry["recent_journal"][0]["trade_id"], 25)
         self.assertEqual(telemetry["recent_journal"][-1]["trade_id"], 1)
+
+    def test_triple_and_dual_timeframe_switching_and_profiles(self):
+        """Verify that setting timeframe to 5m, dual, and triple sets up proper profiles."""
+        # 1. Test 5m
+        self.assertTrue(self.bot.set_timeframe("5m"))
+        self.assertEqual(self.bot.timeframe, "5m")
+        self.assertEqual(self.bot.timeframe_profile["anchor_tf"], "30m")
+        self.assertEqual(self.bot.scan_interval_sec, 15)
+
+        # 2. Test dual
+        self.assertTrue(self.bot.set_timeframe("dual"))
+        self.assertEqual(self.bot.timeframe, "dual")
+        self.assertEqual(self.bot.scan_interval_sec, 20)
+
+        # 3. Test triple
+        self.assertTrue(self.bot.set_timeframe("triple"))
+        self.assertEqual(self.bot.timeframe, "triple")
+        self.assertEqual(self.bot.scan_interval_sec, 15)
+
+        # 4. Telemetry reflects triple mode
+        t = self.bot.get_telemetry()
+        self.assertEqual(t["timeframe"], "triple")
+
+    def test_mixed_timeframe_dynamic_holding_rules(self):
+        """Verify that open positions with 5m, 15m, and 30m adhere to their respective max holding bars and stagnation limits."""
+        # Create a mock dataframe
+        df = pd.DataFrame({
+            "close": [100.0] * 70,
+            "open": [100.0] * 70,
+            "high": [100.5] * 70,
+            "low": [99.5] * 70,
+            "atr14": [1.0] * 70,
+            "momentum": [0.0] * 70,
+            "rsi14": [50.0] * 70
+        })
+
+        # 5m position held for 25 bars in dead chop -> should exit on stagnation (stagnation_bars: 24)
+        self.bot.open_positions["SCALP_COIN"] = {
+            "trade_id": 101,
+            "symbol": "SCALP_COIN",
+            "timeframe": "5m",
+            "direction": "LONG",
+            "entry_price": 100.0,
+            "sl_price": 98.0,
+            "tp_price": 104.0,
+            "risk_distance": 2.0,
+            "bars_held": 25,
+            "entry_candle_time": 1000
+        }
+
+        asyncio.run(self.bot._update_open_positions({"SCALP_COIN": df}))
+        self.assertNotIn("SCALP_COIN", self.bot.open_positions)
+        self.assertEqual(self.bot.closed_trades[-1]["outcome"], "TIME_EXIT")
 
 if __name__ == '__main__':
     unittest.main()

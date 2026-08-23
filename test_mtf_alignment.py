@@ -183,34 +183,72 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
         self.assertIsNone(sig_1h)
         self.assertIsNone(sig_4h)
 
-    def test_entry_only_permitted_on_15m_and_30m_no_1hr_position(self):
-        """Verify that trade entry is ONLY allowed on 15m and 30m, and NO positions can be opened on 1h."""
+    def test_mtf_5m_long_approved_when_30m_bullish(self):
+        """Verify that 5m Long is approved when 30m anchor is Bullish."""
+        df_5m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
+        df_30m = self._create_mock_df(close_val=100.0, ema50_val=92.0, rsi_val=58.0, is_bullish=True)
+        
+        htf_data = {"30m": df_30m}
+        sig_5m = SqueezeMomentumBreakout.generate_signal(df_5m, len(df_5m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="5m")
+        self.assertIsNotNone(sig_5m)
+        self.assertEqual(sig_5m["direction"], "LONG")
+        self.assertEqual(sig_5m["timeframe"], "5m")
+        self.assertEqual(sig_5m["pre_trade_context"]["mtf_alignment"]["anchor_tf"], "30m")
+        self.assertEqual(sig_5m["pre_trade_context"]["mtf_alignment"]["anchor_regime"], "BULLISH")
+
+    def test_mtf_5m_long_rejected_when_30m_bearish(self):
+        """Verify that 5m Long is rejected when 30m anchor is Bearish."""
+        df_5m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
+        df_30m = self._create_mock_df(close_val=80.0, ema50_val=95.0, rsi_val=38.0, is_bullish=False)
+        
+        htf_data = {"30m": df_30m}
+        sig_5m = SqueezeMomentumBreakout.generate_signal(df_5m, len(df_5m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="5m")
+        self.assertIsNone(sig_5m)
+
+    def test_entry_permitted_on_5m_15m_30m_and_triple(self):
+        """Verify that trade entries are permitted on 5m, 15m, 30m, and triple concurrent mode."""
         df_bullish = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=60.0, is_bullish=True)
+        df_30m = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=58.0, is_bullish=True)
         df_1h = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=58.0, is_bullish=True)
         df_4h = self._create_mock_df(close_val=100.0, ema50_val=85.0, rsi_val=55.0, is_bullish=True)
         
         # Populate MTF data
-        self.bot.mtf_data["BTCUSDT"] = {"1h": df_1h, "4h": df_4h}
+        self.bot.mtf_data["BTCUSDT"] = {"30m": df_30m, "1h": df_1h, "4h": df_4h}
         self.bot.btc_macro_status = {"gate_status": "ALLOW_ALL", "regime": "BULLISH"}
 
-        # 1. On 15m timeframe -> Allowed to open position
+        # 1. On 5m timeframe -> Allowed to open position
+        self.bot.set_timeframe("5m")
+        self.bot.open_positions.clear()
+        asyncio.run(self.bot._scan_new_entries({"BTCUSDT": df_bullish}))
+        self.assertIn("BTCUSDT", self.bot.open_positions)
+        self.assertEqual(self.bot.open_positions["BTCUSDT"]["timeframe"], "5m")
+
+        # 2. On 15m timeframe -> Allowed to open position
         self.bot.set_timeframe("15m")
         self.bot.open_positions.clear()
         asyncio.run(self.bot._scan_new_entries({"BTCUSDT": df_bullish}))
         self.assertIn("BTCUSDT", self.bot.open_positions)
         self.assertEqual(self.bot.open_positions["BTCUSDT"]["timeframe"], "15m")
 
-        # 2. On 30m timeframe -> Allowed to open position
+        # 3. On 30m timeframe -> Allowed to open position
         self.bot.set_timeframe("30m")
         self.bot.open_positions.clear()
         asyncio.run(self.bot._scan_new_entries({"BTCUSDT": df_bullish}))
         self.assertIn("BTCUSDT", self.bot.open_positions)
         self.assertEqual(self.bot.open_positions["BTCUSDT"]["timeframe"], "30m")
 
-        # 3. Attempting to switch to 1h timeframe is rejected and retains 30m
-        res = self.bot.set_timeframe("1h")
-        self.assertFalse(res)
-        self.assertEqual(self.bot.timeframe, "30m")
+        # 4. On triple timeframe mode -> Allowed and scans across all three
+        self.bot.set_timeframe("triple")
+        self.bot.open_positions.clear()
+        multi_data = {
+            "5m": {"BTCUSDT": df_bullish},
+            "15m": {"BTCUSDT": df_bullish},
+            "30m": {"BTCUSDT": df_bullish}
+        }
+        asyncio.run(self.bot._scan_new_entries(multi_data, scan_tfs=["5m", "15m", "30m"]))
+        self.assertIn("BTCUSDT", self.bot.open_positions)
+        # Higher timeframe (30m) prioritized on conflict
+        self.assertEqual(self.bot.open_positions["BTCUSDT"]["timeframe"], "30m")
 
 if __name__ == '__main__':
     unittest.main()

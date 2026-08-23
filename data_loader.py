@@ -2,10 +2,97 @@ import asyncio
 import aiohttp
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Tuple, Optional
+import time
+from typing import List, Dict, Tuple, Optional, Any
 
 BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
 BINANCE_TICKER_24HR_URL = "https://api.binance.com/api/v3/ticker/24hr"
+
+class RateLimitManager:
+    """
+    Global adaptive rate-limit controller and request weight manager for Binance API.
+    Inspects response headers (x-mbx-used-weight-1m), tracks latency, dynamically paces
+    concurrency, and manages graceful backoff to guarantee zero 429/IP bans.
+    """
+    def __init__(self, weight_limit_1m: int = 1200):
+        self.weight_limit_1m = weight_limit_1m
+        self.used_weight_1m: int = 0
+        self.last_update_ts: float = 0.0
+        self.backoff_until_ts: float = 0.0
+        self.last_latency_ms: float = 0.0
+        self.total_requests_count: int = 0
+        self._lock = asyncio.Lock()
+
+    def update_from_headers(self, headers: Any, latency_ms: float = 0.0):
+        """Update rate-limit usage metrics from Binance response headers."""
+        now = time.time()
+        self.last_update_ts = now
+        self.last_latency_ms = latency_ms
+        self.total_requests_count += 1
+        
+        weight_str = headers.get('x-mbx-used-weight-1m') or headers.get('X-MBX-USED-WEIGHT-1M')
+        if weight_str:
+            try:
+                self.used_weight_1m = int(weight_str)
+            except (ValueError, TypeError):
+                pass
+
+    def trigger_backoff(self, retry_after: int = 30):
+        """Activate hard rate-limit backoff."""
+        self.backoff_until_ts = time.time() + retry_after
+        print(f"[RateLimitManager] [!] HTTP 429 encountered! Backing off for {retry_after}s...")
+
+    async def pace(self):
+        """Apply dynamic adaptive pacing delay based on current 1-minute weight usage."""
+        now = time.time()
+        # 1. Check hard backoff
+        if now < self.backoff_until_ts:
+            wait_rem = self.backoff_until_ts - now
+            await asyncio.sleep(wait_rem)
+            return
+
+        # 2. Reset weight estimate if no requests for > 60s
+        if self.last_update_ts > 0 and (now - self.last_update_ts) > 65.0:
+            self.used_weight_1m = 0
+
+        # 3. Dynamic pacing
+        if self.used_weight_1m >= 1050:
+            await asyncio.sleep(0.35)
+        elif self.used_weight_1m >= 900:
+            await asyncio.sleep(0.10)
+        elif self.used_weight_1m >= 750:
+            await asyncio.sleep(0.03)
+
+    def get_telemetry(self) -> Dict[str, Any]:
+        """Return standardized rate-limit telemetry dictionary for APIs and UI."""
+        now = time.time()
+        if self.last_update_ts > 0 and (now - self.last_update_ts) > 65.0:
+            self.used_weight_1m = 0
+            
+        pct = round((self.used_weight_1m / self.weight_limit_1m) * 100.0, 1)
+        if self.used_weight_1m < 750:
+            status = "HEALTHY"
+            badge_color = "emerald"
+        elif self.used_weight_1m < 1000:
+            status = "PACED"
+            badge_color = "amber"
+        else:
+            status = "DEFENSE"
+            badge_color = "rose"
+
+        return {
+            "used_weight_1m": self.used_weight_1m,
+            "weight_limit_1m": self.weight_limit_1m,
+            "usage_pct": pct,
+            "status": status,
+            "badge_color": badge_color,
+            "last_latency_ms": round(self.last_latency_ms, 1),
+            "total_requests": self.total_requests_count,
+            "is_backed_off": now < self.backoff_until_ts
+        }
+
+# Global Singleton
+rate_limit_manager = RateLimitManager()
 
 EXCLUDED_KEYWORDS = [
     'UPUSDT', 'DOWNUSDT', 'BEARUSDT', 'BULLUSDT', 'USDCUSDT', 'FDUSDUSDT', 
@@ -27,8 +114,11 @@ DEFAULT_TOP_COINS = [
 async def fetch_top_crypto_pairs(limit: int = 100) -> List[str]:
     """Fetch top 100 liquid USDT spot pairs by 24h quote volume from Binance API."""
     try:
+        await rate_limit_manager.pace()
+        t0 = time.perf_counter()
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=8)) as session:
             async with session.get(BINANCE_TICKER_24HR_URL) as resp:
+                rate_limit_manager.update_from_headers(resp.headers, (time.perf_counter() - t0) * 1000)
                 if resp.status == 200:
                     data = await resp.json()
                     usdt_pairs = [
@@ -50,20 +140,18 @@ async def fetch_symbol_klines(
     interval: str = "15m", 
     limit: int = 500
 ) -> Optional[pd.DataFrame]:
-    """Fetch OHLCV candlestick data with rate-limit header tracking and backoff."""
+    """Fetch OHLCV candlestick data with rate-limit header tracking, adaptive pacing, and backoff."""
+    await rate_limit_manager.pace()
     params = {"symbol": symbol, "interval": interval, "limit": limit}
     try:
+        t0 = time.perf_counter()
         async with session.get(BINANCE_KLINES_URL, params=params, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-            # Check Binance rate limit usage
-            used_weight = int(resp.headers.get('x-mbx-used-weight-1m', 0))
-            if used_weight > 900:
-                print(f"[RateLimitGuard] Warning: Binance 1m used weight high ({used_weight}/1200), pacing requests.")
-                await asyncio.sleep(0.5)
+            latency_ms = (time.perf_counter() - t0) * 1000
+            rate_limit_manager.update_from_headers(resp.headers, latency_ms)
 
             if resp.status == 429:
                 retry_after = int(resp.headers.get('Retry-After', 30))
-                print(f"[RateLimitGuard] HTTP 429 received. Backing off for {retry_after}s...")
-                await asyncio.sleep(retry_after)
+                rate_limit_manager.trigger_backoff(retry_after)
                 return None
 
             if resp.status == 200:

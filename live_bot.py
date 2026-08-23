@@ -19,7 +19,7 @@ def ph_fromtimestamp(ts: float) -> datetime:
     """Convert Unix epoch timestamp (seconds) to Philippine Standard Time (PHT, UTC+8)."""
     return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(PHT).replace(tzinfo=None)
 
-from data_loader import fetch_top_crypto_pairs, fetch_symbol_klines, fetch_symbol_mtf_klines, split_train_test
+from data_loader import fetch_top_crypto_pairs, fetch_symbol_klines, fetch_symbol_mtf_klines, split_train_test, rate_limit_manager
 from strategies import (
     compute_crypto_indicators, 
     evaluate_tf_trend,
@@ -57,9 +57,18 @@ def get_crypto_sector(symbol: str) -> str:
             return sector
     return "GENERAL_ALT"
 
-ALLOWED_ENTRY_TIMEFRAMES = ["15m", "30m"]
+ALLOWED_ENTRY_TIMEFRAMES = ["5m", "15m", "30m", "triple", "dual"]
 
 TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
+    "5m": {
+        "name": "5m Scalp (30m MTF Anchor)",
+        "anchor_tf": "30m",
+        "expected_hold_str": "25m - 2.5h",
+        "max_holding_bars": 64,       # ~5.3 hours
+        "stagnation_bars": 24,        # ~2 hours
+        "cooldown_minutes": 20,       # 4 bars
+        "scan_interval_sec": 15,
+    },
     "15m": {
         "name": "15m Intraday (1h MTF Anchor)",
         "anchor_tf": "1h",
@@ -70,13 +79,31 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
         "scan_interval_sec": 20,
     },
     "30m": {
-        "name": "30m Intraday (4h MTF Anchor)",
+        "name": "30m Swing (4h MTF Anchor)",
         "anchor_tf": "4h",
         "expected_hold_str": "3h - 16h",
         "max_holding_bars": 64,       # ~32 hours
         "stagnation_bars": 24,        # ~12 hours
         "cooldown_minutes": 90,       # 3 bars
         "scan_interval_sec": 30,
+    },
+    "dual": {
+        "name": "Dual Multi-Timeframe (15m/1h + 30m/4h)",
+        "anchor_tf": "1h/4h",
+        "expected_hold_str": "Dynamic (1.5h - 16h)",
+        "max_holding_bars": 64,
+        "stagnation_bars": 24,
+        "cooldown_minutes": 45,
+        "scan_interval_sec": 20,
+    },
+    "triple": {
+        "name": "Triple Multi-Timeframe (5m/30m + 15m/1h + 30m/4h)",
+        "anchor_tf": "30m/1h/4h",
+        "expected_hold_str": "Dynamic (25m - 32h)",
+        "max_holding_bars": 64,
+        "stagnation_bars": 24,
+        "cooldown_minutes": 30,
+        "scan_interval_sec": 15,
     }
 }
 
@@ -86,7 +113,7 @@ class LiveCryptoBot:
     dynamic >= 1:2.0 RR unlimited profit runners, real-time trade diagnosis, BTC Macro Gatekeeper, Sector Correlation Limits,
     Strict >= 40% Win Rate Champion Evolution, Daily Strategy Archiving, and Monthly/All-Time Hall of Fame Championship.
     
-    RULE: Trade entries are strictly permitted on 15m (anchored to 1h) and 30m (anchored to 4h) only.
+    RULE: Trade entries are permitted across 5m (anchored to 30m), 15m (anchored to 1h), and 30m (anchored to 4h).
     """
     def __init__(
         self,
@@ -206,18 +233,19 @@ class LiveCryptoBot:
         print(f"[LiveBot] Account balance reset to ${initial_capital:.2f} USD starting capital (Trade history preserved: {len(self.closed_trades)} trades).")
 
     def set_timeframe(self, timeframe: str) -> bool:
-        """Update active timeframe. Strictly restricted to allowed entry timeframes (15m anchored to 1h, 30m anchored to 4h)."""
-        if timeframe not in ALLOWED_ENTRY_TIMEFRAMES:
-            print(f"[LiveBot] Timeframe '{timeframe}' rejected: Trade entries are strictly restricted to 15m (anchored to 1h) and 30m (anchored to 4h).")
+        """Update active timeframe. Supported timeframes: 5m, 15m, 30m, dual (15m+30m), triple (5m+15m+30m)."""
+        tf_clean = timeframe.lower()
+        if tf_clean not in ALLOWED_ENTRY_TIMEFRAMES:
+            print(f"[LiveBot] Timeframe '{timeframe}' rejected: Must be one of {ALLOWED_ENTRY_TIMEFRAMES}")
             return False
-        self.timeframe = timeframe
-        self.timeframe_profile = TIMEFRAME_PROFILES[timeframe]
+        self.timeframe = tf_clean
+        self.timeframe_profile = TIMEFRAME_PROFILES[tf_clean]
         self.cooldown_minutes = self.timeframe_profile["cooldown_minutes"]
         self.scan_interval_sec = self.timeframe_profile["scan_interval_sec"]
-        self.champion_stats["timeframe"] = timeframe
+        self.champion_stats["timeframe"] = tf_clean
         self.symbol_last_entry_candle.clear()
         self.save_state()
-        print(f"[LiveBot] Timeframe updated to {timeframe} ({self.timeframe_profile['name']}). Max Hold: {self.timeframe_profile['max_holding_bars']} bars, Stagnation: {self.timeframe_profile['stagnation_bars']} bars, Cooldown: {self.cooldown_minutes}m.")
+        print(f"[LiveBot] Timeframe updated to {tf_clean} ({self.timeframe_profile['name']}). Cooldown: {self.cooldown_minutes}m.")
         return True
 
     async def restart_with_capital(self, capital: float, fixed_risk_usd: float = 1.0):
@@ -301,6 +329,11 @@ class LiveCryptoBot:
                 self.fixed_risk_usd = state.get("fixed_risk_usd", self.fixed_risk_usd)
                 self.is_depleted = state.get("is_depleted", False)
                 self.depletion_report_file = state.get("depletion_report_file", None)
+                if state.get("timeframe") and state.get("timeframe") in ALLOWED_ENTRY_TIMEFRAMES:
+                    self.timeframe = state["timeframe"]
+                    self.timeframe_profile = TIMEFRAME_PROFILES[self.timeframe]
+                    self.cooldown_minutes = self.timeframe_profile["cooldown_minutes"]
+                    self.scan_interval_sec = self.timeframe_profile["scan_interval_sec"]
                 self.active_strategy_name = state.get("active_strategy_name", self.active_strategy_name)
                 self.active_params = state.get("active_params", self.active_params)
                 self.auto_trading_enabled = state.get("auto_trading_enabled", True)
@@ -309,10 +342,10 @@ class LiveCryptoBot:
                 self.macro_audits = state.get("macro_audits", [])
                 self.champion_stats = state.get("champion_stats", self.champion_stats)
                 if self.champion_stats.get("timeframe") not in ALLOWED_ENTRY_TIMEFRAMES:
-                    self.champion_stats["timeframe"] = "15m"
+                    self.champion_stats["timeframe"] = "triple"
                 self.all_time_grand_champion = state.get("all_time_grand_champion", None)
                 if self.all_time_grand_champion and self.all_time_grand_champion.get("timeframe") not in ALLOWED_ENTRY_TIMEFRAMES:
-                    self.all_time_grand_champion["timeframe"] = "15m"
+                    self.all_time_grand_champion["timeframe"] = "triple"
                 if state.get("last_daily_snapshot"):
                     self.last_daily_snapshot_time = datetime.strptime(state["last_daily_snapshot"], "%Y-%m-%d %H:%M:%S")
                 if state.get("last_weekly_opt"):
@@ -344,8 +377,8 @@ class LiveCryptoBot:
 
         # Ensure bot timeframe is valid
         if self.timeframe not in ALLOWED_ENTRY_TIMEFRAMES:
-            self.timeframe = "15m"
-            self.timeframe_profile = TIMEFRAME_PROFILES["15m"]
+            self.timeframe = "triple"
+            self.timeframe_profile = TIMEFRAME_PROFILES["triple"]
 
         # 4. Load Hall of Fame Registry
         if os.path.exists(self.hall_of_fame_file):
@@ -362,6 +395,7 @@ class LiveCryptoBot:
                 "initial_capital": self.initial_capital,
                 "current_balance": self.current_balance,
                 "fixed_risk_usd": self.fixed_risk_usd,
+                "timeframe": self.timeframe,
                 "auto_trading_enabled": self.auto_trading_enabled,
                 "is_depleted": self.is_depleted,
                 "depletion_report_file": self.depletion_report_file,
@@ -450,43 +484,78 @@ class LiveCryptoBot:
             await self._handle_capital_depleted()
             return
 
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=20)) as session:
-            # 1. Fetch latest candles for all watched symbols on active timeframe
-            tasks = [fetch_symbol_klines(session, sym, interval=self.timeframe, limit=120) for sym in self.symbols]
-            
-            # Concurrently fetch 1h & 4h MTF data for top symbols + BTC
+        # Determine which candle intervals need fetching for scanning and MTF anchors
+        if self.timeframe == "triple":
+            scan_tfs = ["5m", "15m", "30m"]
+            mtf_intervals = ["30m", "1h", "4h"]
+        elif self.timeframe == "dual":
+            scan_tfs = ["15m", "30m"]
+            mtf_intervals = ["1h", "4h"]
+        elif self.timeframe == "5m":
+            scan_tfs = ["5m"]
+            mtf_intervals = ["30m", "1h", "4h"]
+        elif self.timeframe == "30m":
+            scan_tfs = ["30m"]
+            mtf_intervals = ["4h"]
+        else: # 15m default
+            scan_tfs = ["15m"]
+            mtf_intervals = ["1h", "4h"]
+
+        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=30)) as session:
+            # 1. Fetch latest candles across all scan timeframes and MTF anchors with set-based deduplication
             mtf_syms = ["BTCUSDT"] + [s for s in self.symbols if s != "BTCUSDT"][:25]
-            mtf_tasks = [fetch_symbol_mtf_klines(session, sym, intervals=["1h", "4h"], limit=80) for sym in mtf_syms]
+            
+            # Build unique set of (sym, tf) requests to eliminate cross-timeframe duplicate calls
+            unique_requests = set()
+            for tf in scan_tfs:
+                for sym in self.symbols:
+                    unique_requests.add((sym, tf))
+            for mtf_tf in mtf_intervals:
+                for sym in mtf_syms:
+                    unique_requests.add((sym, mtf_tf))
 
-            primary_results, mtf_results = await asyncio.gather(
-                asyncio.gather(*tasks, return_exceptions=True),
-                asyncio.gather(*mtf_tasks, return_exceptions=True)
+            req_list = list(unique_requests)
+            fetch_tasks = [fetch_symbol_klines(session, sym, interval=tf, limit=120) for (sym, tf) in req_list]
+            results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
+
+            # Map raw klines and pre-compute indicators only once per unique (sym, tf)
+            computed_cache: Dict[tuple, pd.DataFrame] = {}
+            for (sym, tf), res in zip(req_list, results):
+                if isinstance(res, pd.DataFrame) and len(res) >= 30:
+                    computed_cache[(sym, tf)] = compute_crypto_indicators(res)
+
+            # Distribute pre-computed indicator DataFrames to data_maps and self.mtf_data
+            data_maps: Dict[str, Dict[str, pd.DataFrame]] = {tf: {} for tf in scan_tfs}
+            for tf in scan_tfs:
+                for sym in self.symbols:
+                    df = computed_cache.get((sym, tf))
+                    if df is not None and len(df) >= 50:
+                        data_maps[tf][sym] = df
+
+            for sym in mtf_syms:
+                self.mtf_data[sym] = {}
+                for mtf_tf in mtf_intervals:
+                    df = computed_cache.get((sym, mtf_tf))
+                    if df is not None and len(df) >= 30:
+                        self.mtf_data[sym][mtf_tf] = df
+
+            # 2. Update Bitcoin Macro Trend Gatekeeper status with Dual/Triple Alignment
+            btc_df = (
+                data_maps.get("15m", {}).get("BTCUSDT") 
+                or data_maps.get("30m", {}).get("BTCUSDT") 
+                or data_maps.get("5m", {}).get("BTCUSDT")
             )
-
-            data_map: Dict[str, pd.DataFrame] = {}
-            for sym, res in zip(self.symbols, primary_results):
-                if isinstance(res, pd.DataFrame) and len(res) >= 50:
-                    data_map[sym] = compute_crypto_indicators(res)
-
-            for sym, res_mtf in zip(mtf_syms, mtf_results):
-                if isinstance(res_mtf, dict):
-                    self.mtf_data[sym] = {
-                        tf: compute_crypto_indicators(df_tf)
-                        for tf, df_tf in res_mtf.items()
-                        if isinstance(df_tf, pd.DataFrame) and len(df_tf) >= 30
-                    }
-
-            # 2. Update Bitcoin Macro Trend Gatekeeper status with Dual 1h & 4h Alignment
-            btc_df = data_map.get("BTCUSDT")
-            btc_1h = self.mtf_data.get("BTCUSDT", {}).get("1h", self.mtf_data.get("BTCUSDT", {}).get("30m"))
+            btc_30m = self.mtf_data.get("BTCUSDT", {}).get("30m", data_maps.get("30m", {}).get("BTCUSDT"))
+            btc_1h = self.mtf_data.get("BTCUSDT", {}).get("1h")
             btc_4h = self.mtf_data.get("BTCUSDT", {}).get("4h")
-            self._evaluate_btc_macro(btc_df, btc_1h=btc_1h, btc_4h=btc_4h)
+            self._evaluate_btc_macro(btc_df, btc_30m=btc_30m, btc_1h=btc_1h, btc_4h=btc_4h)
 
             # 3. Update and check existing open positions
-            await self._update_open_positions(data_map)
+            await self._update_open_positions(data_maps)
+
             # 4. Scan for new trade setups if capital and capacity permit
             if not self.is_depleted and self.current_balance >= self.fixed_risk_usd and len(self.open_positions) < self.max_open_positions:
-                await self._scan_new_entries(data_map)
+                await self._scan_new_entries(data_maps, scan_tfs=scan_tfs)
 
             # 5. Check if scheduled Daily, Weekly, or Monthly Audits / Tournaments are due
             now = ph_now()
@@ -505,8 +574,9 @@ class LiveCryptoBot:
         **kwargs
     ):
         """Evaluate Bitcoin real-time momentum, 1h intermediate trend, and 4h macro anchor trend."""
-        if btc_1h is None and "btc_30m" in kwargs:
-            btc_1h = kwargs["btc_30m"]
+        btc_30m = kwargs.get("btc_30m")
+        if btc_1h is None and btc_30m is not None:
+            btc_1h = btc_30m
 
         if btc_df is None or len(btc_df) < 50:
             self.btc_macro_status = {
@@ -572,7 +642,7 @@ class LiveCryptoBot:
             "alignment_4h": t_4h["regime"]
         }
 
-    async def _update_open_positions(self, data_map: Dict[str, pd.DataFrame]):
+    async def _update_open_positions(self, data_map: Any):
         """
         Dynamic 4-Layer Exit Engine with Unlimited Profit Runner Capability:
         - Layer 1: Initial Fixed Stop Loss (-$1.00 USD Risk, 1.8x ATR buffer).
@@ -582,7 +652,14 @@ class LiveCryptoBot:
         """
         closed_symbols = []
         for sym, pos in list(self.open_positions.items()):
-            df = data_map.get(sym)
+            pos_tf = pos.get('timeframe', '15m')
+            if isinstance(data_map, dict) and any(isinstance(v, dict) for v in data_map.values()):
+                # Multi-timeframe map
+                df = data_map.get(pos_tf, {}).get(sym) or data_map.get("15m", {}).get(sym) or data_map.get("30m", {}).get(sym) or data_map.get("5m", {}).get(sym)
+            else:
+                # Single-timeframe fallback
+                df = data_map.get(sym) if isinstance(data_map, dict) else None
+
             if df is None or len(df) == 0:
                 continue
 
@@ -593,7 +670,8 @@ class LiveCryptoBot:
             curr_time = int(time.time())
             candle_time = int(last_bar['time']) if 'time' in last_bar else 0
             entry_candle_time = pos.get('entry_candle_time', 0)
-            bars_held = pos.get('bars_held', 0)
+            bars_held = pos.get('bars_held', 0) + 1
+            pos['bars_held'] = bars_held
 
             # Prevent phantom stop-outs: If still on the entry candle (or bar 0/1), only evaluate against live price action since entry
             is_entry_candle = (bars_held <= 1) or (entry_candle_time > 0 and candle_time == entry_candle_time)
@@ -610,93 +688,78 @@ class LiveCryptoBot:
                 eval_low = low_price
 
             pos['current_price'] = round(curr_price, 6 if curr_price < 1 else 2)
-            pos['last_updated'] = ph_now().strftime("%Y-%m-%d %H:%M:%S")
-            pos['bars_held'] = pos.get('bars_held', 0) + 1
 
             is_long = (pos['direction'] == 'LONG')
-            entry_p = pos['entry_price']
-            risk_dist = pos['risk_distance']
+            entry_price = pos['entry_price']
+            risk_dist = pos.get('risk_distance', max(abs(entry_price - pos['sl_price']), 1e-6))
+            target_rr = pos.get('target_rr', self.target_rr)
             risk_usd = pos.get('risk_amount_usd', self.fixed_risk_usd)
-            target_rr = pos['target_rr']
-            tp_p = pos['tp_price']
+            atr = float(last_bar.get('atr14', risk_dist))
+            mom = float(last_bar.get('momentum', 0.0))
+            rsi = float(last_bar.get('rsi14', 50.0))
 
-            # Update MAE / MFE based on price action since entry
-            if is_long:
-                unrealized_dist = curr_price - entry_p
-                pos['mfe_r'] = max(pos.get('mfe_r', 0.0), round((eval_high - entry_p) / risk_dist, 2))
-                pos['mae_r'] = max(pos.get('mae_r', 0.0), round((entry_p - eval_low) / risk_dist, 2))
-            else:  # SHORT
-                unrealized_dist = entry_p - curr_price
-                pos['mfe_r'] = max(pos.get('mfe_r', 0.0), round((entry_p - eval_low) / risk_dist, 2))
-                pos['mae_r'] = max(pos.get('mae_r', 0.0), round((eval_high - entry_p) / risk_dist, 2))
+            # Calculate MFE (Maximum Favorable Excursion) & MAE (Maximum Adverse Excursion) in R-multiples
+            max_fav_dist = (pos['highest_since_entry'] - entry_price) if is_long else (entry_price - pos['lowest_since_entry'])
+            max_adv_dist = (entry_price - pos['lowest_since_entry']) if is_long else (pos['highest_since_entry'] - entry_price)
+            mfe = max(0.0, round(max_fav_dist / risk_dist, 2))
+            mae = max(0.0, round(max_adv_dist / risk_dist, 2))
+            pos['mfe_r'] = max(pos.get('mfe_r', 0.0), mfe)
+            pos['mae_r'] = max(pos.get('mae_r', 0.0), mae)
 
-            mfe = pos.get('mfe_r', 0.0)
+            unrealized_dist = (curr_price - entry_price) if is_long else (entry_price - curr_price)
 
-            # LAYER 2: Breakeven De-risking at +1.8R (giving trades room to develop)
-            if mfe >= 1.8 and not pos.get('is_breakeven'):
-                pos['is_breakeven'] = True
-                pos['exit_status'] = "BE Protected 🛡️"
-                be_sl = entry_p + (0.05 * risk_dist) if is_long else entry_p - (0.05 * risk_dist)
-                pos['sl_price'] = round(be_sl, 6 if entry_p < 1 else 2)
-                print(f"[LiveBot:ExitEngine] {sym} reached +1.8R! SL raised to Breakeven (${pos['sl_price']}) to guarantee zero risk.")
-
-            # LAYER 3: Dynamic ATR Trailing Stop at +2.2R
-            if mfe >= 2.2:
-                pos['is_trailing'] = True
-                if not pos.get('is_unlimited_runner'):
-                    pos['exit_status'] = "Trailing Active ⚡"
-                atr_val = float(last_bar['atr14']) if 'atr14' in last_bar else risk_dist / 1.8
-                if is_long:
-                    trail_sl = round(eval_high - (1.0 * atr_val), 6 if entry_p < 1 else 2)
-                    if trail_sl > pos['sl_price']:
-                        pos['sl_price'] = trail_sl
-                else:
-                    trail_sl = round(eval_low + (1.0 * atr_val), 6 if entry_p < 1 else 2)
-                    if trail_sl < pos['sl_price']:
-                        pos['sl_price'] = trail_sl
-
-            # LAYER 4: Dynamic Unlimited Profit Runner Engine (>= 1:2.5 RR Floor with No Upper Ceiling)
-            mom = float(last_bar['momentum']) if 'momentum' in last_bar else 0.0
-            rsi = float(last_bar['rsi14']) if 'rsi14' in last_bar else 50.0
-            rvol = float(last_bar['rvol']) if 'rvol' in last_bar else 1.0
-
-            reached_tp = (is_long and eval_high >= tp_p) or (not is_long and eval_low <= tp_p)
-            if reached_tp or mfe >= target_rr:
-                strong_trend_continuing = (is_long and mom > 0 and rsi < 74.0 and rvol >= 1.15) or \
-                                          (not is_long and mom < 0 and rsi > 26.0 and rvol >= 1.15)
-                
-                if strong_trend_continuing:
-                    pos['is_unlimited_runner'] = True
-                    pos['exit_status'] = f"Runner {mfe:+.1f}R 🚀"
-                    atr_val = float(last_bar['atr14']) if 'atr14' in last_bar else risk_dist / 1.8
-                    if is_long:
-                        runner_sl = round(eval_high - (0.8 * atr_val), 6 if entry_p < 1 else 2)
-                        if runner_sl > pos['sl_price']:
-                            pos['sl_price'] = runner_sl
-                    else:
-                        runner_sl = round(eval_low + (0.8 * atr_val), 6 if entry_p < 1 else 2)
-                        if runner_sl < pos['sl_price']:
-                            pos['sl_price'] = runner_sl
-                else:
-                    await self._close_position(sym, exit_price=tp_p, exit_time=curr_time, outcome="WIN", df=df)
-                    closed_symbols.append(sym)
-                    continue
-
-            # Check SL or Trailing / Runner Stop Hit
-            if (is_long and eval_low <= pos['sl_price']) or (not is_long and eval_high >= pos['sl_price']):
-                if pos.get('is_unlimited_runner'):
-                    outcome = "UNLIMITED_RUNNER_WIN"
-                elif pos.get('is_trailing') and ((pos['sl_price'] > entry_p and is_long) or (pos['sl_price'] < entry_p and not is_long)):
+            # LAYER 1: Hard Stop Loss Breach Evaluation
+            sl_breached = (eval_low <= pos['sl_price']) if is_long else (eval_high >= pos['sl_price'])
+            if sl_breached:
+                if pos.get('is_trailing') or pos.get('is_unlimited_runner') or (is_long and pos['sl_price'] > entry_price + (0.1 * risk_dist)) or (not is_long and pos['sl_price'] < entry_price - (0.1 * risk_dist)):
                     outcome = "TRAILING_STOP_WIN"
-                elif pos.get('is_breakeven'):
+                elif pos.get('is_breakeven_protected'):
                     outcome = "BE_EXIT"
                 else:
                     outcome = "LOSS"
+                print(f"[LiveBot:ExitEngine] {sym} Stop-loss triggered at ${pos['sl_price']} ({outcome})")
                 await self._close_position(sym, exit_price=pos['sl_price'], exit_time=curr_time, outcome=outcome, df=df)
                 closed_symbols.append(sym)
                 continue
 
-            # SAFEGUARD: Momentum Exhaustion Exit (if peaked > 0.8R and momentum flips)
+            # LAYER 2: Automated Breakeven Defense Activation at +1.8R
+            if mfe >= 1.8 and not pos.get('is_breakeven_protected'):
+                be_price = round(entry_price + (0.08 * risk_dist) if is_long else entry_price - (0.08 * risk_dist), 6 if entry_price < 1 else 2)
+                pos['sl_price'] = be_price
+                pos['is_breakeven'] = True
+                pos['is_breakeven_protected'] = True
+                pos['exit_status'] = "Breakeven Protected 🛡️"
+                print(f"[LiveBot:ExitEngine] {sym} reached +1.8R MFE! Activated Breakeven Defense. SL adjusted to ${be_price} (Risk eliminated).")
+
+            # LAYER 3: Dynamic ATR Trailing Stop Activation at +2.2R
+            if mfe >= 2.2:
+                pos['is_trailing'] = True
+                pos['exit_status'] = "Trailing Active ⚡"
+                trail_sl = round(curr_price - (1.2 * atr) if is_long else curr_price + (1.2 * atr), 6 if entry_price < 1 else 2)
+                if is_long and trail_sl > pos['sl_price']:
+                    pos['sl_price'] = trail_sl
+                elif not is_long and trail_sl < pos['sl_price']:
+                    pos['sl_price'] = trail_sl
+
+            # LAYER 4: Dynamic Unlimited Profit Runner Mode at >= +2.5R
+            if mfe >= 2.5:
+                pos['is_unlimited_runner'] = True
+                pos['exit_status'] = "Profit Runner 🚀"
+                runner_sl = round(curr_price - (0.8 * atr) if is_long else curr_price + (0.8 * atr), 6 if entry_price < 1 else 2)
+                if is_long and runner_sl > pos['sl_price']:
+                    pos['sl_price'] = runner_sl
+                elif not is_long and runner_sl < pos['sl_price']:
+                    pos['sl_price'] = runner_sl
+
+            # Profit Target Hit: When target_rr is reached and not currently running as an unlimited trailing runner
+            tp_hit = (eval_high >= pos['tp_price']) if is_long else (eval_low <= pos['tp_price'])
+            if tp_hit and not pos.get('is_unlimited_runner'):
+                print(f"[LiveBot:ExitEngine] {sym} Target profit of 1:{target_rr} RR reached at ${pos['tp_price']}! Closing position as WIN.")
+                await self._close_position(sym, exit_price=pos['tp_price'], exit_time=curr_time, outcome="WIN", df=df)
+                closed_symbols.append(sym)
+                continue
+
+            # Momentum Exhaustion Safe-Exit: If trade reached > +0.8R and momentum sharply reverses
             if mfe >= 0.8:
                 if (is_long and mom < 0 and rsi >= 68.0) or (not is_long and mom > 0 and rsi <= 32.0):
                     print(f"[LiveBot:ExitEngine] {sym} Momentum Exhaustion detected. Securing profits at market.")
@@ -705,8 +768,8 @@ class LiveCryptoBot:
                     continue
 
             # Timeframe-aware dynamic holding parameters
-            pos_tf = pos.get('timeframe', self.timeframe)
-            tf_profile = TIMEFRAME_PROFILES.get(pos_tf, getattr(self, 'timeframe_profile', TIMEFRAME_PROFILES["15m"]))
+            pos_tf = pos.get('timeframe', '15m')
+            tf_profile = TIMEFRAME_PROFILES.get(pos_tf, TIMEFRAME_PROFILES["15m"])
             stagnation_bars = tf_profile.get("stagnation_bars", 24)
             max_hold_bars = tf_profile.get("max_holding_bars", 64)
 
@@ -739,13 +802,13 @@ class LiveCryptoBot:
         if self.current_balance < self.fixed_risk_usd and len(self.open_positions) == 0:
             await self._handle_capital_depleted()
 
-    async def _scan_new_entries(self, data_map: Dict[str, pd.DataFrame]):
-        """Evaluate strategy signals with Circuit Breaker, BTC Macro Gatekeeper, and Sector Limits (Entries strictly on 15m/30m)."""
+    async def _scan_new_entries(self, data_map: Any, scan_tfs: Optional[List[str]] = None):
+        """Evaluate strategy signals with Circuit Breaker, BTC Macro Gatekeeper, and Sector Limits across active timeframes."""
         if self.current_balance < self.fixed_risk_usd:
             return
 
-        # STRICT RULE: Trading positions can ONLY be opened on 15m or 30m timeframes (1h/4h are alignment filters only)
-        if self.timeframe not in ["15m", "30m"]:
+        # STRICT RULE: Allowed trading entry timeframes
+        if self.timeframe not in ALLOWED_ENTRY_TIMEFRAMES:
             return
 
         # Portfolio-level circuit breaker active
@@ -755,129 +818,172 @@ class LiveCryptoBot:
             else:
                 self.circuit_breaker_until = None
 
+        if isinstance(data_map, dict) and any(isinstance(v, dict) for v in data_map.values()):
+            tf_dict = data_map
+        else:
+            tf_dict = {self.timeframe: data_map}
+
+        tfs_to_scan = scan_tfs or (["5m", "15m", "30m"] if self.timeframe == "triple" else (["15m", "30m"] if self.timeframe == "dual" else [self.timeframe]))
+        TF_PRIORITY = {"30m": 3, "15m": 2, "5m": 1}
+
         discovered_signals = []
-        for sym, df in data_map.items():
-            if len(df) < 50:
-                continue
+        candidate_signals: Dict[str, Dict[str, Any]] = {}
 
-            candle_time = int(df.iloc[-1]['time']) if 'time' in df.iloc[-1] else int(time.time())
-            # Prevent same-candle repeat entries on the same symbol
-            if candle_time > 0 and self.symbol_last_entry_candle.get(sym) == candle_time:
-                continue
-
-            sym_htf = self.mtf_data.get(sym)
-            # Prioritize signals evaluated on confirmed/closed bar (len(df) - 2) before live bar (len(df) - 1)
-            signal = self._evaluate_active_strategy(df, len(df) - 2, htf_data=sym_htf) if len(df) >= 52 else None
-            if not signal:
-                signal = self._evaluate_active_strategy(df, len(df) - 1, htf_data=sym_htf)
-            
-            if signal:
-                direction = signal['direction']
-                # Execute entry at current live market price
-                entry_price = float(df.iloc[-1]['close'])
-                risk_dist = signal['risk_distance']
-                target_rr = signal['target_rr']
-                sector = get_crypto_sector(sym)
-
-                sl_price = entry_price - risk_dist if direction == "LONG" else entry_price + risk_dist
-                tp_price = entry_price + (target_rr * risk_dist) if direction == "LONG" else entry_price - (target_rr * risk_dist)
-
-                # Record discovered market signal for 24/7 Live Radar Feed
-                sig_summary = {
-                    "symbol": sym,
-                    "sector": sector,
-                    "direction": direction,
-                    "entry_price": round(entry_price, 6 if entry_price < 1 else 2),
-                    "sl_price": round(sl_price, 6 if sl_price < 1 else 2),
-                    "tp_price": round(tp_price, 6 if tp_price < 1 else 2),
-                    "target_rr": target_rr,
-                    "discovered_at": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "context": signal.get('pre_trade_context', {})
-                }
-                discovered_signals.append(sig_summary)
-
-                # GATEWAY: If Auto-Trading is DISABLED (Signals-Only Mode), skip trade execution
-                if not self.auto_trading_enabled:
+        for tf in tfs_to_scan:
+            sym_map = tf_dict.get(tf, {})
+            for sym, df in sym_map.items():
+                if len(df) < 50:
                     continue
 
-                if len(self.open_positions) >= self.max_open_positions:
-                    continue
-                if sym in self.open_positions:
-                    continue
-
-                # 0. Check Symbol Anti-Churn Loss Cooldown (Prevents rapid re-entry churn on same candle)
-                if sym in self.symbol_loss_cooldowns:
-                    if ph_now() < self.symbol_loss_cooldowns[sym]:
-                        continue
-                    else:
-                        del self.symbol_loss_cooldowns[sym]
-
-                # 1. Check Bitcoin Macro Trend Gatekeeper (Bypass for BTC itself)
-                if sym != "BTCUSDT":
-                    gate_status = self.btc_macro_status.get("gate_status", "ALLOW_ALL")
-                    if direction == "LONG" and gate_status == "BLOCK_LONGS":
-                        continue
-                    elif direction == "SHORT" and gate_status == "BLOCK_SHORTS":
-                        continue
-
-                # 2. Check Sector Correlation Limits (Max positions per sector)
-                active_in_sector = [p for p in self.open_positions.values() if p.get('sector') == sector]
-                if len(active_in_sector) >= self.max_positions_per_sector:
+                candle_time = int(df.iloc[-1]['time']) if 'time' in df.iloc[-1] else int(time.time())
+                # Prevent same-candle repeat entries on the same symbol
+                if candle_time > 0 and self.symbol_last_entry_candle.get(sym) == candle_time:
                     continue
 
-                # Fixed $1.00 USD risk per trade
-                risk_amount_usd = self.fixed_risk_usd
-                position_qty = round(risk_amount_usd / risk_dist, 4) if risk_dist > 0 else 1.0
-                position_value_usd = round(position_qty * entry_price, 2)
+                sym_htf = self.mtf_data.get(sym)
+                # Prioritize signals evaluated on confirmed/closed bar (len(df) - 2) before live bar (len(df) - 1)
+                signal = self._evaluate_active_strategy(df, len(df) - 2, htf_data=sym_htf, timeframe=tf) if len(df) >= 52 else None
+                if not signal:
+                    signal = self._evaluate_active_strategy(df, len(df) - 1, htf_data=sym_htf, timeframe=tf)
 
-                max_closed_id = max([t.get('trade_id', 0) for t in self.closed_trades] + [0])
-                max_open_id = max([p.get('trade_id', 0) for p in self.open_positions.values()] + [0])
-                next_trade_id = max(max_closed_id, max_open_id) + 1
+                if signal:
+                    signal_tf = tf
+                    direction = signal['direction']
+                    entry_price = float(df.iloc[-1]['close'])
+                    risk_dist = signal['risk_distance']
+                    target_rr = signal['target_rr']
+                    sector = get_crypto_sector(sym)
 
-                pos_record = {
-                    "trade_id": next_trade_id,
-                    "symbol": sym,
-                    "sector": sector,
-                    "strategy": self.active_strategy_name,
-                    "timeframe": self.timeframe,
-                    "direction": direction,
-                    "entry_time": int(time.time()),
-                    "entry_time_str": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "entry_candle_time": candle_time,
-                    "entry_price": round(entry_price, 6 if entry_price < 1 else 2),
-                    "current_price": round(entry_price, 6 if entry_price < 1 else 2),
-                    "highest_since_entry": round(entry_price, 6 if entry_price < 1 else 2),
-                    "lowest_since_entry": round(entry_price, 6 if entry_price < 1 else 2),
-                    "sl_price": round(sl_price, 6 if sl_price < 1 else 2),
-                    "tp_price": round(tp_price, 6 if tp_price < 1 else 2),
-                    "risk_distance": risk_dist,
-                    "risk_amount_usd": risk_amount_usd,
-                    "position_qty": position_qty,
-                    "position_value_usd": position_value_usd,
-                    "target_rr": target_rr,
-                    "unrealized_r": 0.0,
-                    "unrealized_pnl_usd": 0.0,
-                    "mfe_r": 0.0,
-                    "mae_r": 0.0,
-                    "bars_held": 0,
-                    "pre_trade_context": signal['pre_trade_context']
-                }
+                    sl_price = entry_price - risk_dist if direction == "LONG" else entry_price + risk_dist
+                    tp_price = entry_price + (target_rr * risk_dist) if direction == "LONG" else entry_price - (target_rr * risk_dist)
 
-                self.open_positions[sym] = pos_record
-                self.symbol_last_entry_candle[sym] = candle_time
-                print(f"[LiveBot] OPENED {direction} on {sym} [{sector}] @ ${entry_price} (Fixed Risk: ${risk_amount_usd:.2f} USD, SL: ${sl_price}, TP: ${tp_price} [1:{target_rr} RR])")
-                self.save_state()
+                    # Record discovered market signal for 24/7 Live Radar Feed
+                    sig_summary = {
+                        "symbol": sym,
+                        "sector": sector,
+                        "timeframe": signal_tf,
+                        "direction": direction,
+                        "entry_price": round(entry_price, 6 if entry_price < 1 else 2),
+                        "sl_price": round(sl_price, 6 if sl_price < 1 else 2),
+                        "tp_price": round(tp_price, 6 if tp_price < 1 else 2),
+                        "target_rr": target_rr,
+                        "discovered_at": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "context": signal.get('pre_trade_context', {})
+                    }
+                    discovered_signals.append(sig_summary)
+
+                    # Conflict resolution: if symbol already has a candidate signal, pick higher timeframe priority
+                    cand_obj = {
+                        "symbol": sym,
+                        "sector": sector,
+                        "timeframe": signal_tf,
+                        "direction": direction,
+                        "entry_price": entry_price,
+                        "sl_price": sl_price,
+                        "tp_price": tp_price,
+                        "risk_dist": risk_dist,
+                        "target_rr": target_rr,
+                        "candle_time": candle_time,
+                        "signal": signal
+                    }
+                    if sym not in candidate_signals or TF_PRIORITY.get(signal_tf, 1) > TF_PRIORITY.get(candidate_signals[sym]["timeframe"], 1):
+                        candidate_signals[sym] = cand_obj
 
         if discovered_signals:
             self.latest_signals = (discovered_signals + self.latest_signals)[:25]
+
+        # GATEWAY: If Auto-Trading is DISABLED (Signals-Only Mode), skip trade execution
+        if not self.auto_trading_enabled:
+            return
+
+        for sym, cand in candidate_signals.items():
+            if len(self.open_positions) >= self.max_open_positions:
+                break
+            if sym in self.open_positions:
+                continue
+
+            direction = cand["direction"]
+            sector = cand["sector"]
+            signal_tf = cand["timeframe"]
+            entry_price = cand["entry_price"]
+            sl_price = cand["sl_price"]
+            tp_price = cand["tp_price"]
+            risk_dist = cand["risk_dist"]
+            target_rr = cand["target_rr"]
+            candle_time = cand["candle_time"]
+            signal = cand["signal"]
+
+            # 0. Check Symbol Anti-Churn Loss Cooldown (Prevents rapid re-entry churn on same candle)
+            if sym in self.symbol_loss_cooldowns:
+                if ph_now() < self.symbol_loss_cooldowns[sym]:
+                    continue
+                else:
+                    del self.symbol_loss_cooldowns[sym]
+
+            # 1. Check Bitcoin Macro Trend Gatekeeper (Bypass for BTC itself)
+            if sym != "BTCUSDT":
+                gate_status = self.btc_macro_status.get("gate_status", "ALLOW_ALL")
+                if direction == "LONG" and gate_status == "BLOCK_LONGS":
+                    continue
+                elif direction == "SHORT" and gate_status == "BLOCK_SHORTS":
+                    continue
+
+            # 2. Check Sector Correlation Limits (Max positions per sector)
+            active_in_sector = [p for p in self.open_positions.values() if p.get('sector') == sector]
+            if len(active_in_sector) >= self.max_positions_per_sector:
+                continue
+
+            # Fixed $1.00 USD risk per trade
+            risk_amount_usd = self.fixed_risk_usd
+            position_qty = round(risk_amount_usd / risk_dist, 4) if risk_dist > 0 else 1.0
+            position_value_usd = round(position_qty * entry_price, 2)
+
+            max_closed_id = max([t.get('trade_id', 0) for t in self.closed_trades] + [0])
+            max_open_id = max([p.get('trade_id', 0) for p in self.open_positions.values()] + [0])
+            next_trade_id = max(max_closed_id, max_open_id) + 1
+
+            pos_record = {
+                "trade_id": next_trade_id,
+                "symbol": sym,
+                "sector": sector,
+                "strategy": self.active_strategy_name,
+                "timeframe": signal_tf,
+                "direction": direction,
+                "entry_time": int(time.time()),
+                "entry_time_str": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
+                "entry_candle_time": candle_time,
+                "entry_price": round(entry_price, 6 if entry_price < 1 else 2),
+                "current_price": round(entry_price, 6 if entry_price < 1 else 2),
+                "highest_since_entry": round(entry_price, 6 if entry_price < 1 else 2),
+                "lowest_since_entry": round(entry_price, 6 if entry_price < 1 else 2),
+                "sl_price": round(sl_price, 6 if sl_price < 1 else 2),
+                "tp_price": round(tp_price, 6 if tp_price < 1 else 2),
+                "risk_distance": risk_dist,
+                "risk_amount_usd": risk_amount_usd,
+                "position_qty": position_qty,
+                "position_value_usd": position_value_usd,
+                "target_rr": target_rr,
+                "unrealized_r": 0.0,
+                "unrealized_pnl_usd": 0.0,
+                "mfe_r": 0.0,
+                "mae_r": 0.0,
+                "bars_held": 0,
+                "pre_trade_context": signal['pre_trade_context']
+            }
+
+            self.open_positions[sym] = pos_record
+            self.symbol_last_entry_candle[sym] = candle_time
+            print(f"[LiveBot] OPENED {direction} on {sym} [{sector} | {signal_tf}] @ ${entry_price} (Fixed Risk: ${risk_amount_usd:.2f} USD, SL: ${sl_price}, TP: ${tp_price} [1:{target_rr} RR])")
+            self.save_state()
 
     def _evaluate_active_strategy(
         self, 
         df: pd.DataFrame, 
         idx: int,
-        htf_data: Optional[Dict[str, pd.DataFrame]] = None
+        htf_data: Optional[Dict[str, pd.DataFrame]] = None,
+        timeframe: Optional[str] = None
     ) -> Optional[Dict[str, Any]]:
-        """Evaluate strategy incorporating dynamic active parameters, RSI safe corridor, and 15m(1h)/30m(4h) MTF alignment."""
+        """Evaluate strategy incorporating dynamic active parameters, RSI safe corridor, and MTF alignment."""
         if len(df) < 50 or idx < 50:
             return None
 
@@ -885,6 +991,7 @@ class LiveCryptoBot:
             df = compute_crypto_indicators(df)
 
         target_rr = self.active_params.get("target_rr", self.target_rr)
+        tf = timeframe or (self.timeframe if self.timeframe in ["5m", "15m", "30m"] else "15m")
         
         # Match strategy class by active name
         strat_cls = None
@@ -901,7 +1008,7 @@ class LiveCryptoBot:
             target_rr=target_rr, 
             params=self.active_params,
             htf_data=htf_data,
-            timeframe=self.timeframe
+            timeframe=tf
         )
 
         return None
@@ -995,7 +1102,7 @@ class LiveCryptoBot:
                 f.write(f"- **Realized PnL**: `${pnl_usd:+.2f} USD` ({net_r:+.2f} R)\n")
                 f.write(f"- **Resulting Account Balance**: `${self.current_balance:.2f} USD`\n")
                 f.write(f"- **Entry Price**: `${closed_record['entry_price']}` | **Exit Price**: `${closed_record['exit_price']}`\n")
-                f.write(f"- **Stop Loss**: `${closed_record['sl_price']}` | **Take Profit**: `${closed_record['tp_price']}` (1:{pos['target_rr']} RR)\n")
+                f.write(f"- **Stop Loss**: `${closed_record['sl_price']}` | **Take Profit**: `${closed_record['tp_price']}` (1:{closed_record.get('target_rr', 2.0)} RR)\n")
                 f.write(f"- **Position Size**: `{closed_record['position_qty']} units` (Notional Value: `${closed_record['position_value_usd']:.2f}`)\n")
                 f.write(f"- **Max Favorable Excursion (MFE)**: `+{closed_record['mfe_r']} R`\n")
                 f.write(f"- **Max Adverse Excursion (MAE)**: `-{closed_record['mae_r']} R`\n")
@@ -1144,13 +1251,13 @@ class LiveCryptoBot:
         if period_upper == "MONTHLY":
             self.last_monthly_optimization_time = now
             lookback_bars = 1000
-            target_timeframes = ["15m", "30m"]
+            target_timeframes = ["5m", "15m", "30m"]
             report_code = now.strftime("%Y_%m")
             report_filename = os.path.join(REPORTS_DIR, f"monthly_optimization_report_{report_code}.md")
         else:
             self.last_weekly_optimization_time = now
             lookback_bars = 500
-            target_timeframes = ["15m", "30m"]
+            target_timeframes = ["5m", "15m", "30m"]
             report_code = f"{now.strftime('%Y')}_W{now.isocalendar()[1]:02d}_{now.strftime('%m%d_%H%M%S')}"
             report_filename = os.path.join(REPORTS_DIR, f"weekly_optimization_report_{report_code}.md")
 
@@ -1525,7 +1632,7 @@ class LiveCryptoBot:
                 self.symbol_loss_cooldowns[q_sym] = ph_now() + timedelta(minutes=self.cooldown_minutes * 2)
             print(f"[LiveBot:AI Optimizer] 🛡️ Quarantined toxic losing symbols: {failure_diag['quarantined_symbols']}")
 
-        candidate_timeframes = ["15m", "30m"]  # Strict: Entries restricted to 15m and 30m (1h/4h are HTF filters)
+        candidate_timeframes = ["5m", "15m", "30m"]  # Multi-Timeframe Matrix: 5m, 15m, and 30m entries
         param_candidates = self._generate_candidate_parameters(failure_diag)
 
         current_champ_score = float(self.champion_stats.get("score", 1.5))
@@ -1827,7 +1934,9 @@ class LiveCryptoBot:
         tournament_competitors = [
             {"name": "Trend_Pullback_Confluence", "timeframe": "15m", "params": {"rvol_min": 1.0, "atr_sl_mult": 1.80, "target_rr": 2.5, "rsi_min_long": 38.0, "rsi_max_long": 56.0, "rsi_min_short": 44.0, "rsi_max_short": 62.0}},
             {"name": "Trend_Pullback_Confluence", "timeframe": "30m", "params": {"rvol_min": 1.0, "atr_sl_mult": 1.80, "target_rr": 2.5, "rsi_min_long": 38.0, "rsi_max_long": 56.0, "rsi_min_short": 44.0, "rsi_max_short": 62.0}},
+            {"name": "Trend_Pullback_Confluence", "timeframe": "5m", "params": {"rvol_min": 1.10, "atr_sl_mult": 1.60, "target_rr": 2.0, "rsi_min_long": 38.0, "rsi_max_long": 56.0, "rsi_min_short": 44.0, "rsi_max_short": 62.0}},
             {"name": "Squeeze_Momentum_Breakout", "timeframe": "15m", "params": {"rvol_min": 1.20, "atr_sl_mult": 1.40, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_short": 50.0}},
+            {"name": "Squeeze_Momentum_Breakout", "timeframe": "5m", "params": {"rvol_min": 1.25, "atr_sl_mult": 1.35, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_short": 50.0}},
             {"name": "Liquidity_Sweep_Reversal", "timeframe": "15m", "params": {"rvol_min": 1.10, "atr_sl_mult": 1.40, "target_rr": 2.0, "rsi_min_long": 52.0, "rsi_max_short": 48.0}},
         ]
 
@@ -2173,8 +2282,9 @@ class LiveCryptoBot:
             "circuit_breaker_until": self.circuit_breaker_until.strftime("%Y-%m-%d %H:%M:%S") if self.circuit_breaker_until and self.circuit_breaker_until > ph_now() else None,
             "quarantined_symbols": [sym for sym, dt in self.symbol_loss_cooldowns.items() if dt > ph_now()],
             "latest_signals": self.latest_signals[-15:],
-            "recent_journal": self.closed_trades[::-1]
+            "recent_journal": self.closed_trades[::-1],
+            "api_rate_limit": rate_limit_manager.get_telemetry()
         }
 
 # Global singleton bot instance initialized with $100.00 USD Capital, $1.00 Fixed Risk, 1:2.0 RR, and Max 10 Concurrent Trades
-bot_instance = LiveCryptoBot(initial_capital=100.0, fixed_risk_usd=1.0, timeframe="15m", max_open_positions=10, target_rr=2.0, scan_interval_sec=20, max_positions_per_sector=2)
+bot_instance = LiveCryptoBot(initial_capital=100.0, fixed_risk_usd=1.0, timeframe="triple", max_open_positions=10, target_rr=2.0, scan_interval_sec=15, max_positions_per_sector=2)

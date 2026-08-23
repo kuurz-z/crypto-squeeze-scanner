@@ -220,14 +220,25 @@ function setupEventListeners() {
       
       currentInterval = newTf;
       
+      // Synchronize live bot background engine timeframe
+      fetch('/api/bot/timeframe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timeframe: newTf })
+      }).then(() => {
+        if (currentView === 'bot') fetchBotTelemetry();
+      }).catch(err => console.error('Error updating bot timeframe:', err));
+
+      const scanTf = (currentInterval === 'triple' || currentInterval === 'dual') ? '15m' : currentInterval;
+
       // Instant Optimistic Switch from Client Cache (0ms latency)
-      if (clientScanCache[currentInterval]) {
-        scannerData = clientScanCache[currentInterval].data;
+      if (clientScanCache[currentInterval] || clientScanCache[scanTf]) {
+        scannerData = (clientScanCache[currentInterval] || clientScanCache[scanTf]).data;
         renderScannerTable();
         updateBacktestDropdown(scannerData);
       }
       
-      const chartKey = `${currentSymbol}_${currentInterval}`;
+      const chartKey = `${currentSymbol}_${scanTf}`;
       if (clientCandleCache[chartKey]) {
         const cachedChart = clientCandleCache[chartKey].data;
         updateChartData(cachedChart);
@@ -330,10 +341,11 @@ function updateBacktestDropdown(coins) {
 
 async function fetchScan(showSpinner = true, force = false) {
   const tbody = document.getElementById('scanner-tbody');
+  const scanTf = (currentInterval === 'triple' || currentInterval === 'dual') ? '15m' : currentInterval;
   
   // Instant render from cache if available and not forced
-  if (clientScanCache[currentInterval] && !force) {
-    scannerData = clientScanCache[currentInterval].data;
+  if ((clientScanCache[currentInterval] || clientScanCache[scanTf]) && !force) {
+    scannerData = (clientScanCache[currentInterval] || clientScanCache[scanTf]).data;
     renderScannerTable();
     updateBacktestDropdown(scannerData);
     updateFavoriteBadges();
@@ -349,16 +361,21 @@ async function fetchScan(showSpinner = true, force = false) {
   }
 
   try {
-    const res = await fetch(`/api/scan?interval=${currentInterval}&limit=60${force ? '&force_refresh=true' : ''}`);
+    const res = await fetch(`/api/scan?interval=${scanTf}&limit=60${force ? '&force_refresh=true' : ''}`);
     if (!res.ok) throw new Error('Scan failed');
     const json = await res.json();
     const data = json.data || [];
     
     // Store in client-side instant cache
     clientScanCache[currentInterval] = { timestamp: Date.now(), data };
+    clientScanCache[scanTf] = { timestamp: Date.now(), data };
+    
+    if (json.api_rate_limit) {
+      updateRateLimitDisplay(json.api_rate_limit);
+    }
     
     // If user is still on this interval, update UI smoothly
-    if (json.interval === currentInterval) {
+    if (json.interval === scanTf) {
       scannerData = data;
       renderScannerTable();
       updateBacktestDropdown(scannerData);
@@ -368,6 +385,41 @@ async function fetchScan(showSpinner = true, force = false) {
     console.error('Scan error:', err);
     if (tbody && scannerData.length === 0) {
       tbody.innerHTML = `<tr><td colspan="5" class="py-6 text-center text-rose-500">Failed to fetch live scan data.</td></tr>`;
+    }
+  }
+}
+
+function updateRateLimitDisplay(rl) {
+  if (!rl) return;
+  const headerVal = document.getElementById('header-rate-limit-val');
+  const botBadge = document.getElementById('bot-rate-limit-badge');
+  const botText = document.getElementById('bot-rate-limit-text');
+
+  const used = rl.used_weight_1m || 0;
+  const limit = rl.weight_limit_1m || 1200;
+  const status = rl.status || 'HEALTHY';
+
+  if (headerVal) {
+    headerVal.innerText = `${used} / ${limit}`;
+    if (status === 'HEALTHY') {
+      headerVal.className = 'font-bold text-emerald-600 dark:text-emerald-400 text-[11px]';
+    } else if (status === 'PACED') {
+      headerVal.className = 'font-bold text-amber-600 dark:text-amber-400 text-[11px]';
+    } else {
+      headerVal.className = 'font-bold text-rose-600 dark:text-rose-400 text-[11px] animate-pulse';
+    }
+  }
+
+  if (botBadge && botText) {
+    if (status === 'HEALTHY') {
+      botBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5';
+      botText.innerHTML = `<i class="fa-solid fa-shield-halved text-emerald-500"></i> API Weight: <b>${used}/${limit}</b> (Safe 🟢)`;
+    } else if (status === 'PACED') {
+      botBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1.5';
+      botText.innerHTML = `<i class="fa-solid fa-shield-halved text-amber-500"></i> API Weight: <b>${used}/${limit}</b> (Paced 🟡)`;
+    } else {
+      botBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20 flex items-center gap-1.5';
+      botText.innerHTML = `<i class="fa-solid fa-triangle-exclamation text-rose-500 animate-pulse"></i> API Weight: <b>${used}/${limit}</b> (Defense 🔴)`;
     }
   }
 }
@@ -485,7 +537,8 @@ function onSelectCoin(symbol) {
 }
 
 async function loadSymbolChart(symbol, force = false) {
-  const chartKey = `${symbol}_${currentInterval}`;
+  const chartTf = (currentInterval === 'triple' || currentInterval === 'dual') ? '15m' : currentInterval;
+  const chartKey = `${symbol}_${chartTf}`;
   
   // Instant render from client cache if available and not forced
   if (clientCandleCache[chartKey] && !force) {
@@ -495,7 +548,7 @@ async function loadSymbolChart(symbol, force = false) {
   }
 
   try {
-    const res = await fetch(`/api/candles/${symbol}?interval=${currentInterval}&limit=300`);
+    const res = await fetch(`/api/candles/${symbol}?interval=${chartTf}&limit=300`);
     if (!res.ok) throw new Error('Failed to load chart');
     const data = await res.json();
     
@@ -503,7 +556,7 @@ async function loadSymbolChart(symbol, force = false) {
     clientCandleCache[chartKey] = { timestamp: Date.now(), data };
     
     // If still viewing this symbol and interval, update chart smoothly
-    if (data.symbol === currentSymbol && data.interval === currentInterval) {
+    if (data.symbol === currentSymbol) {
       updateChartData(data);
       updateTopMetrics(data);
     }
@@ -1113,6 +1166,29 @@ function renderBotMetrics(t) {
     }
   }
 
+  // Timeframe Matrix Mode Badge
+  const tfBadge = document.getElementById('bot-tf-badge');
+  const tfText = document.getElementById('bot-tf-text');
+  if (tfBadge && tfText) {
+    const tf = t.timeframe || 'triple';
+    if (tf === 'triple') {
+      tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 flex items-center gap-1.5';
+      tfText.innerHTML = '<i class="fa-solid fa-layer-group text-purple-500"></i> Mode: <b>Triple (5m/15m/30m)</b>';
+    } else if (tf === 'dual') {
+      tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5';
+      tfText.innerHTML = '<i class="fa-solid fa-layer-group text-indigo-500"></i> Mode: <b>Dual (15m/30m)</b>';
+    } else if (tf === '5m') {
+      tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 flex items-center gap-1.5';
+      tfText.innerHTML = '<i class="fa-solid fa-bolt text-cyan-500"></i> Mode: <b>5m Scalp (30m MTF)</b>';
+    } else if (tf === '30m') {
+      tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 flex items-center gap-1.5';
+      tfText.innerHTML = '<i class="fa-solid fa-chart-line text-blue-500"></i> Mode: <b>30m Swing (4h MTF)</b>';
+    } else {
+      tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5';
+      tfText.innerHTML = '<i class="fa-solid fa-chart-simple text-indigo-500"></i> Mode: <b>15m Intraday (1h MTF)</b>';
+    }
+  }
+
   // Account Capital & Balances
   const walletBalEl = document.getElementById('bot-wallet-balance');
   if (walletBalEl) walletBalEl.innerText = `$${(t.current_balance || 100.0).toFixed(2)}`;
@@ -1207,6 +1283,11 @@ function renderBotMetrics(t) {
     if (hofGoatStrat) hofGoatStrat.innerText = `${(t.champion_stats.name || 'Squeeze Momentum').replace(/_/g, ' ')} (${t.champion_stats.timeframe || '15m'})`;
     if (hofGoatWr) hofGoatWr.innerText = `${t.champion_stats.win_rate || 42}% WR | 85 Rep`;
   }
+
+  // API Rate Limit & Weight Budget
+  if (t.api_rate_limit) {
+    updateRateLimitDisplay(t.api_rate_limit);
+  }
 }
 
 function renderBotPositions(positions) {
@@ -1237,7 +1318,8 @@ function renderBotPositions(positions) {
     const rColor = pos.unrealized_r >= 0 ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold';
     const pnlUsd = pos.unrealized_pnl_usd || 0.0;
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
-    const tf = (pos.timeframe && ['15m', '30m'].includes(pos.timeframe)) ? pos.timeframe : '15m';
+    const tf = (pos.timeframe && ['5m', '15m', '30m'].includes(pos.timeframe)) ? pos.timeframe : '15m';
+    const tfAnchor = tf === '5m' ? '30m MTF' : (tf === '30m' ? '4h MTF' : '1h MTF');
 
     return `
       <tr class="hover:bg-slate-50 dark:hover:bg-gray-800/40 text-[11px]">
@@ -1265,7 +1347,7 @@ function renderBotPositions(positions) {
           <div class="h-5 flex items-center font-medium leading-5">$${pos.entry_price}</div>
           <div class="mt-1 flex items-center gap-1">
             <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
-              ${tf} (${tf === '30m' ? '4h MTF' : '1h MTF'})
+              ${tf} (${tfAnchor})
             </span>
             <span class="text-[9px] text-slate-400 font-mono" title="Candles Held">
               ${pos.bars_held || 0} bars
@@ -1372,7 +1454,8 @@ function renderBotClosedHistory(trades) {
     const badgeBg = isWin ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' : (isBE ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30' : 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30');
     const rColor = isWin ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (isBE ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold');
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
-    const tf = (t.timeframe && ['15m', '30m'].includes(t.timeframe)) ? t.timeframe : '15m';
+    const tf = (t.timeframe && ['5m', '15m', '30m'].includes(t.timeframe)) ? t.timeframe : '15m';
+    const tfAnchor = tf === '5m' ? '30m MTF' : (tf === '30m' ? '4h MTF' : '1h MTF');
     const exitTimeStr = formatPhDateTime(t.exit_time_str || t.exit_time || t.entry_time_str || t.entry_time);
 
     return `
@@ -1397,7 +1480,7 @@ function renderBotClosedHistory(trades) {
           <div class="h-5 flex items-center font-medium leading-5">$${t.entry_price} ➔ $${t.exit_price}</div>
           <div class="mt-1 flex items-center">
             <span class="inline-block px-1.5 py-0.2 rounded text-[9px] font-sans font-bold bg-purple-50 dark:bg-purple-950/50 text-purple-600 dark:text-purple-300 border border-purple-200 dark:border-purple-800/40">
-              ${tf} (${tf === '30m' ? '4h MTF' : '1h MTF'})
+              ${tf} (${tfAnchor})
             </span>
           </div>
         </td>
@@ -1642,11 +1725,27 @@ function renderBotJournal(trades) {
 
 function renderBotParams(params) {
   if (!params) return;
+  const tfEl = document.getElementById('param-timeframe');
   const rrEl = document.getElementById('param-target-rr');
   const rvolEl = document.getElementById('param-rvol');
   const slEl = document.getElementById('param-atr-sl');
   const tpEl = document.getElementById('param-atr-tp');
   
+  if (tfEl) {
+    const tf = currentInterval || 'triple';
+    if (tf === 'triple') {
+      tfEl.innerText = 'Triple (5m / 15m / 30m)';
+    } else if (tf === 'dual') {
+      tfEl.innerText = 'Dual (15m / 30m)';
+    } else if (tf === '5m') {
+      tfEl.innerText = '5m Scalp (30m MTF)';
+    } else if (tf === '30m') {
+      tfEl.innerText = '30m Swing (4h MTF)';
+    } else {
+      tfEl.innerText = '15m Intraday (1h MTF)';
+    }
+  }
+
   const targetRR = params.target_rr || 2.0;
   const rrLabel = targetRR % 1 === 0 ? targetRR.toFixed(0) : targetRR.toFixed(1);
   if (rrEl) rrEl.innerText = `1:${targetRR.toFixed(1)} RR`;

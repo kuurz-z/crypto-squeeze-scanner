@@ -4,6 +4,7 @@ import time
 import numpy as np
 import pandas as pd
 from typing import List, Dict, Any, Optional
+from data_loader import rate_limit_manager
 
 BINANCE_KLINES_URL = "https://api.binance.com/api/v3/klines"
 BINANCE_TICKER_24HR_URL = "https://api.binance.com/api/v3/ticker/24hr"
@@ -75,10 +76,20 @@ async def fetch_top_usdt_pairs(limit: int = 60) -> List[str]:
     return DEFAULT_TOP_COINS[:limit]
 
 async def fetch_klines(session: aiohttp.ClientSession, symbol: str, interval: str = "1h", limit: int = 300) -> Optional[pd.DataFrame]:
-    """Fetch historical kline data for a symbol and return formatted DataFrame."""
+    """Fetch historical kline data for a symbol and return formatted DataFrame with rate-limit tracking."""
+    await rate_limit_manager.pace()
     params = {"symbol": symbol, "interval": interval, "limit": limit}
     try:
+        t0 = time.perf_counter()
         async with session.get(BINANCE_KLINES_URL, params=params, timeout=aiohttp.ClientTimeout(total=6)) as resp:
+            latency_ms = (time.perf_counter() - t0) * 1000
+            rate_limit_manager.update_from_headers(resp.headers, latency_ms)
+
+            if resp.status == 429:
+                retry_after = int(resp.headers.get('Retry-After', 30))
+                rate_limit_manager.trigger_backoff(retry_after)
+                return None
+
             if resp.status == 200:
                 raw = await resp.json()
                 if not raw or len(raw) < 50:
@@ -273,15 +284,16 @@ async def scan_single_symbol(session: aiohttp.ClientSession, symbol: str, interv
     }
 
 async def scan_market(interval: str = "1h", limit_pairs: int = 50, force_refresh: bool = False) -> List[Dict[str, Any]]:
-    """Scan all top market pairs concurrently using aiohttp with fast in-memory caching."""
-    cache_key = f"{interval}_{limit_pairs}"
+    """Scan all top market pairs concurrently using aiohttp with fast in-memory caching and safe rate limits."""
+    safe_limit = max(10, min(100, int(limit_pairs)))
+    cache_key = f"{interval}_{safe_limit}"
     now = time.time()
     if not force_refresh and cache_key in _scan_cache:
         cached = _scan_cache[cache_key]
         if now - cached["timestamp"] < SCAN_CACHE_TTL:
             return cached["data"]
 
-    symbols = await fetch_top_usdt_pairs(limit=limit_pairs)
+    symbols = await fetch_top_usdt_pairs(limit=safe_limit)
     session = await get_http_session()
     tasks = [scan_single_symbol(session, sym, interval=interval) for sym in symbols]
     results = await asyncio.gather(*tasks, return_exceptions=True)
