@@ -136,27 +136,30 @@ document.addEventListener('DOMContentLoaded', () => {
   fetchScan(true);
   loadSymbolChart(currentSymbol);
   
-  // Pre-warm the alternate timeframe cache in background for instantaneous switching
+  // Pre-warm 5m, 15m, and 30m caches in background for instantaneous zero-latency switching
   setTimeout(() => {
-    const otherTf = currentInterval === '15m' ? '30m' : '15m';
-    fetch(`/api/scan?interval=${otherTf}&limit=60`)
-      .then(r => r.ok ? r.json() : null)
-      .then(json => {
-        if (json && json.data) {
-          clientScanCache[otherTf] = { timestamp: Date.now(), data: json.data };
-        }
-      })
-      .catch(() => {});
+    ['5m', '15m', '30m'].forEach(tf => {
+      if (tf !== currentInterval) {
+        fetch(`/api/scan?interval=${tf}&limit=60`)
+          .then(r => r.ok ? r.json() : null)
+          .then(json => {
+            if (json && json.data) {
+              clientScanCache[tf] = { timestamp: Date.now(), data: json.data };
+            }
+          })
+          .catch(() => {});
 
-    fetch(`/api/candles/${currentSymbol}?interval=${otherTf}&limit=300`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data && data.candles) {
-          clientCandleCache[`${currentSymbol}_${otherTf}`] = { timestamp: Date.now(), data };
-        }
-      })
-      .catch(() => {});
-  }, 1200);
+        fetch(`/api/candles/${currentSymbol}?interval=${tf}&limit=300`)
+          .then(r => r.ok ? r.json() : null)
+          .then(data => {
+            if (data && data.candles) {
+              clientCandleCache[`${currentSymbol}_${tf}`] = { timestamp: Date.now(), data };
+            }
+          })
+          .catch(() => {});
+      }
+    });
+  }, 800);
 
   // Periodic background refresh every 30s
   autoRefreshTimer = setInterval(() => {
@@ -205,7 +208,7 @@ function applyTheme(theme) {
 }
 
 function setupEventListeners() {
-  // Timeframe buttons (Optimized 0ms Instant Switch)
+  // Timeframe buttons (Optimized 0ms Instant Switch for Scanner & Chart)
   document.querySelectorAll('.tf-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
       const newTf = btn.dataset.tf;
@@ -219,26 +222,15 @@ function setupEventListeners() {
       btn.classList.remove('text-slate-600', 'dark:text-gray-400');
       
       currentInterval = newTf;
-      
-      // Synchronize live bot background engine timeframe
-      fetch('/api/bot/timeframe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ timeframe: newTf })
-      }).then(() => {
-        if (currentView === 'bot') fetchBotTelemetry();
-      }).catch(err => console.error('Error updating bot timeframe:', err));
-
-      const scanTf = (currentInterval === 'triple' || currentInterval === 'dual') ? '15m' : currentInterval;
 
       // Instant Optimistic Switch from Client Cache (0ms latency)
-      if (clientScanCache[currentInterval] || clientScanCache[scanTf]) {
-        scannerData = (clientScanCache[currentInterval] || clientScanCache[scanTf]).data;
+      if (clientScanCache[newTf]) {
+        scannerData = clientScanCache[newTf].data;
         renderScannerTable();
         updateBacktestDropdown(scannerData);
       }
       
-      const chartKey = `${currentSymbol}_${scanTf}`;
+      const chartKey = `${currentSymbol}_${newTf}`;
       if (clientCandleCache[chartKey]) {
         const cachedChart = clientCandleCache[chartKey].data;
         updateChartData(cachedChart);
@@ -341,11 +333,11 @@ function updateBacktestDropdown(coins) {
 
 async function fetchScan(showSpinner = true, force = false) {
   const tbody = document.getElementById('scanner-tbody');
-  const scanTf = (currentInterval === 'triple' || currentInterval === 'dual') ? '15m' : currentInterval;
+  const scanTf = currentInterval;
   
   // Instant render from cache if available and not forced
-  if ((clientScanCache[currentInterval] || clientScanCache[scanTf]) && !force) {
-    scannerData = (clientScanCache[currentInterval] || clientScanCache[scanTf]).data;
+  if (clientScanCache[scanTf] && !force) {
+    scannerData = clientScanCache[scanTf].data;
     renderScannerTable();
     updateBacktestDropdown(scannerData);
     updateFavoriteBadges();
@@ -367,7 +359,6 @@ async function fetchScan(showSpinner = true, force = false) {
     const data = json.data || [];
     
     // Store in client-side instant cache
-    clientScanCache[currentInterval] = { timestamp: Date.now(), data };
     clientScanCache[scanTf] = { timestamp: Date.now(), data };
     
     if (json.api_rate_limit) {
@@ -537,7 +528,7 @@ function onSelectCoin(symbol) {
 }
 
 async function loadSymbolChart(symbol, force = false) {
-  const chartTf = (currentInterval === 'triple' || currentInterval === 'dual') ? '15m' : currentInterval;
+  const chartTf = currentInterval;
   const chartKey = `${symbol}_${chartTf}`;
   
   // Instant render from client cache if available and not forced
@@ -703,12 +694,14 @@ function setupViewNavigation() {
   const botBtn = document.getElementById('tab-bot-btn');
   const scannerView = document.getElementById('scanner-view-container');
   const botView = document.getElementById('bot-view-container');
+  const tfGroup = document.getElementById('tf-group');
 
   if (scannerBtn && botBtn) {
     scannerBtn.addEventListener('click', () => {
       currentView = 'scanner';
       scannerView.classList.remove('hidden');
       botView.classList.add('hidden');
+      if (tfGroup) tfGroup.classList.remove('hidden');
 
       scannerBtn.className = 'px-3 py-1.5 rounded-md transition bg-indigo-600 text-white shadow flex items-center gap-1.5';
       botBtn.className = 'px-3 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5';
@@ -718,6 +711,7 @@ function setupViewNavigation() {
       currentView = 'bot';
       scannerView.classList.add('hidden');
       botView.classList.remove('hidden');
+      if (tfGroup) tfGroup.classList.add('hidden');
 
       botBtn.className = 'px-3 py-1.5 rounded-md transition bg-indigo-600 text-white shadow flex items-center gap-1.5';
       scannerBtn.className = 'px-3 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white flex items-center gap-1.5';
@@ -1166,27 +1160,12 @@ function renderBotMetrics(t) {
     }
   }
 
-  // Timeframe Matrix Mode Badge
+  // Timeframe Matrix Mode Badge (Autonomous 24/7 Triple Multi-Timeframe Matrix)
   const tfBadge = document.getElementById('bot-tf-badge');
   const tfText = document.getElementById('bot-tf-text');
   if (tfBadge && tfText) {
-    const tf = t.timeframe || 'triple';
-    if (tf === 'triple') {
-      tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 flex items-center gap-1.5';
-      tfText.innerHTML = '<i class="fa-solid fa-layer-group text-purple-500"></i> Mode: <b>Triple (5m/15m/30m)</b>';
-    } else if (tf === 'dual') {
-      tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5';
-      tfText.innerHTML = '<i class="fa-solid fa-layer-group text-indigo-500"></i> Mode: <b>Dual (15m/30m)</b>';
-    } else if (tf === '5m') {
-      tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border border-cyan-500/20 flex items-center gap-1.5';
-      tfText.innerHTML = '<i class="fa-solid fa-bolt text-cyan-500"></i> Mode: <b>5m Scalp (30m MTF)</b>';
-    } else if (tf === '30m') {
-      tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 flex items-center gap-1.5';
-      tfText.innerHTML = '<i class="fa-solid fa-chart-line text-blue-500"></i> Mode: <b>30m Swing (4h MTF)</b>';
-    } else {
-      tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5';
-      tfText.innerHTML = '<i class="fa-solid fa-chart-simple text-indigo-500"></i> Mode: <b>15m Intraday (1h MTF)</b>';
-    }
+    tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 flex items-center gap-1.5';
+    tfText.innerHTML = '<i class="fa-solid fa-layer-group text-purple-500"></i> Mode: <b>Triple Matrix (5m/15m/30m)</b> <span class="text-[10px] opacity-80 font-normal">[Automated]</span>';
   }
 
   // Account Capital & Balances
