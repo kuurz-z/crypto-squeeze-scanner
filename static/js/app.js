@@ -6,7 +6,7 @@ let searchQuery = '';
 let scannerData = [];
 let autoRefreshTimer = null;
 
-const ALL_TIMEFRAMES = ['5m', '15m', '30m', '1h', '4h'];
+const ALL_TIMEFRAMES = ['5m', '15m', '30m', '1h', '4h', '1d'];
 
 // High-Performance In-Memory Client Caches for Instant (0ms) Timeframe Switching
 const clientScanCache = {};   // { '30m': { timestamp, data }, ... }
@@ -1923,6 +1923,12 @@ function renderBotParams(params) {
       tfEl.innerText = '5m Scalp (30m MTF)';
     } else if (tf === '30m') {
       tfEl.innerText = '30m Swing (4h MTF)';
+    } else if (tf === '1h') {
+      tfEl.innerText = '1h Intermediate Trend';
+    } else if (tf === '4h') {
+      tfEl.innerText = '4h Macro Structure';
+    } else if (tf === '1d') {
+      tfEl.innerText = '1d Daily Macro Trend';
     } else {
       tfEl.innerText = '15m Intraday (1h MTF)';
     }
