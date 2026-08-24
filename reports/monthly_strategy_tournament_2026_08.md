@@ -1,23 +1,23 @@
 # 🏆 End-of-Month Strategy Championship Tournament (2026-08)
-*Generated on: 2026-08-24 21:08:19 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
+*Generated on: 2026-08-24 23:12:41 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
 
 ## 1. 👑 Crowned Monthly Grand Champion
 - **Champion Strategy**: `Trend_Pullback_Confluence`
-- **Timeframe**: `30m`
-- **Win Rate**: `55.56%` (Strict Floor: ≥ 40.0%)
+- **Timeframe**: `15m`
+- **Win Rate**: `53.68%` (Strict Floor: ≥ 40.0%)
 - **Reproducibility Index**: `100.0 / 100`
-- **Net Expectancy**: `+0.864 R / trade`
-- **Profit Factor**: `2.8`
+- **Net Expectancy**: `+0.799 R / trade`
+- **Profit Factor**: `2.6`
 
 ## 2. Multi-Strategy Tournament Leaderboard
 | Rank | Strategy Name | Timeframe | Win Rate % | Reproducibility | Net Expectancy | PF | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| #1 | **Trend_Pullback_Confluence** | `30m` | **55.56%** | `100.0/100` | `+0.864R` | `2.8` | 👑 **MONTHLY CHAMPION** |
-| #2 | **Trend_Pullback_Confluence** | `15m` | **53.61%** | `100.0/100` | `+0.796R` | `2.59` | ✅ Qualified |
-| #3 | **Squeeze_Momentum_Breakout** | `15m` | **53.49%** | `100.0/100` | `+0.525R` | `2.04` | ✅ Qualified |
-| #4 | **Liquidity_Sweep_Reversal** | `15m` | **50.55%** | `97.3/100` | `+0.436R` | `1.82` | ✅ Qualified |
-| #5 | **Trend_Pullback_Confluence** | `5m` | **28.99%** | `66.1/100` | `+-0.21R` | `0.73` | ❌ Rejected (<40% WR) |
-| #6 | **Squeeze_Momentum_Breakout** | `5m` | **28.12%** | `60.7/100` | `+-0.236R` | `0.7` | ❌ Rejected (<40% WR) |
+| #1 | **Trend_Pullback_Confluence** | `15m` | **53.68%** | `100.0/100` | `+0.799R` | `2.6` | 👑 **MONTHLY CHAMPION** |
+| #2 | **Squeeze_Momentum_Breakout** | `15m` | **53.01%** | `100.0/100` | `+0.51R` | `2.01` | ✅ Qualified |
+| #3 | **Trend_Pullback_Confluence** | `30m` | **51.95%** | `100.0/100` | `+0.738R` | `2.42` | ✅ Qualified |
+| #4 | **Liquidity_Sweep_Reversal** | `15m` | **49.44%** | `96.1/100` | `+0.403R` | `1.74` | ✅ Qualified |
+| #5 | **Trend_Pullback_Confluence** | `5m` | **28.57%** | `67.3/100` | `+-0.223R` | `0.71` | ❌ Rejected (<40% WR) |
+| #6 | **Squeeze_Momentum_Breakout** | `5m` | **27.59%** | `61.3/100` | `+-0.252R` | `0.68` | ❌ Rejected (<40% WR) |
 
 ## 3. Champion Parameters
 ```json

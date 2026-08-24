@@ -125,11 +125,21 @@ def compute_crypto_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df['swing_high_20'] = df['high'].rolling(window=20).max().shift(1)
     df['swing_low_20'] = df['low'].rolling(window=20).min().shift(1)
 
+    # Average Directional Index (ADX 14) for Trend Velocity Verification
+    plus_dm = df['high'].diff()
+    minus_dm = -df['low'].diff()
+    plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0.0)
+    minus_dm = np.where((minus_dm > plus_dm) & (minus_dm > 0), minus_dm, 0.0)
+    plus_di = 100.0 * (pd.Series(plus_dm, index=df.index).rolling(14).mean() / df['atr14'].replace(0, np.nan))
+    minus_di = 100.0 * (pd.Series(minus_dm, index=df.index).rolling(14).mean() / df['atr14'].replace(0, np.nan))
+    dx = (abs(plus_di - minus_di) / (plus_di + minus_di).replace(0, np.nan)) * 100.0
+    df['adx14'] = dx.rolling(14).mean().fillna(25.0)
+
     # Rolling Hurst Exponent (Window: 40 bars)
     hurst_vals = [0.5] * len(df)
     closes = df['close'].values
     for i in range(40, len(df)):
-        hurst_vals[i] = calculate_hurst_exponent(closes[i-39:i+1], max_lags=15)
+        hurst_vals[i] = calculate_hurst_exponent(closes[i-39:i+1], min_window=6, max_window=18)
     df['hurst'] = hurst_vals
 
     return df
@@ -326,12 +336,14 @@ class SqueezeMomentumBreakout(StrategyBase):
         rsi = float(curr.get('rsi14', 50.0))
         mom = float(curr.get('momentum', 0.0))
         hurst = float(curr.get('hurst', 0.5))
+        adx = float(curr.get('adx14', 25.0))
         
         if atr <= 0:
             return None
 
-        # Regime Gating: Reject trades in strongly mean-reverting chop (H < 0.45)
-        if hurst < 0.45:
+        # Regime Gating: Reject trades in strongly mean-reverting chop (H < 0.45) or dead trendless markets (ADX < 18)
+        adx_min = p.get("adx_min", 18.0)
+        if hurst < 0.45 or adx < adx_min:
             return None
 
         total_range = max(high - low, 1e-6)
@@ -652,12 +664,14 @@ class TrendPullbackConfluence(StrategyBase):
         rsi = float(curr.get('rsi14', 50.0))
         rvol = float(curr.get('rvol', 1.0))
         hurst = float(curr.get('hurst', 0.5))
+        adx = float(curr.get('adx14', 25.0))
 
         if atr <= 0:
             return None
 
-        # Regime Gating: Filter out dead chop / anti-persistent regimes
-        if hurst < 0.45:
+        # Regime Gating: Filter out dead chop / anti-persistent regimes and flat trendless markets
+        adx_min = p.get("adx_min", 20.0)
+        if hurst < 0.45 or adx < adx_min:
             return None
 
         # Uptrend Condition: EMA20 > EMA50 > EMA200 and Close > EMA200

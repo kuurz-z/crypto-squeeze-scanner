@@ -1163,8 +1163,18 @@ class LiveCryptoBot:
         if symbol in self.open_positions:
             del self.open_positions[symbol]
 
-        # Enforce Anti-Churn Quarantine on losing symbols with escalating penalties
-        if outcome == "LOSS" or net_r < 0:
+        # Enforce Anti-Churn Quarantine and Circuit Breakers
+        if outcome in ["BE_EXIT", "BREAKEVEN_DEFENSE", "TIME_EXIT", "MOMENTUM_EXIT"]:
+            # Stagnation & Breakeven Quarantine: Protect against re-entering choppy/stagnant assets
+            self.symbol_loss_cooldowns[symbol] = ph_now() + timedelta(hours=2)
+            print(f"[LiveBot:SymbolCooldown] {outcome} on {symbol}. Enforcing 2-hour consolidation cooldown.")
+
+            # Global Stagnation Circuit Breaker (2+ Time/BE exits in last 6 trades -> 90 min pause)
+            stagnant_count = sum(1 for t in self.closed_trades[-6:] if t.get('outcome') in ["TIME_EXIT", "BE_EXIT", "BREAKEVEN_DEFENSE", "MOMENTUM_EXIT"])
+            if stagnant_count >= 2:
+                self.circuit_breaker_until = ph_now() + timedelta(minutes=90)
+                print(f"[LiveBot:CircuitBreaker] [!] Widespread market stagnation detected ({stagnant_count} recent Time/BE exits). Activating 90-minute cooling pause.")
+        elif outcome == "LOSS" or net_r < 0:
             loss_count = self.symbol_consecutive_losses.get(symbol, 0) + 1
             self.symbol_consecutive_losses[symbol] = loss_count
 
@@ -1180,7 +1190,7 @@ class LiveCryptoBot:
             # Portfolio-level circuit breaker (3 consecutive losses -> 2-hour cooling pause; 2 losses -> 30 min)
             recent_losses = 0
             for t in reversed(self.closed_trades[-6:]):
-                if t.get('outcome') == 'LOSS' or t.get('net_r', 0) < 0:
+                if t.get('outcome') == 'LOSS':
                     recent_losses += 1
                 else:
                     break

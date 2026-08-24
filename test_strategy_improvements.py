@@ -393,5 +393,78 @@ class TestStrategyImprovements(unittest.TestCase):
         # Stop loss moved up to entry + fees (100.0 + 0.08 * 5.0 = 100.4)
         self.assertGreaterEqual(pos["sl_price"], 100.0)
 
+    def test_adx_filters_dead_trendless_chop(self):
+        """Verify that TrendPullbackConfluence rejects entries when ADX is dead (< 20)."""
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        df_dead = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [95.0] * 59 + [97.0],
+            "high": [98.0] * 59 + [100.0],
+            "low": [94.0] * 59 + [97.5],
+            "close": [96.0] * 59 + [99.0],
+            "volume": np.full(60, 1000.0),
+            "squeeze_on": [False] * 60,
+            "bb_upper": [105.0] * 60,
+            "bb_lower": [85.0] * 60,
+            "ema20": [98.0] * 60,
+            "ema50": [95.0] * 60,
+            "ema200": [90.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [48.0] * 60,
+            "momentum": [0.5] * 60,
+            "rvol": [1.2] * 60,
+            "hurst": [0.55] * 60,
+            "adx14": [14.0] * 60  # Dead flat trendless market (< 20)
+        })
+        sig = TrendPullbackConfluence.generate_signal(df_dead, len(df_dead) - 1, target_rr=2.5)
+        self.assertIsNone(sig)
+
+    def test_be_and_time_exit_quarantine(self):
+        """Verify that BE_EXIT and TIME_EXIT enforce 2-hour consolidation cooldown."""
+        sym = "SKHYBUSDT"
+        self.bot.open_positions[sym] = {
+            "trade_id": 301,
+            "symbol": sym,
+            "direction": "SHORT",
+            "entry_time": 1700000000,
+            "entry_price": 10.0,
+            "sl_price": 10.0,
+            "tp_price": 7.5,
+            "risk_distance": 1.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.5,
+            "bars_held": 5,
+            "pre_trade_context": {}
+        }
+        asyncio.run(self.bot._close_position(sym, exit_price=10.0, exit_time=1700000300, outcome="BE_EXIT"))
+        
+        self.assertIn(sym, self.bot.symbol_loss_cooldowns)
+        cd = self.bot.symbol_loss_cooldowns[sym]
+        self.assertGreaterEqual((cd - ph_now()).total_seconds(), 1.9 * 3600)
+        self.assertLessEqual((cd - ph_now()).total_seconds(), 2.1 * 3600)
+
+    def test_global_stagnation_circuit_breaker(self):
+        """Verify that 2 stagnation/BE exits activate the 90-minute global circuit breaker."""
+        self.assertIsNone(self.bot.circuit_breaker_until)
+        for i, sym in enumerate(["TIAUSDT", "XLMUSDT"]):
+            self.bot.open_positions[sym] = {
+                "trade_id": 400 + i,
+                "symbol": sym,
+                "direction": "LONG",
+                "entry_time": 1700000000 + i * 1000,
+                "entry_price": 5.0,
+                "sl_price": 4.5,
+                "tp_price": 6.25,
+                "risk_distance": 0.5,
+                "risk_amount_usd": 1.0,
+                "target_rr": 2.5,
+                "bars_held": 24,
+                "pre_trade_context": {}
+            }
+            asyncio.run(self.bot._close_position(sym, exit_price=4.8, exit_time=1700001000 + i * 1000, outcome="TIME_EXIT"))
+
+        self.assertIsNotNone(self.bot.circuit_breaker_until)
+        self.assertGreaterEqual((self.bot.circuit_breaker_until - ph_now()).total_seconds(), 88 * 60)
+
 if __name__ == '__main__':
     unittest.main()
