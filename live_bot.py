@@ -167,6 +167,7 @@ class LiveCryptoBot:
         
         # Anti-Churn Loss Cooldown & Same-Candle Tracker
         self.symbol_loss_cooldowns: Dict[str, datetime] = {}
+        self.symbol_consecutive_losses: Dict[str, int] = {}
         self.symbol_last_entry_candle: Dict[str, int] = {}
         self.cooldown_minutes: int = self.timeframe_profile.get("cooldown_minutes", 45)
         
@@ -227,6 +228,7 @@ class LiveCryptoBot:
         self.open_positions = {}
         # Preserve self.closed_trades and optimization_logs intact
         self.symbol_loss_cooldowns = {}
+        self.symbol_consecutive_losses = {}
         self.symbol_last_entry_candle = {}
         self.circuit_breaker_until = None
         self.save_state()
@@ -354,7 +356,7 @@ class LiveCryptoBot:
                 if state.get("last_monthly_opt"):
                     self.last_monthly_optimization_time = datetime.strptime(state["last_monthly_opt"], "%Y-%m-%d %H:%M:%S")
                 
-                # Load persistent symbol loss cooldowns
+                # Load persistent symbol loss cooldowns and loss counts
                 if state.get("symbol_loss_cooldowns"):
                     now = ph_now()
                     for sym, dt_str in state["symbol_loss_cooldowns"].items():
@@ -364,6 +366,8 @@ class LiveCryptoBot:
                                 self.symbol_loss_cooldowns[sym] = exp_dt
                         except Exception:
                             pass
+                if state.get("symbol_consecutive_losses"):
+                    self.symbol_consecutive_losses = state["symbol_consecutive_losses"]
 
                 # Load circuit breaker status
                 if state.get("circuit_breaker_until"):
@@ -408,6 +412,9 @@ class LiveCryptoBot:
                     sym: dt.strftime("%Y-%m-%d %H:%M:%S")
                     for sym, dt in self.symbol_loss_cooldowns.items()
                     if dt > ph_now()
+                },
+                "symbol_consecutive_losses": {
+                    sym: count for sym, count in self.symbol_consecutive_losses.items() if count > 0
                 },
                 "circuit_breaker_until": self.circuit_breaker_until.strftime("%Y-%m-%d %H:%M:%S") if self.circuit_breaker_until and self.circuit_breaker_until > ph_now() else None,
                 "optimization_logs": self.optimization_logs[-20:],
@@ -732,24 +739,26 @@ class LiveCryptoBot:
                 closed_symbols.append(sym)
                 continue
 
-            # LAYER 2: Automated Breakeven Defense Activation at +1.8R
-            if mfe >= 1.8 and not pos.get('is_breakeven_protected'):
+            # LAYER 2: Automated Breakeven Defense Activation at +1.2R
+            if mfe >= 1.2 and not pos.get('is_breakeven_protected'):
                 be_price = round(entry_price + (0.08 * risk_dist) if is_long else entry_price - (0.08 * risk_dist), 6 if entry_price < 1 else 2)
                 pos['sl_price'] = be_price
                 pos['is_breakeven'] = True
                 pos['is_breakeven_protected'] = True
                 pos['exit_status'] = "Breakeven Protected 🛡️"
-                print(f"[LiveBot:ExitEngine] {sym} reached +1.8R MFE! Activated Breakeven Defense. SL adjusted to ${be_price} (Risk eliminated).")
+                print(f"[LiveBot:ExitEngine] {sym} reached +1.2R MFE! Activated Breakeven Defense. SL adjusted to ${be_price} (Risk eliminated).")
 
-            # LAYER 3: Dynamic ATR Trailing Stop Activation at +2.2R
-            if mfe >= 2.2:
+            # LAYER 3: Dynamic ATR Trailing Stop & Profit Locking Activation at +2.0R
+            if mfe >= 2.0:
                 pos['is_trailing'] = True
                 pos['exit_status'] = "Trailing Active ⚡"
+                lock_price = round(entry_price + (1.2 * risk_dist) if is_long else entry_price - (1.2 * risk_dist), 6 if entry_price < 1 else 2)
                 trail_sl = round(curr_price - (1.2 * atr) if is_long else curr_price + (1.2 * atr), 6 if entry_price < 1 else 2)
-                if is_long and trail_sl > pos['sl_price']:
-                    pos['sl_price'] = trail_sl
-                elif not is_long and trail_sl < pos['sl_price']:
-                    pos['sl_price'] = trail_sl
+                best_sl = max(lock_price, trail_sl) if is_long else min(lock_price, trail_sl)
+                if is_long and best_sl > pos['sl_price']:
+                    pos['sl_price'] = best_sl
+                elif not is_long and best_sl < pos['sl_price']:
+                    pos['sl_price'] = best_sl
 
             # LAYER 4: Dynamic Unlimited Profit Runner Mode at >= +2.5R
             if mfe >= 2.5:
@@ -1154,23 +1163,36 @@ class LiveCryptoBot:
         if symbol in self.open_positions:
             del self.open_positions[symbol]
 
-        # Enforce Anti-Churn Quarantine on losing symbols (Timeframe-aware, min 45m)
+        # Enforce Anti-Churn Quarantine on losing symbols with escalating penalties
         if outcome == "LOSS" or net_r < 0:
-            pos_tf = pos.get('timeframe', self.timeframe)
-            tf_prof = TIMEFRAME_PROFILES.get(pos_tf, getattr(self, 'timeframe_profile', TIMEFRAME_PROFILES["15m"]))
-            cooldown_mins = tf_prof.get("cooldown_minutes", self.cooldown_minutes)
-            self.symbol_loss_cooldowns[symbol] = ph_now() + timedelta(minutes=max(45, cooldown_mins))
+            loss_count = self.symbol_consecutive_losses.get(symbol, 0) + 1
+            self.symbol_consecutive_losses[symbol] = loss_count
 
-            # Portfolio-level circuit breaker (2 consecutive losses -> 30 min cooling pause)
+            if loss_count >= 2:
+                # 2+ Consecutive Losses on this symbol -> 24-hour quarantine lockout
+                self.symbol_loss_cooldowns[symbol] = ph_now() + timedelta(hours=24)
+                print(f"[LiveBot:SymbolLockout] [!] {loss_count} consecutive losses on {symbol}. Enforcing 24-hour lockout quarantine.")
+            else:
+                # 1st Loss on this symbol -> 4-hour cooldown
+                self.symbol_loss_cooldowns[symbol] = ph_now() + timedelta(hours=4)
+                print(f"[LiveBot:SymbolCooldown] Loss on {symbol}. Enforcing 4-hour cooldown.")
+
+            # Portfolio-level circuit breaker (3 consecutive losses -> 2-hour cooling pause; 2 losses -> 30 min)
             recent_losses = 0
-            for t in reversed(self.closed_trades[-5:]):
+            for t in reversed(self.closed_trades[-6:]):
                 if t.get('outcome') == 'LOSS' or t.get('net_r', 0) < 0:
                     recent_losses += 1
                 else:
                     break
-            if recent_losses >= 2:
+            if recent_losses >= 3:
+                self.circuit_breaker_until = ph_now() + timedelta(hours=2)
+                print(f"[LiveBot:CircuitBreaker] [!] {recent_losses} consecutive losses detected across portfolio. Activating 2-hour cooling pause.")
+            elif recent_losses == 2:
                 self.circuit_breaker_until = ph_now() + timedelta(minutes=30)
-                print(f"[LiveBot:CircuitBreaker] [!] {recent_losses} consecutive losses detected across portfolio. Activating 30-minute cooling pause.")
+                print(f"[LiveBot:CircuitBreaker] [!] 2 consecutive losses detected across portfolio. Activating 30-minute cooling pause.")
+        elif outcome in ["WIN", "TRAILING_STOP_WIN"] or net_r > 0:
+            # Reset symbol consecutive loss counter upon profitable exit
+            self.symbol_consecutive_losses[symbol] = 0
 
         try:
             self.db.save_trade(closed_record)

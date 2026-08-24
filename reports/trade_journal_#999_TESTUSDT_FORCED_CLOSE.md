@@ -1,10 +1,10 @@
 # Trade Record & Post-Mortem Diagnostic #999: TESTUSDT (LONG)
-*Closed on: 2026-08-23 19:48:12*
+*Closed on: 2026-08-24 21:08:18*
 
 ## 1. Trade Execution Summary
 - **Outcome**: `FORCED CLOSE`
 - **Realized PnL**: `$+0.92 USD` (+0.92 R)
-- **Resulting Account Balance**: `$128.18 USD`
+- **Resulting Account Balance**: `$118.27 USD`
 - **Entry Price**: `$1.0` | **Exit Price**: `$1.1`
 - **Stop Loss**: `$0.9` | **Take Profit**: `$1.2` (1:2.0 RR)
 - **Position Size**: `1.0 units` (Notional Value: `$0.00`)

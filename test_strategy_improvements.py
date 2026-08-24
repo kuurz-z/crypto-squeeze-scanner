@@ -285,5 +285,113 @@ class TestStrategyImprovements(unittest.TestCase):
             delta=2
         )
 
+    def test_calculate_hurst_exponent(self):
+        """Verify Hurst Exponent correctly distinguishes between strong trending and mean-reverting series."""
+        from strategies import calculate_hurst_exponent
+        np.random.seed(42)
+        # Strong persistent positive drift trend
+        trending = np.cumsum(np.random.normal(0.5, 0.2, 100))
+        h_trend = calculate_hurst_exponent(trending)
+        self.assertGreater(h_trend, 0.50)
+
+        # Strongly oscillating mean-reverting series (sine wave)
+        sine = 100 + 10 * np.sin(np.linspace(0, 20 * np.pi, 100))
+        h_mean_rev = calculate_hurst_exponent(sine)
+        self.assertLess(h_mean_rev, 0.50)
+
+    def test_escalating_symbol_loss_lockout(self):
+        """Verify that 1st loss sets 4h cooldown and 2nd loss sets 24h lockout."""
+        sym = "ZECUSDT"
+        
+        # Trade 1: Loss
+        self.bot.open_positions[sym] = {
+            "trade_id": 101,
+            "symbol": sym,
+            "direction": "LONG",
+            "entry_time": 1700000000,
+            "entry_price": 100.0,
+            "sl_price": 95.0,
+            "tp_price": 110.0,
+            "risk_distance": 5.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.0,
+            "bars_held": 1,
+            "pre_trade_context": {"reason": "test"}
+        }
+        asyncio.run(self.bot._close_position(sym, exit_price=95.0, exit_time=1700000060, outcome="LOSS"))
+        
+        self.assertEqual(self.bot.symbol_consecutive_losses[sym], 1)
+        # Should be ~4 hours from now
+        cd_1 = self.bot.symbol_loss_cooldowns[sym]
+        self.assertGreaterEqual((cd_1 - ph_now()).total_seconds(), 3.9 * 3600)
+        self.assertLessEqual((cd_1 - ph_now()).total_seconds(), 4.1 * 3600)
+
+        # Trade 2: Consecutive Loss on same symbol
+        self.bot.open_positions[sym] = {
+            "trade_id": 102,
+            "symbol": sym,
+            "direction": "LONG",
+            "entry_time": 1700000100,
+            "entry_price": 95.0,
+            "sl_price": 90.0,
+            "tp_price": 105.0,
+            "risk_distance": 5.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.0,
+            "bars_held": 1,
+            "pre_trade_context": {"reason": "test"}
+        }
+        asyncio.run(self.bot._close_position(sym, exit_price=90.0, exit_time=1700000200, outcome="LOSS"))
+        
+        self.assertEqual(self.bot.symbol_consecutive_losses[sym], 2)
+        # Should now be ~24 hours lockout
+        cd_2 = self.bot.symbol_loss_cooldowns[sym]
+        self.assertGreaterEqual((cd_2 - ph_now()).total_seconds(), 23.9 * 3600)
+        self.assertLessEqual((cd_2 - ph_now()).total_seconds(), 24.1 * 3600)
+
+    def test_breakeven_activation_at_1_2r_mfe(self):
+        """Verify that Breakeven defense activates when trade reaches +1.2R MFE."""
+        candle_ts = 1700000000
+        self.bot.open_positions["RUNNER"] = {
+            "trade_id": 200,
+            "symbol": "RUNNER",
+            "direction": "LONG",
+            "entry_time": candle_ts,
+            "entry_candle_time": candle_ts,
+            "entry_price": 100.0,
+            "current_price": 100.0,
+            "highest_since_entry": 100.0,
+            "lowest_since_entry": 100.0,
+            "sl_price": 95.0, # risk_dist = 5.0
+            "tp_price": 112.5,
+            "risk_distance": 5.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 2.5,
+            "bars_held": 2,
+            "is_breakeven_protected": False,
+            "pre_trade_context": {}
+        }
+
+        # Simulate price moving to 106.5 (+1.3R MFE)
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        df_runner = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [100.0] * 59 + [104.0],
+            "high": [102.0] * 59 + [106.5],  # +6.5 / 5.0 = 1.3R MFE
+            "low": [99.0] * 59 + [103.5],
+            "close": [101.0] * 59 + [106.0],
+            "volume": [1000.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [55.0] * 60,
+            "momentum": [1.0] * 60,
+            "rvol": [1.2] * 60
+        })
+
+        asyncio.run(self.bot._update_open_positions({"RUNNER": df_runner}))
+        pos = self.bot.open_positions["RUNNER"]
+        self.assertTrue(pos.get("is_breakeven_protected"))
+        # Stop loss moved up to entry + fees (100.0 + 0.08 * 5.0 = 100.4)
+        self.assertGreaterEqual(pos["sl_price"], 100.0)
+
 if __name__ == '__main__':
     unittest.main()
