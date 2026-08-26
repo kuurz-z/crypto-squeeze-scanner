@@ -63,4 +63,28 @@ html.dark .selected-row {
   filter: drop-shadow(0 0 3px rgba(251, 191, 36, 0.6));
 }
 
+/* Table Stability & Anti-Jitter Rules */
+table.table-fixed {
+  table-layout: fixed;
+}
 
+table.table-fixed th,
+table.table-fixed td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#scanner-tbody tr {
+  height: 41px;
+  contain: layout style;
+}
+
+.table-fade-update {
+  animation: tableFade 0.2s ease-out;
+}
+
+@keyframes tableFade {
+  0% { opacity: 0.85; }
+  100% { opacity: 1; }
+}

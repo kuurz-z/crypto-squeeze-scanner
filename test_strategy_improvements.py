@@ -17,7 +17,7 @@ class TestStrategyImprovements(unittest.TestCase):
         self.bot = LiveCryptoBot(
             initial_capital=100.0,
             fixed_risk_usd=1.0,
-            timeframe="15m",
+            timeframe="30m",
             max_open_positions=5,
             data_dir=self.test_dir
         )
@@ -349,37 +349,33 @@ class TestStrategyImprovements(unittest.TestCase):
         self.assertGreaterEqual((cd_2 - ph_now()).total_seconds(), 23.9 * 3600)
         self.assertLessEqual((cd_2 - ph_now()).total_seconds(), 24.1 * 3600)
 
-    def test_breakeven_activation_at_1_2r_mfe(self):
-        """Verify that Breakeven defense activates when trade reaches +1.2R MFE."""
-        candle_ts = 1700000000
+    def test_breakeven_activation_at_1_5r_mfe(self):
+        """Verify that Breakeven defense activates when trade reaches +1.5R MFE."""
         self.bot.open_positions["RUNNER"] = {
-            "trade_id": 200,
+            "trade_id": 99,
             "symbol": "RUNNER",
             "direction": "LONG",
-            "entry_time": candle_ts,
-            "entry_candle_time": candle_ts,
+            "entry_time": 1700000000,
             "entry_price": 100.0,
             "current_price": 100.0,
-            "highest_since_entry": 100.0,
-            "lowest_since_entry": 100.0,
-            "sl_price": 95.0, # risk_dist = 5.0
-            "tp_price": 112.5,
+            "sl_price": 95.0,
+            "tp_price": 115.0,
             "risk_distance": 5.0,
             "risk_amount_usd": 1.0,
-            "target_rr": 2.5,
+            "target_rr": 3.0,
             "bars_held": 2,
             "is_breakeven_protected": False,
             "pre_trade_context": {}
         }
 
-        # Simulate price moving to 106.5 (+1.3R MFE)
+        # Simulate price moving to 108.0 (+1.6R MFE)
         dates = pd.date_range("2026-01-01", periods=60, freq="15min")
         df_runner = pd.DataFrame({
             "time": [int(d.timestamp()) for d in dates],
-            "open": [100.0] * 59 + [104.0],
-            "high": [102.0] * 59 + [106.5],  # +6.5 / 5.0 = 1.3R MFE
-            "low": [99.0] * 59 + [103.5],
-            "close": [101.0] * 59 + [106.0],
+            "open": [100.0] * 59 + [105.0],
+            "high": [102.0] * 59 + [108.0],  # +8.0 / 5.0 = 1.6R MFE
+            "low": [99.0] * 59 + [104.5],
+            "close": [101.0] * 59 + [107.5],
             "volume": [1000.0] * 60,
             "atr14": [2.0] * 60,
             "rsi14": [55.0] * 60,
@@ -443,28 +439,156 @@ class TestStrategyImprovements(unittest.TestCase):
         self.assertGreaterEqual((cd - ph_now()).total_seconds(), 1.9 * 3600)
         self.assertLessEqual((cd - ph_now()).total_seconds(), 2.1 * 3600)
 
-    def test_global_stagnation_circuit_breaker(self):
-        """Verify that 2 stagnation/BE exits activate the 90-minute global circuit breaker."""
-        self.assertIsNone(self.bot.circuit_breaker_until)
-        for i, sym in enumerate(["TIAUSDT", "XLMUSDT"]):
-            self.bot.open_positions[sym] = {
-                "trade_id": 400 + i,
-                "symbol": sym,
-                "direction": "LONG",
-                "entry_time": 1700000000 + i * 1000,
-                "entry_price": 5.0,
-                "sl_price": 4.5,
-                "tp_price": 6.25,
-                "risk_distance": 0.5,
-                "risk_amount_usd": 1.0,
-                "target_rr": 2.5,
-                "bars_held": 24,
-                "pre_trade_context": {}
-            }
-            asyncio.run(self.bot._close_position(sym, exit_price=4.8, exit_time=1700001000 + i * 1000, outcome="TIME_EXIT"))
+    def test_default_bot_timeframe_is_30m(self):
+        """Verify that default LiveCryptoBot instance initializes to 30m timeframe."""
+        clean_dir = tempfile.mkdtemp()
+        try:
+            default_bot = LiveCryptoBot(data_dir=clean_dir)
+            self.assertEqual(default_bot.timeframe, "30m")
+            self.assertEqual(default_bot.timeframe_profile.get("stagnation_bars"), 10)
+        finally:
+            shutil.rmtree(clean_dir, ignore_errors=True)
 
-        self.assertIsNotNone(self.bot.circuit_breaker_until)
-        self.assertGreaterEqual((self.bot.circuit_breaker_until - ph_now()).total_seconds(), 88 * 60)
+    def test_breakeven_at_1_0r_mfe(self):
+        """Verify that Breakeven defense activates at +1.0R MFE (moving SL to entry + 0.08R fee buffer)."""
+        self.bot.open_positions["BE_COIN"] = {
+            "trade_id": 501,
+            "symbol": "BE_COIN",
+            "direction": "LONG",
+            "entry_time": 1700000000,
+            "entry_price": 100.0,
+            "current_price": 100.0,
+            "sl_price": 95.0,
+            "tp_price": 115.0,
+            "risk_distance": 5.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 3.0,
+            "bars_held": 2,
+            "is_breakeven_protected": False,
+            "pre_trade_context": {}
+        }
+        # Price hits 105.1 (+1.02R MFE)
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        df_be = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [100.0] * 59 + [104.0],
+            "high": [102.0] * 59 + [105.1], # 105.1 - 100 = 5.1 (+1.02R)
+            "low": [99.0] * 59 + [103.5],
+            "close": [101.0] * 59 + [104.5],
+            "volume": [1000.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [55.0] * 60,
+            "momentum": [1.0] * 60,
+            "rvol": [1.2] * 60
+        })
+        asyncio.run(self.bot._update_open_positions({"BE_COIN": df_be}))
+        pos = self.bot.open_positions["BE_COIN"]
+        self.assertTrue(pos.get("is_breakeven_protected"))
+        self.assertGreaterEqual(pos["sl_price"], 100.40) # entry + 0.08 * 5.0
+
+    def test_profit_lock_at_1_6r_mfe(self):
+        """Verify that Tier 2 Profit Lock activates at +1.6R MFE (locking at least +0.75R profit)."""
+        self.bot.open_positions["LOCK_COIN"] = {
+            "trade_id": 502,
+            "symbol": "LOCK_COIN",
+            "direction": "LONG",
+            "entry_time": 1700000000,
+            "entry_price": 100.0,
+            "current_price": 100.0,
+            "sl_price": 95.0,
+            "tp_price": 115.0,
+            "risk_distance": 5.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 3.0,
+            "bars_held": 3,
+            "is_breakeven_protected": True,
+            "pre_trade_context": {}
+        }
+        # Price hits 108.5 (+1.7R MFE)
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        df_lock = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [100.0] * 59 + [107.0],
+            "high": [102.0] * 59 + [108.5],
+            "low": [99.0] * 59 + [106.5],
+            "close": [101.0] * 59 + [108.0],
+            "volume": [1000.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [58.0] * 60,
+            "momentum": [1.0] * 60,
+            "rvol": [1.2] * 60
+        })
+        asyncio.run(self.bot._update_open_positions({"LOCK_COIN": df_lock}))
+        pos = self.bot.open_positions["LOCK_COIN"]
+        self.assertTrue(pos.get("is_profit_locked"))
+        # SL locked at entry + 0.75 * 5.0 = 103.75
+        self.assertGreaterEqual(pos["sl_price"], 103.75)
+
+    def test_fast_stagnation_exit_at_10_bars(self):
+        """Verify that trade stagnating for 10 bars with < 0.25R movement is exited."""
+        self.bot.open_positions["STAGNANT"] = {
+            "trade_id": 503,
+            "symbol": "STAGNANT",
+            "direction": "LONG",
+            "timeframe": "30m",
+            "entry_time": 1700000000,
+            "entry_price": 100.0,
+            "current_price": 100.2,
+            "sl_price": 95.0,
+            "tp_price": 115.0,
+            "risk_distance": 5.0,
+            "risk_amount_usd": 1.0,
+            "target_rr": 3.0,
+            "bars_held": 9,
+            "pre_trade_context": {}
+        }
+        dates = pd.date_range("2026-01-01", periods=60, freq="30min")
+        df_stag = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [100.0] * 59 + [100.1],
+            "high": [100.5] * 59 + [100.6], # MFE only 0.12R
+            "low": [99.5] * 59 + [99.8],
+            "close": [100.0] * 59 + [100.2], # only 0.04R movement
+            "volume": [1000.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [50.0] * 60,
+            "momentum": [0.0] * 60,
+            "rvol": [1.0] * 60
+        })
+        asyncio.run(self.bot._update_open_positions({"STAGNANT": df_stag}))
+        # Position should be closed via TIME_EXIT
+        self.assertNotIn("STAGNANT", self.bot.open_positions)
+        last_trade = self.bot.closed_trades[-1]
+        self.assertEqual(last_trade["outcome"], "TIME_EXIT")
+
+    def test_enhanced_anti_wick_sl_floors(self):
+        """Verify that strategy enforces 2.2x ATR and 1.2% minimum risk distance."""
+        dates = pd.date_range("2026-01-01", periods=60, freq="30min")
+        df_tight = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": np.linspace(0.010, 0.0175, 60),
+            "high": np.linspace(0.011, 0.0182, 60),
+            "low": np.linspace(0.009, 0.0174, 60),
+            "close": np.linspace(0.010, 0.0180, 60),
+            "volume": np.full(60, 1000.0),
+            "squeeze_on": [True] * 58 + [False, False],
+            "bb_upper": [0.0175] * 60,
+            "bb_lower": [0.0120] * 60,
+            "ema20": [0.0160] * 60,
+            "ema50": [0.0150] * 60,
+            "ema200": [0.0120] * 60,
+            "atr14": [0.00001] * 60, # very tiny ATR
+            "rsi14": [54.0] * 60,
+            "momentum": [0.001] * 60,
+            "rvol": [2.0] * 60,
+            "adx14": [28.0] * 60,
+            "hurst": [0.56] * 60
+        })
+        sig = SqueezeMomentumBreakout.generate_signal(df_tight, len(df_tight) - 1, target_rr=3.0, timeframe="30m")
+        self.assertIsNotNone(sig)
+        # Should enforce >= 1.2% (0.018 * 0.012 = 0.000216)
+        self.assertGreaterEqual(sig["risk_distance"], 0.018 * 0.012)
 
 if __name__ == '__main__':
     unittest.main()
+

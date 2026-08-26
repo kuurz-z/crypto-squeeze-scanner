@@ -56,6 +56,23 @@ def calculate_hurst_exponent(
     except Exception:
         return 0.5
 
+def format_price_precision(price: float) -> float:
+    """
+    Format price with dynamic precision based on magnitude to avoid precision collapse on micro tokens:
+      - price >= 1.0: 2 decimals (e.g. 64230.50, 142.25)
+      - 0.01 <= price < 1.0: 4 decimals (e.g. 0.1425)
+      - 0.0001 <= price < 0.01: 6 decimals (e.g. 0.006250)
+      - price < 0.0001: 8 decimals (e.g. 0.00003250)
+    """
+    if price >= 1.0:
+        return round(price, 2)
+    elif price >= 0.01:
+        return round(price, 4)
+    elif price >= 0.0001:
+        return round(price, 6)
+    else:
+        return round(price, 8)
+
 def compute_crypto_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Calculate comprehensive technical indicators for crypto strategy analysis."""
     df = df.copy()
@@ -294,7 +311,7 @@ class SqueezeMomentumBreakout(StrategyBase):
     def generate_signal(
         df: pd.DataFrame, 
         idx: int, 
-        target_rr: float = 2.2,
+        target_rr: float = 3.0,
         params: Optional[Dict[str, Any]] = None,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None,
         timeframe: str = "15m"
@@ -306,15 +323,15 @@ class SqueezeMomentumBreakout(StrategyBase):
             return None
 
         p = params or {}
-        rvol_min = p.get("rvol_min", 1.10)
-        atr_sl_mult = p.get("atr_sl_mult", 1.60)
+        rvol_min = p.get("rvol_min", 1.20)
+        atr_sl_mult = p.get("atr_sl_mult", 2.20)
         rsi_min_long = p.get("rsi_min_long", 44.0)
         rsi_max_long = p.get("rsi_max_long", 64.0)
         rsi_min_short = p.get("rsi_min_short", 36.0)
         rsi_max_short = p.get("rsi_max_short", 56.0)
         min_body_ratio = p.get("min_body_ratio", 0.25)
         max_wick_ratio = p.get("max_wick_ratio", 0.40)
-        min_risk_dist_pct = p.get("min_risk_dist_pct", 0.008)
+        min_risk_dist_pct = p.get("min_risk_dist_pct", 0.012)
 
         curr = df.iloc[idx]
         
@@ -341,9 +358,9 @@ class SqueezeMomentumBreakout(StrategyBase):
         if atr <= 0:
             return None
 
-        # Regime Gating: Reject trades in strongly mean-reverting chop (H < 0.45) or dead trendless markets (ADX < 18)
-        adx_min = p.get("adx_min", 18.0)
-        if hurst < 0.45 or adx < adx_min:
+        # Regime Gating: Reject trades in strongly mean-reverting chop (H < 0.48) or dead trendless markets (ADX < 22)
+        adx_min = p.get("adx_min", 22.0)
+        if hurst < 0.48 or adx < adx_min:
             return None
 
         total_range = max(high - low, 1e-6)
@@ -395,9 +412,9 @@ class SqueezeMomentumBreakout(StrategyBase):
                     "strategy": "Squeeze_Momentum_Breakout",
                     "direction": "LONG",
                     "timeframe": timeframe,
-                    "entry_price": close,
-                    "sl_price": round(sl_price, 6 if close < 1 else 2),
-                    "tp_price": round(tp_price, 6 if close < 1 else 2),
+                    "entry_price": format_price_precision(close),
+                    "sl_price": format_price_precision(sl_price),
+                    "tp_price": format_price_precision(tp_price),
                     "risk_distance": risk_dist,
                     "target_rr": target_rr,
                     "pre_trade_context": {
@@ -458,9 +475,9 @@ class SqueezeMomentumBreakout(StrategyBase):
                     "strategy": "Squeeze_Momentum_Breakout",
                     "direction": "SHORT",
                     "timeframe": timeframe,
-                    "entry_price": close,
-                    "sl_price": round(sl_price, 6 if close < 1 else 2),
-                    "tp_price": round(tp_price, 6 if close < 1 else 2),
+                    "entry_price": format_price_precision(close),
+                    "sl_price": format_price_precision(sl_price),
+                    "tp_price": format_price_precision(tp_price),
                     "risk_distance": risk_dist,
                     "target_rr": target_rr,
                     "pre_trade_context": {
@@ -489,7 +506,7 @@ class LiquiditySweepReversal(StrategyBase):
     def generate_signal(
         df: pd.DataFrame, 
         idx: int, 
-        target_rr: float = 2.0,
+        target_rr: float = 3.0,
         params: Optional[Dict[str, Any]] = None,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None,
         timeframe: str = "15m"
@@ -501,8 +518,8 @@ class LiquiditySweepReversal(StrategyBase):
             return None
 
         p = params or {}
-        rvol_min = p.get("rvol_min", 1.05)
-        min_risk_dist_pct = p.get("min_risk_dist_pct", 0.008)
+        rvol_min = p.get("rvol_min", 1.10)
+        min_risk_dist_pct = p.get("min_risk_dist_pct", 0.012)
 
         curr = df.iloc[idx]
         close = float(curr['close'])
@@ -542,7 +559,7 @@ class LiquiditySweepReversal(StrategyBase):
             lower_wick = min(open_p, close) - low
             body = abs(close - open_p)
             if lower_wick >= 0.8 * (body + 1e-6) and rvol >= rvol_min:  # Valid rejection wick
-                risk_dist = max(atr * 1.2, (close - low) * 1.15, close * min_risk_dist_pct)
+                risk_dist = max(atr * 1.5, (close - low) * 1.20, close * min_risk_dist_pct)
                 entry_price = close
                 sl_price = entry_price - risk_dist
                 tp_price = entry_price + (target_rr * risk_dist)
@@ -551,9 +568,9 @@ class LiquiditySweepReversal(StrategyBase):
                     "strategy": "Liquidity_Sweep_Reversal",
                     "direction": "LONG",
                     "timeframe": timeframe,
-                    "entry_price": entry_price,
-                    "sl_price": round(sl_price, 6 if close < 1 else 2),
-                    "tp_price": round(tp_price, 6 if close < 1 else 2),
+                    "entry_price": format_price_precision(entry_price),
+                    "sl_price": format_price_precision(sl_price),
+                    "tp_price": format_price_precision(tp_price),
                     "risk_distance": risk_dist,
                     "target_rr": target_rr,
                     "pre_trade_context": {
@@ -592,7 +609,7 @@ class LiquiditySweepReversal(StrategyBase):
             upper_wick = high - max(open_p, close)
             body = abs(close - open_p)
             if upper_wick >= 0.8 * (body + 1e-6) and rvol >= rvol_min:  # Valid rejection wick
-                risk_dist = max(atr * 1.2, (high - close) * 1.15, close * min_risk_dist_pct)
+                risk_dist = max(atr * 1.5, (high - close) * 1.20, close * min_risk_dist_pct)
                 entry_price = close
                 sl_price = entry_price + risk_dist
                 tp_price = entry_price - (target_rr * risk_dist)
@@ -601,9 +618,9 @@ class LiquiditySweepReversal(StrategyBase):
                     "strategy": "Liquidity_Sweep_Reversal",
                     "direction": "SHORT",
                     "timeframe": timeframe,
-                    "entry_price": entry_price,
-                    "sl_price": round(sl_price, 6 if close < 1 else 2),
-                    "tp_price": round(tp_price, 6 if close < 1 else 2),
+                    "entry_price": format_price_precision(entry_price),
+                    "sl_price": format_price_precision(sl_price),
+                    "tp_price": format_price_precision(tp_price),
                     "risk_distance": risk_dist,
                     "target_rr": target_rr,
                     "pre_trade_context": {
@@ -622,13 +639,13 @@ class LiquiditySweepReversal(StrategyBase):
 
 class TrendPullbackConfluence(StrategyBase):
     name = "Trend_Pullback_Confluence"
-    description = "Enters on high-probability pullbacks to EMA20/EMA50 value zones within established higher-timeframe trends with 1:2.5+ RR and 1.8x ATR protection."
+    description = "Enters on high-probability pullbacks to EMA20/EMA50 value zones within established higher-timeframe trends with 1:3.0+ RR and 2.2x ATR protection."
 
     @staticmethod
     def generate_signal(
         df: pd.DataFrame, 
         idx: int, 
-        target_rr: float = 2.5,
+        target_rr: float = 3.0,
         params: Optional[Dict[str, Any]] = None,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None,
         timeframe: str = "15m"
@@ -640,12 +657,12 @@ class TrendPullbackConfluence(StrategyBase):
             return None
 
         p = params or {}
-        min_risk_dist_pct = p.get("min_risk_dist_pct", 0.008)
-        atr_sl_mult = p.get("atr_sl_mult", 1.80)
-        rvol_min = p.get("rvol_min", 1.0)
+        min_risk_dist_pct = p.get("min_risk_dist_pct", 0.012)
+        atr_sl_mult = p.get("atr_sl_mult", 2.20)
+        rvol_min = p.get("rvol_min", 1.15)
         rsi_min_long = p.get("rsi_min_long", 38.0)
-        rsi_max_long = p.get("rsi_max_long", 56.0)
-        rsi_min_short = p.get("rsi_min_short", 44.0)
+        rsi_max_long = p.get("rsi_max_long", 58.0)
+        rsi_min_short = p.get("rsi_min_short", 42.0)
         rsi_max_short = p.get("rsi_max_short", 62.0)
 
         if 'ema20' not in df.columns:
@@ -670,8 +687,8 @@ class TrendPullbackConfluence(StrategyBase):
             return None
 
         # Regime Gating: Filter out dead chop / anti-persistent regimes and flat trendless markets
-        adx_min = p.get("adx_min", 20.0)
-        if hurst < 0.45 or adx < adx_min:
+        adx_min = p.get("adx_min", 22.0)
+        if hurst < 0.48 or adx < adx_min:
             return None
 
         # Uptrend Condition: EMA20 > EMA50 > EMA200 and Close > EMA200
@@ -679,7 +696,7 @@ class TrendPullbackConfluence(StrategyBase):
         # Downtrend Condition: EMA20 < EMA50 < EMA200 and Close < EMA200
         downtrend = (ema20 < ema50) and (ema50 < ema200) and (close < ema200)
 
-        # Long: In strong uptrend, price pulled back into EMA20/EMA50 zone, RSI reset (38-56), bullish trigger candle reclaiming EMA20
+        # Long: In strong uptrend, price pulled back into EMA20/EMA50 zone, RSI reset (38-58), bullish trigger candle reclaiming EMA20
         if uptrend and (low <= ema20 * 1.002 or low <= ema50 * 1.002) and (close > open_p) and (close >= ema20 * 0.998) and (rsi_min_long <= rsi <= rsi_max_long) and (rvol >= rvol_min):
             anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
             mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
@@ -709,9 +726,9 @@ class TrendPullbackConfluence(StrategyBase):
                 "strategy": "Trend_Pullback_Confluence",
                 "direction": "LONG",
                 "timeframe": timeframe,
-                "entry_price": entry_price,
-                "sl_price": round(sl_price, 6 if close < 1 else 2),
-                "tp_price": round(tp_price, 6 if close < 1 else 2),
+                "entry_price": format_price_precision(entry_price),
+                "sl_price": format_price_precision(sl_price),
+                "tp_price": format_price_precision(tp_price),
                 "risk_distance": risk_dist,
                 "target_rr": target_rr,
                 "pre_trade_context": {
@@ -727,7 +744,7 @@ class TrendPullbackConfluence(StrategyBase):
                 }
             }
 
-        # Short: In strong downtrend, price pulled back into EMA20/EMA50 zone, RSI reset (44-62), bearish trigger candle reclaiming below EMA20
+        # Short: In strong downtrend, price pulled back into EMA20/EMA50 zone, RSI reset (42-62), bearish trigger candle reclaiming below EMA20
         if downtrend and (high >= ema20 * 0.998 or high >= ema50 * 0.998) and (close < open_p) and (close <= ema20 * 1.002) and (rsi_min_short <= rsi <= rsi_max_short) and (rvol >= rvol_min):
             anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
             mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
@@ -757,9 +774,9 @@ class TrendPullbackConfluence(StrategyBase):
                 "strategy": "Trend_Pullback_Confluence",
                 "direction": "SHORT",
                 "timeframe": timeframe,
-                "entry_price": entry_price,
-                "sl_price": round(sl_price, 6 if close < 1 else 2),
-                "tp_price": round(tp_price, 6 if close < 1 else 2),
+                "entry_price": format_price_precision(entry_price),
+                "sl_price": format_price_precision(sl_price),
+                "tp_price": format_price_precision(tp_price),
                 "risk_distance": risk_dist,
                 "target_rr": target_rr,
                 "pre_trade_context": {

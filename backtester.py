@@ -50,7 +50,7 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
 
 def run_backtest_simulation(
     df: pd.DataFrame, 
-    target_rr: float = 2.0, 
+    target_rr: float = 3.0, 
     fee_pct: float = 0.05,
     slippage_pct: float = 0.02,
     timeframe: str = "1h"

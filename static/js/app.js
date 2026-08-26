@@ -362,7 +362,7 @@ function setupEventListeners() {
       if (!newFilter) return;
       currentFilter = newFilter;
       updateFilterTabStyles(currentFilter);
-      renderScannerTable();
+      renderScannerTable(false);
     });
   });
 
@@ -371,7 +371,7 @@ function setupEventListeners() {
   if (searchInput) {
     searchInput.addEventListener('input', (e) => {
       searchQuery = e.target.value.trim().toUpperCase();
-      renderScannerTable();
+      renderScannerTable(false);
     });
   }
 
@@ -544,7 +544,7 @@ function handleTableSort(column) {
     sortDirection = (column === 'symbol') ? 'asc' : 'desc';
   }
   updateSortIcons();
-  renderScannerTable();
+  renderScannerTable(false);
 }
 
 function updateSortIcons() {
@@ -560,10 +560,13 @@ function updateSortIcons() {
   });
 }
 
-function renderScannerTable() {
+function renderScannerTable(preserveScroll = true) {
   const tbody = document.getElementById('scanner-tbody');
   const badge = document.getElementById('scan-count-badge');
+  const tableContainer = document.getElementById('scanner-table-container');
   if (!tbody) return;
+
+  const savedScrollTop = (preserveScroll && tableContainer) ? tableContainer.scrollTop : 0;
 
   let filtered = scannerData.filter(item => {
     const matchSearch = !searchQuery || item.symbol.toUpperCase().includes(searchQuery);
@@ -635,11 +638,11 @@ function renderScannerTable() {
     // Traffic Light Squeeze Badge
     let squeezeHtml = '';
     if (item.squeeze_stage === 'HIGH_TENSION') {
-      squeezeHtml = `<span class="px-2 py-0.5 rounded text-[10px] bg-orange-500/15 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 border border-orange-400/40 dark:border-orange-500/40 font-bold inline-flex items-center gap-1 shadow-sm" title="Compression Ratio: ${item.compression_ratio}x (High Tension)"><i class="fa-solid fa-fire text-orange-500 text-[9px] animate-pulse"></i> ${item.squeeze_bars}b (${item.compression_ratio}x)</span>`;
+      squeezeHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] bg-orange-500/15 dark:bg-orange-500/20 text-orange-700 dark:text-orange-300 border border-orange-400/40 dark:border-orange-500/40 font-bold inline-flex items-center gap-1 shadow-sm whitespace-nowrap" title="Compression Ratio: ${item.compression_ratio}x (High Tension)"><i class="fa-solid fa-fire text-orange-500 text-[9px] animate-pulse"></i> ${item.squeeze_bars}b (${item.compression_ratio}x)</span>`;
     } else if (item.squeeze_stage === 'COILING' || item.is_squeeze) {
-      squeezeHtml = `<span class="px-2 py-0.5 rounded text-[10px] bg-amber-500/15 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-400/40 dark:border-amber-500/30 font-medium inline-flex items-center gap-1" title="Coiling spring: ${item.squeeze_bars} bars"><i class="fa-solid fa-compress text-[9px]"></i> ${item.squeeze_bars} bars</span>`;
+      squeezeHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/15 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-400/40 dark:border-amber-500/30 font-medium inline-flex items-center gap-1 whitespace-nowrap" title="Coiling spring: ${item.squeeze_bars} bars"><i class="fa-solid fa-compress text-[9px]"></i> ${item.squeeze_bars} bars</span>`;
     } else if (item.squeeze_stage === 'FIRED') {
-      squeezeHtml = `<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-400/40 dark:border-emerald-500/40 font-bold inline-flex items-center gap-1 animate-pulse"><i class="fa-solid fa-bolt text-emerald-500 text-[9px]"></i> Fired</span>`;
+      squeezeHtml = `<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-400/40 dark:border-emerald-500/40 font-bold inline-flex items-center gap-1 animate-pulse whitespace-nowrap"><i class="fa-solid fa-bolt text-emerald-500 text-[9px]"></i> Fired</span>`;
     } else {
       squeezeHtml = `<span class="text-[10px] text-slate-400 dark:text-gray-600">--</span>`;
     }
@@ -648,22 +651,22 @@ function renderScannerTable() {
     let orderFlowHtml = '';
     const bRatio = item.buyer_ratio !== undefined ? item.buyer_ratio : 50.0;
     if (bRatio >= 55.0) {
-      orderFlowHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center gap-1" title="Taker Market Buys: ${bRatio}%"><i class="fa-solid fa-arrow-trend-up text-[8px]"></i> ${bRatio.toFixed(0)}% Buy</span>`;
+      orderFlowHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 inline-flex items-center gap-1 whitespace-nowrap" title="Taker Market Buys: ${bRatio}%"><i class="fa-solid fa-arrow-trend-up text-[8px]"></i> ${bRatio.toFixed(0)}% Buy</span>`;
     } else if (bRatio <= 45.0) {
       const sRatio = (100.0 - bRatio).toFixed(0);
-      orderFlowHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 inline-flex items-center gap-1" title="Taker Market Sells: ${sRatio}%"><i class="fa-solid fa-arrow-trend-down text-[8px]"></i> ${sRatio}% Sell</span>`;
+      orderFlowHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums font-semibold bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 inline-flex items-center gap-1 whitespace-nowrap" title="Taker Market Sells: ${sRatio}%"><i class="fa-solid fa-arrow-trend-down text-[8px]"></i> ${sRatio}% Sell</span>`;
     } else {
-      orderFlowHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono font-medium text-slate-500 dark:text-gray-400 bg-slate-100 dark:bg-gray-800 border border-slate-200 dark:border-gray-700" title="Balanced Flow">${bRatio.toFixed(0)}%</span>`;
+      orderFlowHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono tabular-nums font-medium text-slate-500 dark:text-gray-400 bg-slate-100 dark:bg-gray-800 border border-slate-200 dark:border-gray-700 whitespace-nowrap" title="Balanced Flow">${bRatio.toFixed(0)}%</span>`;
     }
 
     // Signal badge
     let signalHtml = '';
     if (item.signal === 'LONG') {
-      signalHtml = `<span class="px-2 py-0.5 rounded text-[10px] bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-400/40 dark:border-emerald-500/40 font-bold animate-pulse inline-flex items-center gap-1"><i class="fa-solid fa-arrow-trend-up text-[9px]"></i> LONG</span>`;
+      signalHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] bg-emerald-500/15 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-400/40 dark:border-emerald-500/40 font-bold animate-pulse inline-flex items-center gap-1 whitespace-nowrap"><i class="fa-solid fa-arrow-trend-up text-[9px]"></i> LONG</span>`;
     } else if (item.signal === 'SHORT') {
-      signalHtml = `<span class="px-2 py-0.5 rounded text-[10px] bg-rose-500/15 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-400/40 dark:border-rose-500/40 font-bold animate-pulse inline-flex items-center gap-1"><i class="fa-solid fa-arrow-trend-down text-[9px]"></i> SHORT</span>`;
+      signalHtml = `<span class="px-1.5 py-0.5 rounded text-[10px] bg-rose-500/15 dark:bg-rose-500/20 text-rose-700 dark:text-rose-400 border border-rose-400/40 dark:border-rose-500/40 font-bold animate-pulse inline-flex items-center gap-1 whitespace-nowrap"><i class="fa-solid fa-arrow-trend-down text-[9px]"></i> SHORT</span>`;
     } else if (item.recent_signal !== 'NONE') {
-      signalHtml = `<span class="px-1.5 py-0.5 rounded text-[9px] bg-indigo-500/10 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 font-medium inline-flex items-center gap-1"><i class="fa-solid fa-bolt-lightning text-[8px]"></i> ${item.recent_signal}</span>`;
+      signalHtml = `<span class="px-1.5 py-0.5 rounded text-[9px] bg-indigo-500/10 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 font-medium inline-flex items-center gap-1 whitespace-nowrap"><i class="fa-solid fa-bolt-lightning text-[8px]"></i> ${item.recent_signal}</span>`;
     } else {
       signalHtml = `<span class="text-[10px] text-slate-400 dark:text-gray-600">--</span>`;
     }
@@ -673,29 +676,29 @@ function renderScannerTable() {
     const trendIcon = item.trend === 'BULLISH' ? 'fa-arrow-trend-up' : 'fa-arrow-trend-down';
 
     return `
-      <tr class="cursor-pointer hover:bg-slate-50 dark:hover:bg-gray-800/60 ${isSelected}" onclick="onSelectCoin('${item.symbol}')">
-        <td class="py-2.5 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap align-top">
-          <div class="h-5 flex items-center gap-2 leading-5">
-            <button class="favorite-star-btn cursor-pointer p-0.5 focus:outline-none" title="${starTitle}" onclick="toggleFavorite(event, '${item.symbol}')">
+      <tr class="cursor-pointer hover:bg-slate-50 dark:hover:bg-gray-800/60 ${isSelected}" data-symbol="${item.symbol}" onclick="onSelectCoin('${item.symbol}')">
+        <td class="py-2.5 px-3 font-semibold text-slate-900 dark:text-white whitespace-nowrap align-middle truncate">
+          <div class="h-5 flex items-center gap-1.5 leading-5 truncate">
+            <button class="favorite-star-btn cursor-pointer p-0.5 focus:outline-none shrink-0" title="${starTitle}" onclick="toggleFavorite(event, '${item.symbol}')">
               <i class="${starClass} text-xs"></i>
             </button>
-            <i class="fa-brands fa-bitcoin text-indigo-600 dark:text-indigo-400 text-xs"></i>
-            <span>${item.symbol.replace('USDT', '')}</span><span class="text-[10px] text-slate-400 dark:text-gray-500 font-normal">/USDT</span>
+            <i class="fa-brands fa-bitcoin text-indigo-600 dark:text-indigo-400 text-xs shrink-0"></i>
+            <span class="truncate">${item.symbol.replace('USDT', '')}</span><span class="text-[10px] text-slate-400 dark:text-gray-500 font-normal shrink-0">/USDT</span>
           </div>
         </td>
-        <td class="py-2.5 px-2 font-mono font-medium text-slate-800 dark:text-gray-200 whitespace-nowrap align-top">
+        <td class="py-2.5 px-2 font-mono tabular-nums font-medium text-slate-800 dark:text-gray-200 whitespace-nowrap align-middle">
           <div class="h-5 flex items-center leading-5">$${formattedPrice}</div>
         </td>
-        <td class="py-2.5 px-2 text-center whitespace-nowrap align-top">
+        <td class="py-2.5 px-2 text-center whitespace-nowrap align-middle">
           <div class="h-5 flex items-center justify-center leading-5">${squeezeHtml}</div>
         </td>
-        <td class="py-2.5 px-2 text-center whitespace-nowrap align-top">
+        <td class="py-2.5 px-2 text-center whitespace-nowrap align-middle">
           <div class="h-5 flex items-center justify-center leading-5">${orderFlowHtml}</div>
         </td>
-        <td class="py-2.5 px-2 text-center whitespace-nowrap align-top">
+        <td class="py-2.5 px-1 text-center whitespace-nowrap align-middle">
           <div class="h-5 flex items-center justify-center leading-5">${signalHtml}</div>
         </td>
-        <td class="py-2.5 px-2 text-right ${trendColor} text-[11px] font-medium whitespace-nowrap align-top">
+        <td class="py-2.5 px-2 text-right ${trendColor} text-[11px] font-mono tabular-nums font-medium whitespace-nowrap align-middle">
           <div class="h-5 flex items-center justify-end gap-1 leading-5">
             <i class="fa-solid ${trendIcon} text-[10px]"></i> ${item.pct_from_ema200 > 0 ? '+' : ''}${item.pct_from_ema200}%
           </div>
@@ -703,11 +706,23 @@ function renderScannerTable() {
       </tr>
     `;
   }).join('');
+
+  if (preserveScroll && tableContainer) {
+    tableContainer.scrollTop = savedScrollTop;
+  }
+}
+
+function ensureSelectedRowVisible() {
+  const tableContainer = document.getElementById('scanner-table-container');
+  const selectedRow = document.querySelector('#scanner-tbody .selected-row');
+  if (selectedRow && tableContainer) {
+    selectedRow.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }
 }
 
 function onSelectCoin(symbol) {
   currentSymbol = symbol;
-  renderScannerTable();
+  renderScannerTable(true);
   loadSymbolChart(symbol);
   updateActiveSymbolStar();
   

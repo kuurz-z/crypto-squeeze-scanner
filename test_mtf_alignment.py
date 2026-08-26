@@ -28,6 +28,7 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
             max_open_positions=5,
             data_dir=self.test_dir
         )
+        self.bot.active_strategy_name = "Squeeze_Momentum_Breakout"
 
     def tearDown(self):
         try:
@@ -35,7 +36,7 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
         except Exception:
             pass
 
-    def _create_mock_df(self, n=60, close_val=100.0, ema50_val=95.0, rsi_val=60.0, is_bullish=True):
+    def _create_mock_df(self, n=60, close_val=100.0, ema50_val=95.0, rsi_val=55.0, is_bullish=True):
         """Create a mock technical dataframe with customizable trend regime."""
         dates = pd.date_range("2026-01-01", periods=n, freq="15min")
         open_val = close_val - 2.0 if is_bullish else close_val + 2.0
@@ -52,12 +53,15 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
             "squeeze_on": [True] * (n - 2) + [False, False],
             "bb_upper": [close_val - 1.0 if is_bullish else close_val + 10.0] * n,
             "bb_lower": [close_val - 10.0 if is_bullish else close_val + 1.0] * n,
+            "ema20": [close_val - 2.0 if is_bullish else close_val + 2.0] * n,
             "ema50": [ema50_val] * n,
             "ema200": [ema50_val - 10.0 if is_bullish else ema50_val + 10.0] * n,
             "atr14": [2.0] * n,
             "rsi14": [rsi_val] * n,
             "momentum": [1.5 if is_bullish else -1.5] * n,
-            "rvol": [1.8] * n
+            "rvol": [1.8] * n,
+            "adx14": [25.0] * n,
+            "hurst": [0.55] * n
         })
         return df
 
@@ -207,10 +211,10 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
 
     def test_entry_permitted_on_5m_15m_30m_and_triple(self):
         """Verify that trade entries are permitted on 5m, 15m, 30m, and triple concurrent mode."""
-        df_bullish = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=60.0, is_bullish=True)
-        df_30m = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=58.0, is_bullish=True)
-        df_1h = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=58.0, is_bullish=True)
-        df_4h = self._create_mock_df(close_val=100.0, ema50_val=85.0, rsi_val=55.0, is_bullish=True)
+        df_bullish = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=52.0, is_bullish=True)
+        df_30m = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=52.0, is_bullish=True)
+        df_1h = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=52.0, is_bullish=True)
+        df_4h = self._create_mock_df(close_val=100.0, ema50_val=85.0, rsi_val=52.0, is_bullish=True)
         
         # Populate MTF data
         self.bot.mtf_data["BTCUSDT"] = {"30m": df_30m, "1h": df_1h, "4h": df_4h}

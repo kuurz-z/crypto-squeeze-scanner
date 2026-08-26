@@ -1,9 +1,9 @@
 [
   {
     "month": "2026_08",
-    "crowned_at": "2026-08-24 23:12:41",
+    "crowned_at": "2026-08-26 19:03:33",
     "strategy_name": "Trend_Pullback_Confluence",
-    "timeframe": "15m",
+    "timeframe": "30m",
     "params": {
       "rvol_min": 1.0,
       "atr_sl_mult": 1.8,
@@ -13,10 +13,10 @@
       "rsi_min_short": 44.0,
       "rsi_max_short": 62.0
     },
-    "win_rate_pct": 53.68,
+    "win_rate_pct": 58.9,
     "reproducibility_score": 100.0,
-    "net_expectancy_r": 0.799,
-    "profit_factor": 2.6,
-    "tested_trades": 95
+    "net_expectancy_r": 0.982,
+    "profit_factor": 3.21,
+    "tested_trades": 73
   }
 ]

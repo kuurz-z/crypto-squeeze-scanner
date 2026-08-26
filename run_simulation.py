@@ -21,14 +21,14 @@ from strategy_memory import evaluate_reproducibility, save_strategy_to_catalog
 
 async def main():
     parser = argparse.ArgumentParser(description="Automated Crypto Trading Simulation, Trade Analysis & Strategy Memory Engine")
-    parser.add_argument("--timeframe", type=str, default="15m", help="Candle timeframe (e.g. 5m, 15m, 30m, 1h, 4h)")
+    parser.add_argument("--timeframe", type=str, default="30m", help="Candle timeframe (e.g. 5m, 15m, 30m, 1h, 4h)")
     parser.add_argument("--limit", type=int, default=500, help="Number of candles per symbol (max 1000)")
     parser.add_argument("--num-coins", type=int, default=25, help="Number of top liquid USDT pairs to simulate")
     parser.add_argument("--rr", type=float, default=3.0, help="Target Risk-to-Reward ratio (minimum 3.0)")
     args = parser.parse_args()
 
-    if args.rr < 3.0:
-        print(f"[Error] Target Risk-to-Reward must be at least 1:3 (got {args.rr}). Resetting to 3.0.")
+    if args.rr < 2.0:
+        print(f"[Error] Target Risk-to-Reward must be at least 1:2 (got {args.rr}). Resetting to 3.0.")
         args.rr = 3.0
 
     print(f"\n========================================================")
@@ -69,8 +69,8 @@ async def main():
         for symbol, df in dataset.items():
             train_df, test_df = split_train_test(df, train_ratio=0.7)
             
-            train_res = simulate_strategy_on_dataframe(train_df, strat_cls, target_rr=args.rr)
-            test_res = simulate_strategy_on_dataframe(test_df, strat_cls, target_rr=args.rr)
+            train_res = simulate_strategy_on_dataframe(train_df, strat_cls, target_rr=args.rr, timeframe=args.timeframe)
+            test_res = simulate_strategy_on_dataframe(test_df, strat_cls, target_rr=args.rr, timeframe=args.timeframe)
             
             train_trades_all.extend(train_res.get('trades', []))
             test_trades_all.extend(test_res.get('trades', []))

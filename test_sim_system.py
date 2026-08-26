@@ -33,9 +33,9 @@ class TestCryptoSimulationSystem(unittest.TestCase):
         self.assertIn('rvol', df_ind.columns)
 
     def test_strict_rr_enforcement(self):
-        # Verify that sim engine enforces >= 3.0 RR
+        # Verify that sim engine enforces >= 2.0 RR
         with self.assertRaises(AssertionError):
-            simulate_strategy_on_dataframe(self.df, SqueezeMomentumBreakout, target_rr=2.0)
+            simulate_strategy_on_dataframe(self.df, SqueezeMomentumBreakout, target_rr=1.5)
             
         res = simulate_strategy_on_dataframe(self.df, SqueezeMomentumBreakout, target_rr=3.0)
         self.assertIn('total_trades', res)
@@ -68,6 +68,23 @@ class TestCryptoSimulationSystem(unittest.TestCase):
         res_30m = simulate_strategy_on_dataframe(self.df, SqueezeMomentumBreakout, target_rr=3.0, timeframe="30m")
         self.assertIn('trades', res_15m)
         self.assertIn('trades', res_30m)
+
+    def test_sim_tier4_runner_trailing(self):
+        """Verify that simulation engine models Tier 4 runner mode."""
+        # Create a trending dataset that triggers a signal and extends past 3R
+        n = 100
+        trend_prices = 100.0 + np.linspace(0, 30, n)
+        df_trend = pd.DataFrame({
+            'time': np.arange(1700000000, 1700000000 + n * 900, 900),
+            'open': trend_prices,
+            'high': trend_prices + 1.0,
+            'low': trend_prices - 0.2,
+            'close': trend_prices + 0.8,
+            'volume': [1000.0] * n,
+            'symbol': 'TRENDUSDT'
+        })
+        res = simulate_strategy_on_dataframe(df_trend, SqueezeMomentumBreakout, target_rr=3.0, timeframe="30m")
+        self.assertIn('trades', res)
 
 if __name__ == '__main__':
     unittest.main()

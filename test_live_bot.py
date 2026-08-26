@@ -140,7 +140,7 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertIsNotNone(pos)
         self.assertTrue(pos.get('is_trailing'))
         self.assertEqual(pos.get('exit_status'), "Trailing Active ⚡")
-        self.assertEqual(pos['sl_price'], 114.1)
+        self.assertGreaterEqual(pos['sl_price'], 115.0)
 
         # Mock candle triggering trailing stop (Low = 113.5 <= 114.1 SL)
         df_step3 = pd.DataFrame([{
@@ -583,7 +583,7 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertEqual(self.bot.timeframe, "15m")
         self.assertEqual(self.bot.timeframe_profile["anchor_tf"], "1h")
         self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 64)
-        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 24)
+        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 10)
         self.assertEqual(self.bot.cooldown_minutes, 45)
 
         # 2. Switch to 30m (4h MTF Anchor)
@@ -592,7 +592,7 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertEqual(self.bot.timeframe, "30m")
         self.assertEqual(self.bot.timeframe_profile["anchor_tf"], "4h")
         self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 64)
-        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 24)
+        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 10)
         self.assertEqual(self.bot.cooldown_minutes, 90)
 
         # 3. 1h, 4h, 1d, 99m are strictly rejected

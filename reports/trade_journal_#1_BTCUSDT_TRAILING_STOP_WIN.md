@@ -1,12 +1,12 @@
 # Trade Record & Post-Mortem Diagnostic #1: BTCUSDT (LONG)
-*Closed on: 2026-08-24 23:11:56*
+*Closed on: 2026-08-26 19:02:42*
 
 ## 1. Trade Execution Summary
 - **Outcome**: `LOSS`
-- **Realized PnL**: `$+1.33 USD` (+1.33 R)
-- **Resulting Account Balance**: `$101.33 USD`
-- **Entry Price**: `$100.0` | **Exit Price**: `$114.1`
-- **Stop Loss**: `$114.1` | **Take Profit**: `$125.0` (1:2.5 RR)
+- **Realized PnL**: `$+1.47 USD` (+1.47 R)
+- **Resulting Account Balance**: `$101.47 USD`
+- **Entry Price**: `$100.0` | **Exit Price**: `$115.5`
+- **Stop Loss**: `$115.5` | **Take Profit**: `$125.0` (1:2.5 RR)
 - **Position Size**: `1.0 units` (Notional Value: `$0.00`)
 - **Max Favorable Excursion (MFE)**: `+2.3 R`
 - **Max Adverse Excursion (MAE)**: `-0.0 R`
@@ -22,7 +22,7 @@
 
 ## 3. Post-Trade Root Cause Diagnostic
 - **Diagnostic Classification**: `ATR Trailing Stop Protected Profit`
-- **Summary**: Dynamic trailing stop locked in +1.33R profit as momentum cooled off after peaking at +2.3R MFE.
+- **Summary**: Dynamic trailing stop locked in +1.47R profit as momentum cooled off after peaking at +2.3R MFE.
 - **Key Determining Factors**:
   - Dynamic stop protection prevented giving back gains
   - MFE reached +2.3R before trailing SL secured profit

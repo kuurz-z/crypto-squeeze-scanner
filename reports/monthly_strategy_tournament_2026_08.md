@@ -1,23 +1,23 @@
 # 🏆 End-of-Month Strategy Championship Tournament (2026-08)
-*Generated on: 2026-08-24 23:12:41 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
+*Generated on: 2026-08-26 19:03:33 (Lookback: 1,000 candles on Top 20 Binance Pairs)*
 
 ## 1. 👑 Crowned Monthly Grand Champion
 - **Champion Strategy**: `Trend_Pullback_Confluence`
-- **Timeframe**: `15m`
-- **Win Rate**: `53.68%` (Strict Floor: ≥ 40.0%)
+- **Timeframe**: `30m`
+- **Win Rate**: `58.9%` (Strict Floor: ≥ 40.0%)
 - **Reproducibility Index**: `100.0 / 100`
-- **Net Expectancy**: `+0.799 R / trade`
-- **Profit Factor**: `2.6`
+- **Net Expectancy**: `+0.982 R / trade`
+- **Profit Factor**: `3.21`
 
 ## 2. Multi-Strategy Tournament Leaderboard
 | Rank | Strategy Name | Timeframe | Win Rate % | Reproducibility | Net Expectancy | PF | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| #1 | **Trend_Pullback_Confluence** | `15m` | **53.68%** | `100.0/100` | `+0.799R` | `2.6` | 👑 **MONTHLY CHAMPION** |
-| #2 | **Squeeze_Momentum_Breakout** | `15m` | **53.01%** | `100.0/100` | `+0.51R` | `2.01` | ✅ Qualified |
-| #3 | **Trend_Pullback_Confluence** | `30m` | **51.95%** | `100.0/100` | `+0.738R` | `2.42` | ✅ Qualified |
-| #4 | **Liquidity_Sweep_Reversal** | `15m` | **49.44%** | `96.1/100` | `+0.403R` | `1.74` | ✅ Qualified |
-| #5 | **Trend_Pullback_Confluence** | `5m` | **28.57%** | `67.3/100` | `+-0.223R` | `0.71` | ❌ Rejected (<40% WR) |
-| #6 | **Squeeze_Momentum_Breakout** | `5m` | **27.59%** | `61.3/100` | `+-0.252R` | `0.68` | ❌ Rejected (<40% WR) |
+| #1 | **Trend_Pullback_Confluence** | `30m` | **58.9%** | `100.0/100` | `+0.982R` | `3.21` | 👑 **MONTHLY CHAMPION** |
+| #2 | **Trend_Pullback_Confluence** | `5m` | **50.0%** | `90.7/100` | `+0.42R` | `1.78` | ✅ Qualified |
+| #3 | **Squeeze_Momentum_Breakout** | `15m` | **48.53%** | `95.2/100` | `+0.376R` | `1.68` | ✅ Qualified |
+| #4 | **Liquidity_Sweep_Reversal** | `15m` | **45.83%** | `92.5/100` | `+0.295R` | `1.5` | ✅ Qualified |
+| #5 | **Squeeze_Momentum_Breakout** | `5m` | **45.0%** | `81.8/100` | `+0.27R` | `1.45` | ✅ Qualified |
+| #6 | **Trend_Pullback_Confluence** | `15m` | **41.67%** | `90.8/100` | `+0.378R` | `1.6` | ✅ Qualified |
 
 ## 3. Champion Parameters
 ```json
