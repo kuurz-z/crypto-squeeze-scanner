@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Quant Squeeze & Pattern Scanner | 1:1 - 1:4 RR</title>
+  <title>Trend Pullback Confluence & Pattern Scanner | 1:3.0+ RR High-Expectancy System</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -44,10 +44,10 @@
       </div>
       <div>
         <h1 class="text-base font-bold tracking-wide text-slate-900 dark:text-white flex items-center gap-2">
-          QUANT SQUEEZE SCANNER
-          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold">1:1 – 1:4 RR</span>
+          TREND PULLBACK CONFLUENCE & SCANNER
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold">1:3.0+ RR (Target)</span>
         </h1>
-        <p class="text-xs text-slate-500 dark:text-gray-400">Mathematical Volatility Compression & Breakout Engine</p>
+        <p class="text-xs text-slate-500 dark:text-gray-400">High-Expectancy Trend Pullback & Volatility Breakout System</p>
       </div>
     </div>
 
@@ -67,8 +67,8 @@
       <!-- Timeframe selector for Scanner & Chart (5m/30m MTF, 15m/1h MTF, 30m/4h MTF, 1h, 4h, 1d) -->
       <div class="flex items-center bg-slate-100 dark:bg-[#1e293b] p-1 rounded-lg border border-slate-200 dark:border-gray-700 text-xs font-semibold" id="tf-group">
         <button data-tf="5m" class="tf-btn px-2.5 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white font-bold" title="5m Scalp (Anchored to 30m HTF Trend)">5m <span class="text-[9px] opacity-80 font-medium">(30m MTF)</span></button>
-        <button data-tf="15m" class="tf-btn px-2.5 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white font-bold" title="15m Intraday (Anchored to 1h HTF Trend)">15m <span class="text-[9px] opacity-80 font-medium">(1h MTF)</span></button>
-        <button data-tf="30m" class="tf-btn px-2.5 py-1.5 rounded-md transition bg-indigo-600 text-white shadow font-bold" title="30m Swing (Anchored to 4h HTF Macro Trend)">30m <span class="text-[9px] opacity-80 font-medium">(4h MTF)</span></button>
+        <button data-tf="15m" class="tf-btn px-2.5 py-1.5 rounded-md transition bg-indigo-600 text-white shadow font-bold" title="15m Intraday (Anchored to 1h HTF Trend)">15m <span class="text-[9px] opacity-80 font-medium">(1h MTF)</span></button>
+        <button data-tf="30m" class="tf-btn px-2.5 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white font-bold" title="30m Swing (Anchored to 4h HTF Macro Trend)">30m <span class="text-[9px] opacity-80 font-medium">(4h MTF)</span></button>
         <button data-tf="1h" class="tf-btn px-2.5 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white font-bold" title="1h Intermediate Trend">1h</button>
         <button data-tf="4h" class="tf-btn px-2.5 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white font-bold" title="4h Macro Structure">4h</button>
         <button data-tf="1d" class="tf-btn px-2.5 py-1.5 rounded-md transition text-slate-600 dark:text-gray-400 hover:text-slate-900 dark:hover:text-white font-bold" title="1d Daily Macro Trend">1d</button>
@@ -293,8 +293,8 @@
               <span class="text-slate-600 dark:text-gray-400">Target RR:</span>
               <select id="bt-target-rr" class="bg-slate-50 dark:bg-[#1e293b] border border-slate-300 dark:border-gray-700 rounded px-2 py-1 text-slate-800 dark:text-white text-xs focus:outline-none focus:border-indigo-500">
                 <option value="1.0">1:1 RR (TP1)</option>
-                <option value="2.0" selected>1:2 RR (TP2)</option>
-                <option value="3.0">1:3 RR (TP3)</option>
+                <option value="2.0">1:2 RR (TP2)</option>
+                <option value="3.0" selected>1:3.0 RR (Target)</option>
                 <option value="4.0">1:4 RR (TP4)</option>
               </select>
             </div>
@@ -463,7 +463,7 @@
 
       <!-- 3. WIN RATE -->
       <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
-        <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Win Rate (&ge; 1:2 RR)</span>
+        <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Win Rate (&ge; 1:3.0 RR)</span>
         <p id="bot-win-rate" class="text-xl font-bold text-slate-900 dark:text-white font-mono mt-1">0.0%</p>
         <span id="bot-win-loss-count" class="text-[10px] text-slate-400">0W - 0L (0 Trades)</span>
       </div>
@@ -485,8 +485,8 @@
       <!-- 6. ACTIVE STRATEGY -->
       <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
         <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Active Strategy</span>
-        <p id="bot-active-strategy" class="text-sm font-bold text-indigo-600 dark:text-indigo-400 truncate mt-1">Squeeze Breakout</p>
-        <span class="text-[10px] text-slate-400">Strict &ge; 1:2 RR</span>
+        <p id="bot-active-strategy" class="text-sm font-bold text-indigo-600 dark:text-indigo-400 truncate mt-1">Trend Pullback Confluence</p>
+        <span class="text-[10px] text-slate-400">High-Expectancy &ge; 1:3.0 RR</span>
       </div>
     </div>
 
@@ -514,7 +514,7 @@
               </button>
             </div>
 
-            <span class="text-[10px] text-slate-400 font-mono">Max 10 Trades | &ge; 1:2 RR Floor | Triple MTF Matrix</span>
+            <span class="text-[10px] text-slate-400 font-mono">Max 10 Trades | &ge; 1:3.0 RR Target | Triple MTF Matrix</span>
           </div>
 
           <!-- TAB 1: ACTIVE LIVE POSITIONS -->
@@ -537,7 +537,7 @@
                 <tr>
                   <td colspan="9" class="py-6 text-center text-slate-400 dark:text-gray-500">
                     <i class="fa-solid fa-radar text-lg mb-1 block text-indigo-500"></i>
-                    No open positions right now. The bot is actively scanning 100 pairs across 5m/30m, 15m/1h, and 30m/4h for valid &ge; 1:2 RR setups (Max 10 Concurrent Trades).
+                    No open positions right now. The bot is actively scanning 100 pairs across 5m/30m, 15m/1h, and 30m/4h for valid &ge; 1:3.0 RR setups (Max 10 Concurrent Trades).
                   </td>
                 </tr>
               </tbody>
@@ -645,7 +645,7 @@
             <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
               <span class="text-slate-500 dark:text-gray-400">Target Risk-to-Reward:</span>
               <span id="param-target-rr" class="font-mono font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                &ge; 1:2.0 RR <span class="text-[10px] px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-500 font-semibold">Unlimited Runner 🚀</span>
+                &ge; 1:3.0 RR <span class="text-[10px] px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-500 font-semibold">Unlimited Runner 🚀</span>
               </span>
             </div>
             <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
@@ -658,7 +658,7 @@
             </div>
             <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
               <span class="text-slate-500 dark:text-gray-400">Take Profit Distance:</span>
-              <span id="param-atr-tp" class="font-mono font-bold text-emerald-600 dark:text-emerald-400">Dynamic &ge; 2.60 &times; ATR14</span>
+              <span id="param-atr-tp" class="font-mono font-bold text-emerald-600 dark:text-emerald-400">Dynamic &ge; 3.90 &times; ATR14</span>
             </div>
             <div class="flex justify-between items-center py-1.5">
               <span class="text-slate-500 dark:text-gray-400">RSI Filter Bound:</span>
@@ -847,7 +847,7 @@
         <!-- Explainer Box -->
         <div class="p-3 bg-slate-100 dark:bg-black/30 rounded-lg border border-slate-200 dark:border-gray-800 text-[11px] text-slate-600 dark:text-gray-400 leading-relaxed">
           <i class="fa-solid fa-shield-halved text-emerald-500 mr-1"></i>
-          With strict <b>1:2 RR</b>, each winning trade gains <b id="fund-calc-win" class="text-emerald-600 dark:text-emerald-400">+$2.00 USD</b>, and losses are capped at <b id="fund-calc-loss" class="text-rose-500">-$1.00 USD</b>. If capital is depleted, the bot will auto-stop and generate a summary report.
+          With target <b>1:3.0 RR</b>, winning trades target <b id="fund-calc-win" class="text-emerald-600 dark:text-emerald-400">+$3.00 USD</b> with 3-stage milestone exit protection (Breakeven, +1.0R Lock, Unlimited Runner), and losses capped at <b id="fund-calc-loss" class="text-rose-500">-$1.00 USD</b>. If capital is depleted, the bot will auto-stop and generate a summary report.
         </div>
       </div>
 

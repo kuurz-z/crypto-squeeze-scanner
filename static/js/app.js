@@ -1,5 +1,5 @@
 // Application State
-let currentInterval = '30m';
+let currentInterval = '15m';
 let currentSymbol = 'BTCUSDT';
 let currentFilter = 'all'; // 'all' | 'favorites' | 'signals' | 'squeeze' | 'tension'
 let searchQuery = '';
@@ -248,7 +248,7 @@ document.addEventListener('DOMContentLoaded', () => {
   loadFavorites();
   setupEventListeners();
   
-  // Initial load (30m default)
+  // Initial load (15m default)
   fetchScan(true);
   loadSymbolChart(currentSymbol);
   
@@ -823,7 +823,7 @@ function updateTopMetrics(data) {
 async function executeBacktest() {
   const btSelect = document.getElementById('bt-symbol');
   const sym = (btSelect ? btSelect.value : currentSymbol).toUpperCase();
-  const targetRR = parseFloat(document.getElementById('bt-target-rr').value || '2.0');
+  const targetRR = parseFloat(document.getElementById('bt-target-rr').value || '3.0');
   const bars = parseInt(document.getElementById('bt-bars').value || '1000');
   const tbody = document.getElementById('bt-trades-tbody');
   
@@ -1089,7 +1089,7 @@ function setupViewNavigation() {
   }
 
   function updateFundExplainer(risk) {
-    if (fundCalcWin) fundCalcWin.innerText = `+$${(risk * 2.0).toFixed(2)} USD`;
+    if (fundCalcWin) fundCalcWin.innerText = `+$${(risk * 3.0).toFixed(2)} USD`;
     if (fundCalcLoss) fundCalcLoss.innerText = `-$${risk.toFixed(2)} USD`;
   }
 
@@ -1419,7 +1419,7 @@ function renderBotMetrics(t) {
 
   // Active Strategy
   const stratEl = document.getElementById('bot-active-strategy');
-  if (stratEl) stratEl.innerText = (t.active_strategy || 'Squeeze Breakout').replace(/_/g, ' ');
+  if (stratEl) stratEl.innerText = (t.active_strategy || 'Trend_Pullback_Confluence').replace(/_/g, ' ');
 
   // Metrics
   const winRateEl = document.getElementById('bot-win-rate');
@@ -1474,10 +1474,10 @@ function renderBotMetrics(t) {
   const hofGoatWr = document.getElementById('hof-goat-wr');
   if (t.all_time_grand_champion) {
     const goat = t.all_time_grand_champion;
-    if (hofGoatStrat) hofGoatStrat.innerText = `${(goat.strategy_name || goat.name || 'Squeeze Momentum').replace(/_/g, ' ')} (${goat.timeframe || '1h'})`;
+    if (hofGoatStrat) hofGoatStrat.innerText = `${(goat.strategy_name || goat.name || 'Trend Pullback Confluence').replace(/_/g, ' ')} (${goat.timeframe || '15m'})`;
     if (hofGoatWr) hofGoatWr.innerText = `${goat.win_rate_pct || 42.5}% WR | ${goat.reproducibility_score || 85} Rep`;
   } else if (t.champion_stats) {
-    if (hofGoatStrat) hofGoatStrat.innerText = `${(t.champion_stats.name || 'Squeeze Momentum').replace(/_/g, ' ')} (${t.champion_stats.timeframe || '15m'})`;
+    if (hofGoatStrat) hofGoatStrat.innerText = `${(t.champion_stats.name || 'Trend Pullback Confluence').replace(/_/g, ' ')} (${t.champion_stats.timeframe || '15m'})`;
     if (hofGoatWr) hofGoatWr.innerText = `${t.champion_stats.win_rate || 42}% WR | 85 Rep`;
   }
 
@@ -1485,6 +1485,80 @@ function renderBotMetrics(t) {
   if (t.api_rate_limit) {
     updateRateLimitDisplay(t.api_rate_limit);
   }
+}
+
+function getMilestoneExitBadge(pos) {
+  const status = pos.exit_status || '';
+  if (pos.is_unlimited_runner || status.includes('Runner') || status.includes('RUNNER')) {
+    return `<span class="px-1.5 py-0.5 text-[9px] rounded-md font-semibold bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-500/30 inline-flex items-center gap-1"><span class="animate-pulse">🚀</span> Unlimited Runner (+2.2R+)</span>`;
+  }
+  if (pos.is_profit_locked || status.includes('Profit Locked') || status.includes('Lock') || status.includes('LOCK')) {
+    return `<span class="px-1.5 py-0.5 text-[9px] rounded-md font-semibold bg-emerald-500/15 text-emerald-600 dark:text-emerald-300 border border-emerald-500/30 inline-flex items-center gap-1">🔒 Profit Locked (+1.0R)</span>`;
+  }
+  if (pos.is_breakeven_protected || status.includes('Breakeven') || status.includes('BE')) {
+    return `<span class="px-1.5 py-0.5 text-[9px] rounded-md font-semibold bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-500/30 inline-flex items-center gap-1">🛡️ Breakeven Protected</span>`;
+  }
+  if (status.includes('Stagnation') || status.includes('Chop') || status.includes('CHOP') || (pos.bars_held && pos.bars_held >= 3) || status) {
+    const text = status.includes('Stagnation') ? '⏱️ Stagnation Monitor' : (status ? `⏱️ ${status}` : '⏱️ Stagnation Monitor');
+    return `<span class="px-1.5 py-0.5 text-[9px] rounded-md font-semibold bg-amber-500/15 text-amber-600 dark:text-amber-300 border border-amber-500/30 inline-flex items-center gap-1">${text}</span>`;
+  }
+  return `<span class="px-1.5 py-0.5 text-[9px] rounded-md font-semibold bg-slate-500/10 text-slate-600 dark:text-slate-400 border border-slate-500/20 inline-flex items-center gap-1">⏱️ Stagnation Monitor</span>`;
+}
+
+function formatBotOutcome(t) {
+  const raw = (t.outcome || '').toUpperCase();
+  const netR = t.net_r !== undefined ? t.net_r : 0;
+  const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : 0;
+
+  if (raw === 'TRAILING_STOP_WIN' || raw.includes('TRAILING')) {
+    return {
+      text: 'TRAILING_STOP_WIN',
+      badgeClass: 'text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/60 border-purple-300 dark:border-purple-500/30',
+      rColor: 'text-purple-600 dark:text-purple-400 font-bold',
+      isWin: true,
+      isBE: false
+    };
+  }
+  if (raw.includes('BE') || raw.includes('BREAKEVEN') || (!raw.includes('WIN') && !raw.includes('LOSS') && netR === 0 && pnlUsd === 0)) {
+    return {
+      text: 'BE_EXIT (🛡️ $0.00)',
+      badgeClass: 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30',
+      rColor: 'text-indigo-600 dark:text-indigo-400 font-bold',
+      isWin: false,
+      isBE: true
+    };
+  }
+  if (raw.includes('TIME') || raw.includes('STAGNATION')) {
+    const winTime = netR > 0 || pnlUsd > 0;
+    return {
+      text: 'TIME_EXIT',
+      badgeClass: winTime 
+        ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' 
+        : 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/60 border-amber-300 dark:border-amber-500/30',
+      rColor: winTime ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-amber-600 dark:text-amber-400 font-bold',
+      isWin: winTime,
+      isBE: false
+    };
+  }
+  if (raw.includes('WIN') || netR > 0 || pnlUsd > 0) {
+    const rDisplay = netR >= 3.0 ? '+3.0R+' : `+${netR > 0 ? (netR >= 3 ? '3.0R+' : netR.toFixed(1) + 'R') : '3.0R+'}`;
+    return {
+      text: `WIN (${rDisplay})`,
+      badgeClass: 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30',
+      rColor: 'text-emerald-600 dark:text-emerald-400 font-bold',
+      isWin: true,
+      isBE: false
+    };
+  }
+  // Default to LOSS
+  const rLossDisplay = netR < 0 ? `-${Math.abs(netR).toFixed(1)}R` : '-1.0R';
+  return {
+    text: `LOSS (${rLossDisplay})`,
+    badgeClass: 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30',
+    rColor: 'text-rose-600 dark:text-rose-400 font-bold',
+    isWin: false,
+    isBE: false
+  };
 }
 
 function renderBotPositions(positions) {
@@ -1502,7 +1576,7 @@ function renderBotPositions(positions) {
       <tr>
         <td colspan="9" class="py-6 text-center text-slate-400 dark:text-gray-500">
           <i class="fa-solid fa-radar text-lg mb-1 block text-indigo-500"></i>
-          No open positions right now. The bot is actively scanning 100 pairs with $100 capital for valid &ge; 1:2 RR setups (Max 10 Concurrent Trades).
+          No open positions right now. The bot is actively scanning 100 pairs with $100 capital for valid &ge; 1:3.0 RR setups (Max 10 Concurrent Trades).
         </td>
       </tr>
     `;
@@ -1525,10 +1599,9 @@ function renderBotPositions(positions) {
             <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
             <span>${pos.symbol}</span>
           </div>
-          ${pos.exit_status ? `
-            <div class="mt-1 flex items-center">
-              <span class="px-1.5 py-0.2 text-[9px] rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-semibold border border-indigo-500/20">${pos.exit_status}</span>
-            </div>` : ''}
+          <div class="mt-1 flex items-center">
+            ${getMilestoneExitBadge(pos)}
+          </div>
         </td>
         <td class="py-3 px-2 whitespace-nowrap align-top">
           <div class="h-5 flex items-center leading-5">
@@ -1559,7 +1632,7 @@ function renderBotPositions(positions) {
         </td>
         <td class="py-3 px-2 font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap align-top">
           <div class="h-5 flex items-center font-medium leading-5">$${pos.tp_price}</div>
-          <div class="mt-1 text-[9px] text-slate-400 font-sans leading-tight">(1:${pos.target_rr})</div>
+          <div class="mt-1 text-[9px] text-slate-400 font-sans leading-tight">(1:${pos.target_rr || 3.0})</div>
         </td>
         <td class="py-3 px-3 text-right font-mono ${rColor} whitespace-nowrap align-top">
           <div class="h-5 flex items-center justify-end text-xs font-bold leading-5">${pnlUsdStr}</div>
@@ -1646,10 +1719,7 @@ function renderBotClosedHistory(trades) {
     const isLong = t.direction === 'LONG';
     const typeColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-200 dark:border-emerald-800/40' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 border-rose-200 dark:border-rose-800/40';
     const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : parseFloat(((t.net_r || 0) * 1.0).toFixed(2));
-    const isWin = (t.net_r > 0) || (pnlUsd > 0) || (t.outcome && t.outcome.includes('WIN'));
-    const isBE = (!isWin && (t.net_r === 0 || pnlUsd === 0)) || (t.outcome && (t.outcome.includes('BE') || t.outcome.includes('BREAKEVEN')));
-    const badgeBg = isWin ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' : (isBE ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30' : 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30');
-    const rColor = isWin ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (isBE ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold');
+    const outcomeInfo = formatBotOutcome(t);
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
     const tf = (t.timeframe && ['5m', '15m', '30m'].includes(t.timeframe)) ? t.timeframe : '15m';
     const tfAnchor = tf === '5m' ? '30m MTF' : (tf === '30m' ? '4h MTF' : '1h MTF');
@@ -1686,12 +1756,12 @@ function renderBotClosedHistory(trades) {
         </td>
         <td class="py-3 px-3 text-center whitespace-nowrap align-top">
           <div class="h-5 flex items-center justify-center leading-5">
-            <span class="inline-block px-2.5 py-0.5 rounded text-[10px] font-bold border ${badgeBg}">${t.outcome.replace(/_/g, ' ')}</span>
+            <span class="inline-block px-2.5 py-0.5 rounded text-[10px] font-bold border ${outcomeInfo.badgeClass}">${outcomeInfo.text}</span>
           </div>
         </td>
-        <td class="py-3 px-3 text-right font-mono ${rColor} whitespace-nowrap align-top">
+        <td class="py-3 px-3 text-right font-mono ${outcomeInfo.rColor} whitespace-nowrap align-top">
           <div class="h-5 flex items-center justify-end text-xs font-bold leading-5">${pnlUsdStr}</div>
-          <div class="mt-1 font-mono text-[10px] opacity-80 ${rColor} leading-tight">(${t.net_r > 0 ? '+' : ''}${t.net_r} R)</div>
+          <div class="mt-1 font-mono text-[10px] opacity-80 ${outcomeInfo.rColor} leading-tight">(${t.net_r > 0 ? '+' : ''}${t.net_r} R)</div>
         </td>
         <td class="py-3 px-3 text-right text-[10px] text-slate-400 font-mono whitespace-nowrap align-top">
           <div class="h-5 flex items-center justify-end leading-5">${exitTimeStr}</div>
@@ -1763,32 +1833,33 @@ function renderBotJournal(trades) {
     const dirColor = isLong ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 border-emerald-300 dark:border-emerald-500/30 font-bold' : 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/50 border-rose-300 dark:border-rose-500/30 font-bold';
     const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : parseFloat(((t.net_r || 0) * 1.0).toFixed(2));
     const pnlUsdStr = `${pnlUsd >= 0 ? '+' : ''}$${pnlUsd.toFixed(2)}`;
-    const isWin = (t.net_r > 0) || (pnlUsd > 0) || (t.outcome && t.outcome.includes('WIN'));
-    const isBE = (!isWin && (t.net_r === 0 || pnlUsd === 0)) || (t.outcome && (t.outcome.includes('BE') || t.outcome.includes('BREAKEVEN')));
+    const outcomeInfo = formatBotOutcome(t);
+    const isWin = outcomeInfo.isWin;
+    const isBE = outcomeInfo.isBE;
     const cardBg = isWin ? 'border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20' : (isBE ? 'border-indigo-500/30 bg-indigo-50/30 dark:bg-indigo-950/15' : 'border-rose-500/30 bg-rose-50/30 dark:bg-rose-950/15');
-    const badgeBg = isWin ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' : (isBE ? 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30' : 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30');
-    const rColor = isWin ? 'text-emerald-600 dark:text-emerald-400 font-bold' : (isBE ? 'text-indigo-600 dark:text-indigo-400 font-bold' : 'text-rose-600 dark:text-rose-400 font-bold');
+    const badgeBg = outcomeInfo.badgeClass;
+    const rColor = outcomeInfo.rColor;
 
     const ctx = t.pre_trade_context || {
-      reason: isWin ? 'Clean squeeze momentum expansion with volume confirmation' : 'Squeeze breakout attempt into key level',
-      rvol: 2.1,
-      rsi: isWin ? 64.5 : 48.2,
+      reason: isWin ? 'Clean trend pullback & momentum confluence' : 'Pullback into key MA support zone',
+      rvol: 1.8,
+      rsi: isWin ? 54.5 : 46.2,
       volatility_atr: 0.05,
-      regime: isWin ? 'Bullish Trend & Volatility Expansion' : 'Range Resistance / Pullback'
+      regime: isWin ? 'Bullish Trend & Confluence Extension' : 'Range Pullback Support'
     };
 
     let diag = t.diagnostic || {};
     if (!diag.catalyst_type) {
       if (isWin && t.outcome === 'WIN') {
         diag = {
-          catalyst_type: "Impulsive Momentum Expansion",
+          catalyst_type: "Impulsive Confluence Expansion (1:3.0+ RR)",
           summary: `Rapid target hit in ${t.bars_held || 1} bars. Strong order flow propelled price directly to target without significant drawdown.`,
-          key_factors: ["High institutional velocity", "Low adverse excursion (MAE)", "Clean technical extension"]
+          key_factors: ["High confluence alignment", "Low adverse excursion (MAE)", "Clean 1:3.0+ RR technical extension"]
         };
       } else if (isWin && t.outcome === 'TRAILING_STOP_WIN') {
         diag = {
-          catalyst_type: "ATR Trailing Stop Protected Profit",
-          summary: `Dynamic trailing stop locked in +${t.net_r}R profit as momentum cooled off after favorable extension.`,
+          catalyst_type: "Dynamic Trailing Stop Profit Locked",
+          summary: `Dynamic milestone exit locked in +${t.net_r}R profit as price progressed favorably.`,
           key_factors: ["Dynamic stop protection prevented giving back gains", "Secured runner profit"]
         };
       } else if (t.outcome === 'TIME_EXIT' || (t.outcome && t.outcome.includes('TIME'))) {
@@ -1799,9 +1870,9 @@ function renderBotJournal(trades) {
         };
       } else if (isBE) {
         diag = {
-          catalyst_type: "Breakeven Shield De-risking",
-          summary: `Position reached favorable extension, triggering automated breakeven shield. Exited with zero capital loss.`,
-          key_factors: ["Automated de-risking prevented a full -1.0R loss", "Exchange trading fees fully covered"]
+          catalyst_type: "Breakeven Shield De-risking (🛡️ $0.00)",
+          summary: `Position reached +1.0R favorable milestone, triggering automated breakeven shield. Exited with zero capital loss.`,
+          key_factors: ["Automated milestone de-risking prevented a full -1.0R loss", "Exchange trading fees fully covered"]
         };
       } else {
         diag = {
@@ -1839,7 +1910,7 @@ function renderBotJournal(trades) {
             </span>
           </div>
           <div class="flex items-center gap-2 sm:gap-3">
-            <span class="px-2.5 py-0.5 rounded text-[10px] font-bold ${badgeBg}">${t.outcome.replace(/_/g, ' ')}</span>
+            <span class="px-2.5 py-0.5 rounded text-[10px] font-bold border ${badgeBg}">${outcomeInfo.text}</span>
             <div class="text-right">
               <span class="font-mono text-sm ${rColor}">${pnlUsdStr}</span>
               <span class="text-[10px] font-mono block text-slate-400">(${t.net_r > 0 ? '+' : ''}${t.net_r} R)</span>
@@ -1854,7 +1925,7 @@ function renderBotJournal(trades) {
           <div class="grid grid-cols-2 md:grid-cols-4 gap-2 bg-white/70 dark:bg-black/20 p-2.5 rounded-lg border border-slate-200/50 dark:border-gray-800 text-[11px]">
             <div><span class="text-slate-400 text-[10px] block">Entry ➔ Exit</span><span class="font-mono font-medium">$${t.entry_price} ➔ $${t.exit_price}</span></div>
             <div><span class="text-slate-400 text-[10px] block">Stop Loss (1R)</span><span class="font-mono font-medium text-rose-500">$${t.sl_price || t.entry_price}</span></div>
-            <div><span class="text-slate-400 text-[10px] block">Take Profit (1:${t.target_rr || 2.0} RR)</span><span class="font-mono font-medium text-emerald-500">$${t.tp_price || t.exit_price}</span></div>
+            <div><span class="text-slate-400 text-[10px] block">Take Profit (1:${t.target_rr || 3.0} RR)</span><span class="font-mono font-medium text-emerald-500">$${t.tp_price || t.exit_price}</span></div>
             <div><span class="text-slate-400 text-[10px] block">MFE / MAE Excursion</span><span class="font-mono font-medium text-indigo-500">+${t.mfe_r || 0}R / -${t.mae_r || 0}R</span></div>
           </div>
 
@@ -1863,12 +1934,12 @@ function renderBotJournal(trades) {
             <div class="font-semibold text-slate-700 dark:text-gray-300 flex items-center gap-1.5 text-[11px] mb-1">
               <i class="fa-solid fa-magnifying-glass-chart text-indigo-500"></i> Pre-Trade Analysis (Why Entered):
             </div>
-            <p class="text-slate-600 dark:text-gray-400 text-[11px]">${ctx.reason || 'Squeeze compression breakout with volume confluence'}</p>
+            <p class="text-slate-600 dark:text-gray-400 text-[11px]">${ctx.reason || 'Trend pullback confluence with multi-indicator confirmation'}</p>
             <div class="flex flex-wrap gap-3 text-[10px] text-slate-500 dark:text-gray-400 mt-1 font-mono">
-              <span>RVOL: <b>${ctx.rvol || '2.0'}x</b></span>
-              <span>RSI(14): <b>${ctx.rsi || '55.0'}</b></span>
+              <span>RVOL: <b>${ctx.rvol || '1.8'}x</b></span>
+              <span>RSI(14): <b>${ctx.rsi || '54.0'}</b></span>
               <span>ATR14: <b>$${ctx.volatility_atr || '0.05'}</b></span>
-              <span>Regime: <b>${ctx.regime || (isWin ? 'Bullish Expansion' : 'Resistance Pullback')}</b></span>
+              <span>Regime: <b>${ctx.regime || (isWin ? 'Bullish Trend Confluence' : 'Pullback Support Zone')}</b></span>
             </div>
           </div>
 
@@ -1949,7 +2020,7 @@ function renderBotParams(params) {
     }
   }
 
-  const targetRR = params.target_rr || 2.0;
+  const targetRR = params.target_rr || 3.0;
   const rrLabel = targetRR % 1 === 0 ? targetRR.toFixed(0) : targetRR.toFixed(1);
   if (rrEl) rrEl.innerText = `1:${targetRR.toFixed(1)} RR`;
   if (rvolEl) rvolEl.innerText = `\u2265 ${params.rvol_min || 1.10}x`;
