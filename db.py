@@ -270,3 +270,18 @@ class DatabaseManager:
         except Exception as e:
             print(f"[Database] Error loading state {key}: {e}")
         return default
+
+    def clear_all(self):
+        """Clear all stored trades, positions, and state."""
+        try:
+            conn = self._get_connection()
+            cur = conn.cursor()
+            cur.execute("DELETE FROM bot_trades;")
+            cur.execute("DELETE FROM bot_positions;")
+            cur.execute("DELETE FROM bot_state_store;")
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"[Database] Error clearing tables: {e}")
+

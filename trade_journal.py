@@ -87,3 +87,68 @@ def generate_full_simulation_report(
         f.write(report_content)
 
     return report_filename
+
+def archive_and_reset_ledger(data_dir: str = ".") -> str:
+    """
+    Safely archive historical trades to reports/archive_pre_optimization_trades.json
+    and reset live_trades.json, live_positions.json, and bot_state.json to a clean initial benchmark state.
+    """
+    reports_dir = os.path.join(data_dir, "reports")
+    os.makedirs(reports_dir, exist_ok=True)
+    archive_file = os.path.join(reports_dir, "archive_pre_optimization_trades.json")
+    trades_file = os.path.join(data_dir, "live_trades.json")
+    positions_file = os.path.join(data_dir, "live_positions.json")
+    state_file = os.path.join(data_dir, "bot_state.json")
+
+    # 1. Archive historical trades if live_trades.json exists and contains trades
+    if os.path.exists(trades_file):
+        try:
+            with open(trades_file, "r", encoding="utf-8") as f:
+                trades = json.load(f)
+            if isinstance(trades, list) and len(trades) > 0:
+                with open(archive_file, "w", encoding="utf-8") as f:
+                    json.dump(trades, f, indent=2)
+        except Exception as e:
+            print(f"[TradeJournal] Warning: error archiving trades: {e}")
+
+    # 2. Reset live_trades.json to empty list
+    with open(trades_file, "w", encoding="utf-8") as f:
+        json.dump([], f, indent=2)
+
+    # 3. Reset live_positions.json to empty dict
+    with open(positions_file, "w", encoding="utf-8") as f:
+        json.dump({}, f, indent=2)
+
+    # 4. Reset bot_state.json to clean initial benchmark state
+    clean_state = {
+        "initial_capital": 100.0,
+        "current_balance": 100.0,
+        "active_strategy": "Trend_Pullback_Confluence",
+        "timeframe": "15m",
+        "target_rr": 3.0,
+        "open_positions": {},
+        "symbol_loss_cooldowns": {},
+        "circuit_breaker_until": None,
+        "last_reset": ph_now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    with open(state_file, "w", encoding="utf-8") as f:
+        json.dump(clean_state, f, indent=2)
+
+    # 5. Clear SQLite DB if present in data_dir
+    db_file = os.path.join(data_dir, "local_crypto_bot.db")
+    if os.path.exists(db_file):
+        try:
+            import sqlite3
+            conn = sqlite3.connect(db_file)
+            cur = conn.cursor()
+            cur.execute("DELETE FROM bot_trades;")
+            cur.execute("DELETE FROM bot_positions;")
+            cur.execute("DELETE FROM bot_state_store;")
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"[TradeJournal] Notice: DB clear tables: {e}")
+
+    return archive_file
+

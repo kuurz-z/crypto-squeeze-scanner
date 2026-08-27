@@ -33,6 +33,8 @@ from strategies import (
 from sim_engine import diagnose_trade_outcome, compile_simulation_metrics
 from strategy_memory import evaluate_reproducibility, save_strategy_to_catalog, load_saved_strategies
 from db import DatabaseManager
+from trade_journal import archive_and_reset_ledger
+
 
 LIVE_TRADES_FILE = "live_trades.json"
 LIVE_POSITIONS_FILE = "live_positions.json"
@@ -236,7 +238,16 @@ class LiveCryptoBot:
         self.save_state()
         print(f"[LiveBot] Account balance reset to ${initial_capital:.2f} USD starting capital (Trade history preserved: {len(self.closed_trades)} trades).")
 
+    def archive_and_reset_ledger(self) -> str:
+        """Safely archive historical trade ledger and reset bot state to clean benchmark."""
+        data_dir = self.data_dir or "."
+        res = archive_and_reset_ledger(data_dir=data_dir)
+        self.load_state()
+        print(f"[LiveBot] Ledger archived to '{res}' and bot state reset to clean benchmark.")
+        return res
+
     def set_timeframe(self, timeframe: str) -> bool:
+
         """Update active timeframe. Supported timeframes: 5m, 15m, 30m, dual (15m+30m), triple (5m+15m+30m)."""
         tf_clean = timeframe.lower()
         if tf_clean not in ALLOWED_ENTRY_TIMEFRAMES:
@@ -339,10 +350,11 @@ class LiveCryptoBot:
                     self.timeframe_profile = TIMEFRAME_PROFILES[self.timeframe]
                     self.cooldown_minutes = self.timeframe_profile["cooldown_minutes"]
                     self.scan_interval_sec = self.timeframe_profile["scan_interval_sec"]
-                self.active_strategy_name = state.get("active_strategy_name", self.active_strategy_name)
+                self.active_strategy_name = state.get("active_strategy_name", state.get("active_strategy", self.active_strategy_name))
                 self.active_params = state.get("active_params", self.active_params)
                 self.auto_trading_enabled = state.get("auto_trading_enabled", True)
-                self.target_rr = self.active_params.get("target_rr", self.target_rr)
+                self.target_rr = state.get("target_rr", self.active_params.get("target_rr", self.target_rr))
+
                 self.optimization_logs = state.get("optimization_logs", [])
                 self.macro_audits = state.get("macro_audits", [])
                 self.champion_stats = state.get("champion_stats", self.champion_stats)
