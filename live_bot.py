@@ -512,16 +512,16 @@ class LiveCryptoBot:
             mtf_intervals = ["30m", "1h", "4h"]
         elif self.timeframe == "dual":
             scan_tfs = ["15m", "30m"]
-            mtf_intervals = ["1h", "4h"]
+            mtf_intervals = ["30m", "1h", "4h"]
         elif self.timeframe == "5m":
             scan_tfs = ["5m"]
             mtf_intervals = ["30m", "1h", "4h"]
         elif self.timeframe == "30m":
             scan_tfs = ["30m"]
-            mtf_intervals = ["4h"]
+            mtf_intervals = ["30m", "1h", "4h"]
         else: # 15m default
             scan_tfs = ["15m"]
-            mtf_intervals = ["1h", "4h"]
+            mtf_intervals = ["30m", "1h", "4h"]
 
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=30)) as session:
             # 1. Fetch latest candles across all scan timeframes and MTF anchors with set-based deduplication

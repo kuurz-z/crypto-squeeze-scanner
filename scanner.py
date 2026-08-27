@@ -51,8 +51,39 @@ DEFAULT_TOP_COINS = [
     "FETUSDT", "KASUSDT", "TAOUSDT", "CRVUSDT", "MKRUSDT", "RUNEUSDT", "FILUSDT"
 ]
 
-async def fetch_top_usdt_pairs(limit: int = 60) -> List[str]:
-    """Fetch top USDT pairs by 24h quote volume from Binance with 5-min caching."""
+def filter_liquid_usdt_pairs(ticker_data: List[Dict[str, Any]], min_quote_volume: float = 15000000.0) -> List[str]:
+    """
+    Filter 24h ticker data to only keep liquid USDT trading pairs:
+    - Keep only tickers ending in 'USDT'.
+    - Exclude tokens matching EXCLUDED_KEYWORDS (stablecoins, leveraged tokens, wrapped assets).
+    - Filter float(item.get('quoteVolume', 0)) >= min_quote_volume ($15,000,000 USD default floor).
+    - Sort descending by quoteVolume and return symbol list.
+    """
+    if not isinstance(ticker_data, list):
+        return []
+
+    liquid_pairs = []
+    for item in ticker_data:
+        if not isinstance(item, dict):
+            continue
+        sym = item.get('symbol')
+        if not isinstance(sym, str) or not sym.endswith('USDT'):
+            continue
+        if any(x == sym or x in sym for x in EXCLUDED_KEYWORDS):
+            continue
+        try:
+            quote_vol = float(item.get('quoteVolume', 0.0))
+        except (ValueError, TypeError):
+            continue
+        if quote_vol >= min_quote_volume:
+            liquid_pairs.append((sym, quote_vol))
+
+    liquid_pairs.sort(key=lambda x: x[1], reverse=True)
+    return [sym for sym, _ in liquid_pairs]
+
+
+async def fetch_top_usdt_pairs(limit: int = 60, min_quote_volume: float = 15000000.0) -> List[str]:
+    """Fetch top USDT pairs by 24h quote volume from Binance with 5-min caching, enforcing $15M liquidity floor."""
     now = time.time()
     if _top_pairs_cache["pairs"] and (now - _top_pairs_cache["timestamp"] < TOP_PAIRS_CACHE_TTL):
         return _top_pairs_cache["pairs"][:limit]
@@ -62,13 +93,7 @@ async def fetch_top_usdt_pairs(limit: int = 60) -> List[str]:
         async with session.get(BINANCE_TICKER_24HR_URL, timeout=aiohttp.ClientTimeout(total=5)) as resp:
             if resp.status == 200:
                 data = await resp.json()
-                usdt_pairs = [
-                    item for item in data 
-                    if item['symbol'].endswith('USDT') 
-                    and not any(x == item['symbol'] or x in item['symbol'] for x in EXCLUDED_KEYWORDS)
-                ]
-                usdt_pairs.sort(key=lambda x: float(x.get('quoteVolume', 0)), reverse=True)
-                top_symbols = [item['symbol'] for item in usdt_pairs[:100]]
+                top_symbols = filter_liquid_usdt_pairs(data, min_quote_volume=min_quote_volume)
                 if top_symbols:
                     _top_pairs_cache["timestamp"] = now
                     _top_pairs_cache["pairs"] = top_symbols
@@ -343,4 +368,83 @@ async def scan_market(interval: str = "30m", limit_pairs: int = 50, force_refres
     valid_results.sort(key=sort_priority, reverse=True)
     _scan_cache[cache_key] = {"timestamp": now, "data": valid_results}
     return valid_results
+
+
+async def fetch_symbol_htf_data(
+    session: aiohttp.ClientSession,
+    symbol: str,
+    intervals: List[str] = ["30m", "1h", "4h"],
+    limit: int = 120
+) -> Dict[str, pd.DataFrame]:
+    """
+    Fetch and pre-compute indicators for multiple higher timeframes for a given symbol.
+    Guarantees returning a dictionary mapping timeframe -> indicator-enriched DataFrame:
+    e.g. {"30m": df_30m, "1h": df_1h, "4h": df_4h}
+    """
+    tasks = [fetch_klines(session, symbol, interval=tf, limit=limit) for tf in intervals]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    htf_map: Dict[str, pd.DataFrame] = {}
+    for tf, res in zip(intervals, results):
+        if isinstance(res, pd.DataFrame) and len(res) >= 30:
+            htf_map[tf] = compute_indicators(res)
+    return htf_map
+
+
+async def scan_market_multi_tf(
+    intervals: List[str] = ["30m", "1h", "4h"],
+    primary_interval: str = "15m",
+    limit_pairs: int = 50,
+    min_quote_volume: float = 15000000.0,
+    force_refresh: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    Scan top liquid market pairs with guaranteed multi-timeframe HTF data pipeline (30m, 1h, 4h).
+    Returns list of analyzed symbols with htf_data={"30m": df_30m, "1h": df_1h, "4h": df_4h}
+    and multi-timeframe trend alignment.
+    """
+    safe_limit = max(10, min(100, int(limit_pairs)))
+    symbols = await fetch_top_usdt_pairs(limit=safe_limit, min_quote_volume=min_quote_volume)
+    session = await get_http_session()
+
+    async def _scan_single(sym: str) -> Optional[Dict[str, Any]]:
+        # Fetch base scan metrics
+        base_res = await scan_single_symbol(session, sym, interval=primary_interval)
+        if not base_res:
+            return None
+
+        # Guarantee 30m, 1h, 4h HTF data pipeline
+        htf_data = await fetch_symbol_htf_data(session, sym, intervals=intervals)
+        base_res["htf_data"] = htf_data
+
+        # Determine true multi-timeframe trends if HTF data present
+        for htf_tf in ["30m", "1h", "4h"]:
+            df_htf = htf_data.get(htf_tf)
+            if df_htf is not None and len(df_htf) >= 20:
+                htf_last = df_htf.iloc[-1]
+                h_c = float(htf_last['close'])
+                h_ema = float(htf_last.get('ema50', htf_last.get('sma20', h_c)))
+                h_rsi = float(htf_last.get('rsi14', 50.0))
+                if h_c > h_ema and h_rsi >= 48.0:
+                    base_res[f"mtf_{htf_tf}"] = "BULLISH"
+                elif h_c < h_ema and h_rsi <= 52.0:
+                    base_res[f"mtf_{htf_tf}"] = "BEARISH"
+                else:
+                    base_res[f"mtf_{htf_tf}"] = "NEUTRAL"
+
+        return base_res
+
+    tasks = [_scan_single(sym) for sym in symbols]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    valid_results = [r for r in results if isinstance(r, dict) and r is not None]
+
+    def sort_priority(item):
+        sig_score = 100 if item.get('signal') in ['LONG', 'SHORT'] else (50 if item.get('recent_signal') != 'NONE' else 0)
+        stage = item.get('squeeze_stage', 'NONE')
+        stage_score = 40 if stage == 'HIGH_TENSION' else (20 if stage == 'COILING' else (60 if stage == 'FIRED' else 0))
+        tension = float(item.get('tension_score', 0))
+        return sig_score + stage_score + min(tension, 30.0)
+
+    valid_results.sort(key=sort_priority, reverse=True)
+    return valid_results
+
 
