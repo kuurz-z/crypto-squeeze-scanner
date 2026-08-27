@@ -589,6 +589,206 @@ class TestStrategyImprovements(unittest.TestCase):
         # Should enforce >= 1.2% (0.018 * 0.012 = 0.000216)
         self.assertGreaterEqual(sig["risk_distance"], 0.018 * 0.012)
 
+    def test_trend_pullback_confluence_bullish_15m_with_1h_anchor_and_3_0_rr(self):
+        """Verify that TrendPullbackConfluence triggers LONG on 15m with 1h anchor confirmation and default 1:3.0 RR."""
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        df_15m = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [95.0] * 59 + [97.0],
+            "high": [98.0] * 59 + [100.0],
+            "low": [94.0] * 59 + [97.5],
+            "close": [96.0] * 59 + [99.0],
+            "volume": np.full(60, 1000.0),
+            "ema20": [98.0] * 60,
+            "ema50": [95.0] * 60,
+            "ema200": [90.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [48.0] * 60,
+            "rvol": [1.3] * 60,
+            "buyer_ratio": [52.0] * 60,
+            "hurst": [0.55] * 60,
+            "adx14": [28.0] * 60,
+            "swing_low_5": [94.0] * 60
+        })
+        dates_1h = pd.date_range("2026-01-01", periods=60, freq="1h")
+        df_1h = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates_1h],
+            "open": np.linspace(90, 98, 60),
+            "high": np.linspace(92, 101, 60),
+            "low": np.linspace(89, 97, 60),
+            "close": np.linspace(91, 100, 60),
+            "volume": np.full(60, 1000.0),
+            "ema50": [92.0] * 60,
+            "ema200": [85.0] * 60,
+            "rsi14": [56.0] * 60
+        })
+        htf_data = {"1h": df_1h}
+        sig = TrendPullbackConfluence.generate_signal(df_15m, len(df_15m) - 1, htf_data=htf_data, timeframe="15m")
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig["direction"], "LONG")
+        self.assertEqual(sig["target_rr"], 3.0)
+        self.assertEqual(sig["timeframe"], "15m")
+        self.assertEqual(sig["pre_trade_context"]["mtf_alignment"]["anchor_tf"], "1h")
+        self.assertEqual(sig["pre_trade_context"]["mtf_alignment"]["anchor_regime"], "BULLISH")
+        
+        # Verify SL calculation: min(swing_low_5, close - 2.0 * atr) -> min(94.0, 99.0 - 4.0 = 95.0) = 94.0
+        # risk_dist = max(99.0 - 94.0 = 5.0, 99.0 * 0.012 = 1.188) = 5.0
+        # tp_price = 99.0 + 3.0 * 5.0 = 114.0
+        self.assertEqual(sig["entry_price"], 99.0)
+        self.assertEqual(sig["sl_price"], 94.0)
+        self.assertEqual(sig["tp_price"], 114.0)
+        self.assertEqual(sig["risk_distance"], 5.0)
+
+    def test_trend_pullback_confluence_bearish_15m_with_1h_anchor_and_3_0_rr(self):
+        """Verify that TrendPullbackConfluence triggers SHORT on 15m with 1h anchor confirmation and default 1:3.0 RR."""
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        df_15m = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [105.0] * 59 + [103.0],
+            "high": [106.0] * 59 + [102.5],
+            "low": [103.0] * 59 + [100.0],
+            "close": [104.0] * 59 + [101.0],
+            "volume": np.full(60, 1000.0),
+            "ema20": [102.0] * 60,
+            "ema50": [105.0] * 60,
+            "ema200": [110.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [52.0] * 60,
+            "rvol": [1.3] * 60,
+            "buyer_ratio": [48.0] * 60,
+            "hurst": [0.55] * 60,
+            "adx14": [28.0] * 60,
+            "swing_high_5": [106.0] * 60
+        })
+        dates_1h = pd.date_range("2026-01-01", periods=60, freq="1h")
+        df_1h = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates_1h],
+            "open": np.linspace(110, 102, 60),
+            "high": np.linspace(111, 103, 60),
+            "low": np.linspace(108, 99, 60),
+            "close": np.linspace(109, 100, 60),
+            "volume": np.full(60, 1000.0),
+            "ema50": [105.0] * 60,
+            "ema200": [112.0] * 60,
+            "rsi14": [44.0] * 60
+        })
+        htf_data = {"1h": df_1h}
+        sig = TrendPullbackConfluence.generate_signal(df_15m, len(df_15m) - 1, htf_data=htf_data, timeframe="15m")
+        self.assertIsNotNone(sig)
+        self.assertEqual(sig["direction"], "SHORT")
+        self.assertEqual(sig["target_rr"], 3.0)
+        self.assertEqual(sig["timeframe"], "15m")
+        self.assertEqual(sig["pre_trade_context"]["mtf_alignment"]["anchor_tf"], "1h")
+        self.assertEqual(sig["pre_trade_context"]["mtf_alignment"]["anchor_regime"], "BEARISH")
+        
+        # Verify SL calculation: max(swing_high_5, close + 2.0 * atr) -> max(106.0, 101.0 + 4.0 = 105.0) = 106.0
+        # risk_dist = max(106.0 - 101.0 = 5.0, 101.0 * 0.012 = 1.212) = 5.0
+        # tp_price = 101.0 - 3.0 * 5.0 = 86.0
+        self.assertEqual(sig["entry_price"], 101.0)
+        self.assertEqual(sig["sl_price"], 106.0)
+        self.assertEqual(sig["tp_price"], 86.0)
+        self.assertEqual(sig["risk_distance"], 5.0)
+
+    def test_trend_pullback_confluence_regime_gating_hurst_and_adx(self):
+        """Verify that TrendPullbackConfluence rejects entries when Hurst < 0.52 or ADX < 22.0."""
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        base_dict = {
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [95.0] * 59 + [97.0],
+            "high": [98.0] * 59 + [100.0],
+            "low": [94.0] * 59 + [97.5],
+            "close": [96.0] * 59 + [99.0],
+            "volume": np.full(60, 1000.0),
+            "ema20": [98.0] * 60,
+            "ema50": [95.0] * 60,
+            "ema200": [90.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [48.0] * 60,
+            "rvol": [1.3] * 60,
+            "buyer_ratio": [52.0] * 60
+        }
+        # 1. Low Hurst (< 0.52), healthy ADX (28.0) -> Rejection
+        d_low_hurst = dict(base_dict, hurst=[0.49] * 60, adx14=[28.0] * 60)
+        sig_hurst = TrendPullbackConfluence.generate_signal(pd.DataFrame(d_low_hurst), 59)
+        self.assertIsNone(sig_hurst)
+
+        # 2. Healthy Hurst (0.56), low ADX (< 22.0) -> Rejection
+        d_low_adx = dict(base_dict, hurst=[0.56] * 60, adx14=[18.0] * 60)
+        sig_adx = TrendPullbackConfluence.generate_signal(pd.DataFrame(d_low_adx), 59)
+        self.assertIsNone(sig_adx)
+
+    def test_trend_pullback_confluence_mtf_anchor_contradiction_rejection(self):
+        """Verify that TrendPullbackConfluence rejects entries when 1h anchor contradicts entry direction."""
+        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
+        df_long_15m = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [95.0] * 59 + [97.0],
+            "high": [98.0] * 59 + [100.0],
+            "low": [94.0] * 59 + [97.5],
+            "close": [96.0] * 59 + [99.0],
+            "volume": np.full(60, 1000.0),
+            "ema20": [98.0] * 60,
+            "ema50": [95.0] * 60,
+            "ema200": [90.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [48.0] * 60,
+            "rvol": [1.3] * 60,
+            "buyer_ratio": [52.0] * 60,
+            "hurst": [0.55] * 60,
+            "adx14": [28.0] * 60
+        })
+        # 1h Bearish anchor (Close <= EMA50, RSI <= 54) contradicts LONG
+        dates_1h = pd.date_range("2026-01-01", periods=60, freq="1h")
+        df_1h_bearish = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates_1h],
+            "open": np.linspace(110, 88, 60),
+            "high": np.linspace(111, 89, 60),
+            "low": np.linspace(108, 86, 60),
+            "close": np.linspace(109, 87, 60),
+            "volume": np.full(60, 1000.0),
+            "ema50": [95.0] * 60,
+            "ema200": [100.0] * 60,
+            "rsi14": [38.0] * 60
+        })
+        sig_long_blocked = TrendPullbackConfluence.generate_signal(
+            df_long_15m, 59, htf_data={"1h": df_1h_bearish}, timeframe="15m"
+        )
+        self.assertIsNone(sig_long_blocked)
+
+        # 15m Short candidate with 1h Bullish anchor contradicts SHORT
+        df_short_15m = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates],
+            "open": [105.0] * 59 + [103.0],
+            "high": [106.0] * 59 + [102.5],
+            "low": [103.0] * 59 + [100.0],
+            "close": [104.0] * 59 + [101.0],
+            "volume": np.full(60, 1000.0),
+            "ema20": [102.0] * 60,
+            "ema50": [105.0] * 60,
+            "ema200": [110.0] * 60,
+            "atr14": [2.0] * 60,
+            "rsi14": [52.0] * 60,
+            "rvol": [1.3] * 60,
+            "buyer_ratio": [48.0] * 60,
+            "hurst": [0.55] * 60,
+            "adx14": [28.0] * 60
+        })
+        df_1h_bullish = pd.DataFrame({
+            "time": [int(d.timestamp()) for d in dates_1h],
+            "open": np.linspace(90, 110, 60),
+            "high": np.linspace(92, 112, 60),
+            "low": np.linspace(89, 109, 60),
+            "close": np.linspace(91, 111, 60),
+            "volume": np.full(60, 1000.0),
+            "ema50": [95.0] * 60,
+            "ema200": [90.0] * 60,
+            "rsi14": [60.0] * 60
+        })
+        sig_short_blocked = TrendPullbackConfluence.generate_signal(
+            df_short_15m, 59, htf_data={"1h": df_1h_bullish}, timeframe="15m"
+        )
+        self.assertIsNone(sig_short_blocked)
+
 if __name__ == '__main__':
     unittest.main()
 

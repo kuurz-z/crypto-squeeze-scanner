@@ -639,7 +639,7 @@ class LiquiditySweepReversal(StrategyBase):
 
 class TrendPullbackConfluence(StrategyBase):
     name = "Trend_Pullback_Confluence"
-    description = "Enters on high-probability pullbacks to EMA20/EMA50 value zones within established higher-timeframe trends with 1:3.0+ RR and 2.2x ATR protection."
+    description = "Enters on high-probability pullbacks to EMA20/EMA50 value zones within established higher-timeframe trends with 1:3.0+ RR and 2.0x ATR protection."
 
     @staticmethod
     def generate_signal(
@@ -658,12 +658,16 @@ class TrendPullbackConfluence(StrategyBase):
 
         p = params or {}
         min_risk_dist_pct = p.get("min_risk_dist_pct", 0.012)
-        atr_sl_mult = p.get("atr_sl_mult", 2.20)
-        rvol_min = p.get("rvol_min", 1.15)
+        atr_sl_mult = p.get("atr_sl_mult", 2.0)
+        rvol_min = p.get("rvol_min", 1.20)
+        buyer_ratio_min_long = p.get("buyer_ratio_min_long", 46.0)
+        buyer_ratio_max_short = p.get("buyer_ratio_max_short", 54.0)
         rsi_min_long = p.get("rsi_min_long", 38.0)
         rsi_max_long = p.get("rsi_max_long", 58.0)
         rsi_min_short = p.get("rsi_min_short", 42.0)
         rsi_max_short = p.get("rsi_max_short", 62.0)
+        adx_min = p.get("adx_min", 22.0)
+        hurst_min = p.get("hurst_min", 0.52)
 
         if 'ema20' not in df.columns:
             df = compute_crypto_indicators(df)
@@ -680,24 +684,41 @@ class TrendPullbackConfluence(StrategyBase):
         atr = float(curr.get('atr14', 0.0))
         rsi = float(curr.get('rsi14', 50.0))
         rvol = float(curr.get('rvol', 1.0))
-        hurst = float(curr.get('hurst', 0.5))
+        buyer_r = float(curr.get('buyer_ratio', 50.0)) if 'buyer_ratio' in curr and not pd.isna(curr.get('buyer_ratio')) else 50.0
+        hurst = float(curr.get('hurst', 0.55))
         adx = float(curr.get('adx14', 25.0))
 
         if atr <= 0:
             return None
 
-        # Regime Gating: Filter out dead chop / anti-persistent regimes and flat trendless markets
-        adx_min = p.get("adx_min", 22.0)
-        if hurst < 0.48 or adx < adx_min:
+        # Regime Gating: Filter out dead chop / anti-persistent regimes (Hurst < 0.52) and flat trendless markets (ADX < 22.0)
+        if hurst < hurst_min or adx < adx_min:
             return None
 
-        # Uptrend Condition: EMA20 > EMA50 > EMA200 and Close > EMA200
+        # Trend Structure:
+        # Longs: EMA20 > EMA50 > EMA200 and Close > EMA200
         uptrend = (ema20 > ema50) and (ema50 > ema200) and (close > ema200)
-        # Downtrend Condition: EMA20 < EMA50 < EMA200 and Close < EMA200
+        # Shorts: EMA20 < EMA50 < EMA200 and Close < EMA200
         downtrend = (ema20 < ema50) and (ema50 < ema200) and (close < ema200)
 
+        # Swing high/low (5 bars)
+        swing_l5 = float(curr.get('swing_low_5', close)) if 'swing_low_5' in curr and not pd.isna(curr.get('swing_low_5')) else (float(df['low'].iloc[max(0, idx-5):idx].min()) if idx >= 5 else low)
+        swing_h5 = float(curr.get('swing_high_5', close)) if 'swing_high_5' in curr and not pd.isna(curr.get('swing_high_5')) else (float(df['high'].iloc[max(0, idx-5):idx].max()) if idx >= 5 else high)
+
+        # Pullback Value Pocket:
+        # Longs: low <= ema20 * 1.002 or low <= ema50 * 1.002
+        # Shorts: high >= ema20 * 0.998 or high >= ema50 * 0.998
+
         # Long: In strong uptrend, price pulled back into EMA20/EMA50 zone, RSI reset (38-58), bullish trigger candle reclaiming EMA20
-        if uptrend and (low <= ema20 * 1.002 or low <= ema50 * 1.002) and (close > open_p) and (close >= ema20 * 0.998) and (rsi_min_long <= rsi <= rsi_max_long) and (rvol >= rvol_min):
+        if (
+            uptrend
+            and (low <= ema20 * 1.002 or low <= ema50 * 1.002)
+            and (rsi_min_long <= rsi <= rsi_max_long)
+            and (close > open_p)
+            and (close >= ema20 * 0.998)
+            and (rvol >= rvol_min)
+            and (buyer_r >= buyer_ratio_min_long)
+        ):
             anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
             mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
             if htf_data:
@@ -717,10 +738,12 @@ class TrendPullbackConfluence(StrategyBase):
                     "4h": mtf_ctx["4h"]
                 }
 
-            risk_dist = max(atr_sl_mult * atr, close * min_risk_dist_pct)
+            sl_price = min(swing_l5, close - (atr_sl_mult * atr))
+            raw_risk = close - sl_price
+            risk_dist = max(raw_risk, close * min_risk_dist_pct)
+            sl_price = close - risk_dist
+            tp_price = close + (target_rr * risk_dist)
             entry_price = close
-            sl_price = entry_price - risk_dist
-            tp_price = entry_price + (target_rr * risk_dist)
             
             return {
                 "strategy": "Trend_Pullback_Confluence",
@@ -737,6 +760,7 @@ class TrendPullbackConfluence(StrategyBase):
                     "rsi": round(rsi, 1),
                     "rvol": round(rvol, 2),
                     "hurst": round(hurst, 3),
+                    "buyer_ratio": round(buyer_r, 1),
                     "trend_structure": "EMA20 > EMA50 > EMA200",
                     "volatility_atr": round(atr, 4),
                     "timeframe": timeframe,
@@ -745,7 +769,15 @@ class TrendPullbackConfluence(StrategyBase):
             }
 
         # Short: In strong downtrend, price pulled back into EMA20/EMA50 zone, RSI reset (42-62), bearish trigger candle reclaiming below EMA20
-        if downtrend and (high >= ema20 * 0.998 or high >= ema50 * 0.998) and (close < open_p) and (close <= ema20 * 1.002) and (rsi_min_short <= rsi <= rsi_max_short) and (rvol >= rvol_min):
+        if (
+            downtrend
+            and (high >= ema20 * 0.998 or high >= ema50 * 0.998)
+            and (rsi_min_short <= rsi <= rsi_max_short)
+            and (close < open_p)
+            and (close <= ema20 * 1.002)
+            and (rvol >= rvol_min)
+            and (buyer_r <= buyer_ratio_max_short)
+        ):
             anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
             mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
             if htf_data:
@@ -765,10 +797,12 @@ class TrendPullbackConfluence(StrategyBase):
                     "4h": mtf_ctx["4h"]
                 }
 
-            risk_dist = max(atr_sl_mult * atr, close * min_risk_dist_pct)
+            sl_price = max(swing_h5, close + (atr_sl_mult * atr))
+            raw_risk = sl_price - close
+            risk_dist = max(raw_risk, close * min_risk_dist_pct)
+            sl_price = close + risk_dist
+            tp_price = close - (target_rr * risk_dist)
             entry_price = close
-            sl_price = entry_price + risk_dist
-            tp_price = entry_price - (target_rr * risk_dist)
             
             return {
                 "strategy": "Trend_Pullback_Confluence",
@@ -785,6 +819,7 @@ class TrendPullbackConfluence(StrategyBase):
                     "rsi": round(rsi, 1),
                     "rvol": round(rvol, 2),
                     "hurst": round(hurst, 3),
+                    "buyer_ratio": round(buyer_r, 1),
                     "trend_structure": "EMA20 < EMA50 < EMA200",
                     "volatility_atr": round(atr, 4),
                     "timeframe": timeframe,
