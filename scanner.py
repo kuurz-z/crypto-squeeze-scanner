@@ -424,9 +424,9 @@ async def scan_market_multi_tf(
                 h_c = float(htf_last['close'])
                 h_ema = float(htf_last.get('ema50', htf_last.get('sma20', h_c)))
                 h_rsi = float(htf_last.get('rsi14', 50.0))
-                if h_c > h_ema and h_rsi >= 48.0:
+                if h_c >= h_ema and h_rsi >= 46.0:
                     base_res[f"mtf_{htf_tf}"] = "BULLISH"
-                elif h_c < h_ema and h_rsi <= 52.0:
+                elif h_c <= h_ema and h_rsi <= 54.0:
                     base_res[f"mtf_{htf_tf}"] = "BEARISH"
                 else:
                     base_res[f"mtf_{htf_tf}"] = "NEUTRAL"
