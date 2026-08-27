@@ -1,5 +1,5 @@
 # Trade Record & Post-Mortem Diagnostic #2: COIN2 (LONG)
-*Closed on: 2026-08-26 19:08:18*
+*Closed on: 2026-08-28 01:06:16*
 
 ## 1. Trade Execution Summary
 - **Outcome**: `LOSS`

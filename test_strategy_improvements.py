@@ -439,13 +439,13 @@ class TestStrategyImprovements(unittest.TestCase):
         self.assertGreaterEqual((cd - ph_now()).total_seconds(), 1.9 * 3600)
         self.assertLessEqual((cd - ph_now()).total_seconds(), 2.1 * 3600)
 
-    def test_default_bot_timeframe_is_30m(self):
-        """Verify that default LiveCryptoBot instance initializes to 30m timeframe."""
+    def test_default_bot_timeframe_is_15m(self):
+        """Verify that default LiveCryptoBot instance initializes to 15m timeframe."""
         clean_dir = tempfile.mkdtemp()
         try:
             default_bot = LiveCryptoBot(data_dir=clean_dir)
-            self.assertEqual(default_bot.timeframe, "30m")
-            self.assertEqual(default_bot.timeframe_profile.get("stagnation_bars"), 10)
+            self.assertEqual(default_bot.timeframe, "15m")
+            self.assertEqual(default_bot.timeframe_profile.get("stagnation_bars"), 12)
         finally:
             shutil.rmtree(clean_dir, ignore_errors=True)
 
@@ -486,8 +486,8 @@ class TestStrategyImprovements(unittest.TestCase):
         self.assertTrue(pos.get("is_breakeven_protected"))
         self.assertGreaterEqual(pos["sl_price"], 100.40) # entry + 0.08 * 5.0
 
-    def test_profit_lock_at_1_6r_mfe(self):
-        """Verify that Tier 2 Profit Lock activates at +1.6R MFE (locking at least +0.75R profit)."""
+    def test_profit_lock_at_1_8r_mfe(self):
+        """Verify that Stage 2 Guaranteed Profit Lock activates at +1.8R MFE (locking +1.00R profit)."""
         self.bot.open_positions["LOCK_COIN"] = {
             "trade_id": 502,
             "symbol": "LOCK_COIN",
@@ -504,14 +504,14 @@ class TestStrategyImprovements(unittest.TestCase):
             "is_breakeven_protected": True,
             "pre_trade_context": {}
         }
-        # Price hits 108.5 (+1.7R MFE)
+        # Price hits 109.1 (+1.82R MFE)
         dates = pd.date_range("2026-01-01", periods=60, freq="15min")
         df_lock = pd.DataFrame({
             "time": [int(d.timestamp()) for d in dates],
             "open": [100.0] * 59 + [107.0],
-            "high": [102.0] * 59 + [108.5],
+            "high": [102.0] * 59 + [109.1],
             "low": [99.0] * 59 + [106.5],
-            "close": [101.0] * 59 + [108.0],
+            "close": [101.0] * 59 + [108.5],
             "volume": [1000.0] * 60,
             "atr14": [2.0] * 60,
             "rsi14": [58.0] * 60,
@@ -521,8 +521,9 @@ class TestStrategyImprovements(unittest.TestCase):
         asyncio.run(self.bot._update_open_positions({"LOCK_COIN": df_lock}))
         pos = self.bot.open_positions["LOCK_COIN"]
         self.assertTrue(pos.get("is_profit_locked"))
-        # SL locked at entry + 0.75 * 5.0 = 103.75
-        self.assertGreaterEqual(pos["sl_price"], 103.75)
+        self.assertEqual(pos.get("exit_status"), "Profit Locked 🔒 (+1.0R)")
+        # SL locked at entry + 1.00 * 5.0 = 105.00
+        self.assertGreaterEqual(pos["sl_price"], 105.00)
 
     def test_fast_stagnation_exit_at_10_bars(self):
         """Verify that trade stagnating for 10 bars with < 0.25R movement is exited."""

@@ -1,5 +1,5 @@
 # Trade Record & Post-Mortem Diagnostic #101: HOMEUSDT (LONG)
-*Closed on: 2026-08-26 19:04:43*
+*Closed on: 2026-08-28 01:06:12*
 
 ## 1. Trade Execution Summary
 - **Outcome**: `LOSS`
