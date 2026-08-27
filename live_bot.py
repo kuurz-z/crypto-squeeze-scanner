@@ -289,19 +289,6 @@ class LiveCryptoBot:
             except Exception:
                 loaded_trades = []
 
-        if os.path.exists(self.archive_file):
-            try:
-                with open(self.archive_file, "r", encoding="utf-8") as f:
-                    arch = json.load(f)
-                    arch_trades = arch.get("trades", [])
-                    existing_ids = {t.get("trade_id") for t in loaded_trades if t.get("trade_id")}
-                    for at in arch_trades:
-                        if at.get("trade_id") and at.get("trade_id") not in existing_ids:
-                            loaded_trades.append(at)
-                            existing_ids.add(at.get("trade_id"))
-            except Exception:
-                pass
-
         # Sort trades by trade_id ascending
         loaded_trades.sort(key=lambda x: x.get("trade_id", 0))
         self.closed_trades = loaded_trades

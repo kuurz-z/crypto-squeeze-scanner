@@ -77,7 +77,9 @@ class TestRateLimitGuard(unittest.IsolatedAsyncioTestCase):
 
     async def test_cross_timeframe_kline_deduplication(self):
         """Verify that overlapping timeframes between scan_tfs and mtf_intervals are fetched only once."""
-        bot = LiveCryptoBot(initial_capital=100.0, timeframe="triple")
+        import tempfile
+        test_dir = tempfile.mkdtemp()
+        bot = LiveCryptoBot(initial_capital=100.0, timeframe="triple", data_dir=test_dir)
         bot.symbols = ["BTCUSDT", "ETHUSDT"]
 
         scan_tfs = ["5m", "15m", "30m"]

@@ -964,6 +964,7 @@ class TestLiveBotEngine(unittest.TestCase):
     def test_force_close_position_api_endpoint(self):
         """Verify the FastAPI HTTP POST /api/bot/positions/{symbol}/close endpoint."""
         from fastapi.testclient import TestClient
+        from unittest.mock import patch
         from app import app
         from live_bot import bot_instance
 
@@ -988,20 +989,21 @@ class TestLiveBotEngine(unittest.TestCase):
             "pre_trade_context": {"reason": "API test"}
         }
 
-        client = TestClient(app)
+        with patch.object(bot_instance, "save_state"):
+            client = TestClient(app)
 
-        # 1. Close active position
-        response = client.post("/api/bot/positions/TESTUSDT/close", json={"exit_price": 1.10})
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data["success"])
-        self.assertEqual(data["trade"]["symbol"], "TESTUSDT")
-        self.assertEqual(data["trade"]["outcome"], "FORCED_CLOSE")
-        self.assertNotIn("TESTUSDT", bot_instance.open_positions)
+            # 1. Close active position
+            response = client.post("/api/bot/positions/TESTUSDT/close", json={"exit_price": 1.10})
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertTrue(data["success"])
+            self.assertEqual(data["trade"]["symbol"], "TESTUSDT")
+            self.assertEqual(data["trade"]["outcome"], "FORCED_CLOSE")
+            self.assertNotIn("TESTUSDT", bot_instance.open_positions)
 
-        # 2. 404 when closing again
-        response_404 = client.post("/api/bot/positions/TESTUSDT/close", json={})
-        self.assertEqual(response_404.status_code, 404)
+            # 2. 404 when closing again
+            response_404 = client.post("/api/bot/positions/TESTUSDT/close", json={})
+            self.assertEqual(response_404.status_code, 404)
 
     def test_telemetry_returns_all_closed_trades_unlimited(self):
         # Populate bot with 25 closed trades
