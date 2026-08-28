@@ -28,7 +28,7 @@ class TestStrategyImprovements(unittest.TestCase):
         except Exception:
             pass
 
-    def _create_mock_dataframe(self, n=60, rsi_val=60.0, body_ratio=0.7, upper_wick_ratio=0.1, rvol_val=1.5):
+    def _create_mock_dataframe(self, n=60, rsi_val=60.0, body_ratio=0.7, upper_wick_ratio=0.1, rvol_val=1.8):
         """Generate synthetic candle sequence with exact indicator properties for signal testing."""
         dates = pd.date_range("2026-01-01", periods=n, freq="15min")
         close_base = 100.0
@@ -76,7 +76,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "atr14": [2.0] * 60,
             "rsi14": [48.0] * 60,  # Healthy pullback reset
             "momentum": [0.5] * 60,
-            "rvol": [1.2] * 60
+            "rvol": [1.3] * 60
         })
         sig = TrendPullbackConfluence.generate_signal(df_pullback, len(df_pullback) - 1, target_rr=2.5)
         self.assertIsNotNone(sig)
@@ -103,7 +103,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "atr14": [2.0] * 60,
             "rsi14": [72.0] * 60,  # Overbought (>56)
             "momentum": [0.5] * 60,
-            "rvol": [1.2] * 60
+            "rvol": [1.3] * 60
         })
         sig = TrendPullbackConfluence.generate_signal(df_overbought, len(df_overbought) - 1, target_rr=2.5)
         self.assertIsNone(sig)
@@ -445,7 +445,7 @@ class TestStrategyImprovements(unittest.TestCase):
         try:
             default_bot = LiveCryptoBot(data_dir=clean_dir)
             self.assertEqual(default_bot.timeframe, "15m")
-            self.assertEqual(default_bot.timeframe_profile.get("stagnation_bars"), 12)
+            self.assertEqual(default_bot.timeframe_profile.get("stagnation_bars"), 16)
         finally:
             shutil.rmtree(clean_dir, ignore_errors=True)
 
@@ -487,7 +487,7 @@ class TestStrategyImprovements(unittest.TestCase):
         self.assertGreaterEqual(pos["sl_price"], 100.40) # entry + 0.08 * 5.0
 
     def test_profit_lock_at_1_8r_mfe(self):
-        """Verify that Stage 2 Guaranteed Profit Lock activates at +1.8R MFE (locking +1.00R profit)."""
+        """Verify that Stage 2 Guaranteed Profit Lock activates at +1.8R MFE (locking +1.00R profit / TP1 harvest)."""
         self.bot.open_positions["LOCK_COIN"] = {
             "trade_id": 502,
             "symbol": "LOCK_COIN",
@@ -521,12 +521,12 @@ class TestStrategyImprovements(unittest.TestCase):
         asyncio.run(self.bot._update_open_positions({"LOCK_COIN": df_lock}))
         pos = self.bot.open_positions["LOCK_COIN"]
         self.assertTrue(pos.get("is_profit_locked"))
-        self.assertEqual(pos.get("exit_status"), "Profit Locked 🔒 (+1.0R)")
-        # SL locked at entry + 1.00 * 5.0 = 105.00
-        self.assertGreaterEqual(pos["sl_price"], 105.00)
+        self.assertEqual(pos.get("exit_status"), "TP1 Booked 🎯 (+0.75R Banked, SL @ +0.50R)")
+        # SL locked at entry + 0.50 * 5.0 = 102.50
+        self.assertGreaterEqual(pos["sl_price"], 102.50)
 
     def test_fast_stagnation_exit_at_10_bars(self):
-        """Verify that trade stagnating for 10 bars with < 0.25R movement is exited."""
+        """Verify that trade stagnating for stagnation_bars with < 0.25R movement and flipped momentum is exited."""
         self.bot.open_positions["STAGNANT"] = {
             "trade_id": 503,
             "symbol": "STAGNANT",
@@ -540,7 +540,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "risk_distance": 5.0,
             "risk_amount_usd": 1.0,
             "target_rr": 3.0,
-            "bars_held": 9,
+            "bars_held": 15,
             "pre_trade_context": {}
         }
         dates = pd.date_range("2026-01-01", periods=60, freq="30min")
@@ -553,7 +553,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "volume": [1000.0] * 60,
             "atr14": [2.0] * 60,
             "rsi14": [50.0] * 60,
-            "momentum": [0.0] * 60,
+            "momentum": [-0.5] * 60,
             "rvol": [1.0] * 60
         })
         asyncio.run(self.bot._update_open_positions({"STAGNANT": df_stag}))
@@ -624,7 +624,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "rsi14": [56.0] * 60
         })
         htf_data = {"1h": df_1h}
-        sig = TrendPullbackConfluence.generate_signal(df_15m, len(df_15m) - 1, htf_data=htf_data, timeframe="15m")
+        sig = TrendPullbackConfluence.generate_signal(df_15m, len(df_15m) - 1, target_rr=3.0, htf_data=htf_data, timeframe="15m")
         self.assertIsNotNone(sig)
         self.assertEqual(sig["direction"], "LONG")
         self.assertEqual(sig["target_rr"], 3.0)
@@ -674,7 +674,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "rsi14": [44.0] * 60
         })
         htf_data = {"1h": df_1h}
-        sig = TrendPullbackConfluence.generate_signal(df_15m, len(df_15m) - 1, htf_data=htf_data, timeframe="15m")
+        sig = TrendPullbackConfluence.generate_signal(df_15m, len(df_15m) - 1, target_rr=3.0, htf_data=htf_data, timeframe="15m")
         self.assertIsNotNone(sig)
         self.assertEqual(sig["direction"], "SHORT")
         self.assertEqual(sig["target_rr"], 3.0)

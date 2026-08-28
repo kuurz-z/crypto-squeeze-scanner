@@ -14,23 +14,53 @@ def ph_fromtimestamp(ts: float) -> datetime:
     """Convert Unix epoch timestamp (seconds) to Philippine Standard Time (PHT, UTC+8)."""
     return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(PHT).replace(tzinfo=None)
 
-def format_trade_markdown(trade: Dict[str, Any]) -> str:
-    """Format a single trade record into structured Markdown with pre/post analysis."""
+def create_trade_journal_md(trade: Dict[str, Any]) -> str:
+    """Format a single trade record into structured Markdown with pre/post analysis and dual-stage scale-out breakdown."""
     dt_entry = ph_fromtimestamp(trade['entry_time']).strftime('%Y-%m-%d %H:%M') if trade.get('entry_time') else (trade.get('entry_time_str') or 'N/A')
     dt_exit = ph_fromtimestamp(trade['exit_time']).strftime('%Y-%m-%d %H:%M') if trade.get('exit_time') else (trade.get('exit_time_str') or 'N/A')
     
-    status_icon = "🟢" if trade['outcome'] == "WIN" else "🔴"
-    r_color = f"+{trade['net_r']}R" if trade['net_r'] > 0 else f"{trade['net_r']}R"
+    status_icon = "🟢" if trade.get('outcome') == "WIN" else ("🟡" if trade.get('outcome') in ["BE_EXIT", "BREAKEVEN_DEFENSE"] else "🔴")
+    net_r = trade.get('net_r', 0.0)
+    r_color = f"+{net_r}R" if net_r > 0 else f"{net_r}R"
     
     ctx = trade.get('pre_trade_context', {})
     diag = trade.get('diagnostic', {})
 
+    tp1_hit = bool(trade.get('tp1_hit', False))
+    tp1_price_val = trade.get('tp1_price', 'N/A')
+    
+    # Calculate scale-out and net R breakdown
+    raw_r = trade.get('raw_r', net_r)
+    friction_r = round(raw_r - net_r, 2) if 'raw_r' in trade and 'net_r' in trade else 0.08
+    if friction_r < 0:
+        friction_r = 0.08
+
+    if tp1_hit:
+        tp1_contrib = 0.75  # 50% position * +1.50R target = +0.75R banked
+        runner_contrib = round(raw_r - tp1_contrib, 2)
+        scale_out_status = f"✅ TP1 Hit @ ${tp1_price_val} | Banked: `+0.75R` profit (+1.50R on 50% position) with risk-free runner"
+        net_r_breakdown = f"`+0.75R` (TP1 Banked) + `{runner_contrib:+.2f}R` (Runner Gross) - `{friction_r:.2f}R` (Friction) = `{net_r:+.2f}R Net`"
+    else:
+        scale_out_status = f"❌ TP1 Not Reached (Target: ${tp1_price_val})"
+        net_r_breakdown = f"`{raw_r:+.2f}R` (Gross Position) - `{friction_r:.2f}R` (Friction) = `{net_r:+.2f}R Net`"
+
+    # Ensure diagnostic factors reflect dual-stage exits
+    key_factors = list(diag.get('key_factors', []))
+    if tp1_hit:
+        tp1_factor = "Dual-Stage Scale-Out executed: Banked +0.75R guaranteed profit at TP1 (+1.50R target) with risk-free runner."
+        if not any("Dual-Stage Scale-Out" in f for f in key_factors):
+            key_factors.append(tp1_factor)
+
     lines = [
-        f"### {status_icon} Trade #{trade['trade_id']}: {trade['symbol']} {trade['direction']} ({r_color})",
-        f"- **Strategy**: `{trade['strategy']}` | **Target R:R**: `1:{trade['target_rr']}`",
-        f"- **Entry**: `${trade['entry_price']}` ({dt_entry}) | **Exit**: `${trade['exit_price']}` ({dt_exit})",
-        f"- **Stop Loss**: `${trade['sl_price']}` | **Take Profit**: `${trade['tp_price']}`",
-        f"- **Performance**: Net R: `{r_color}` | Max Drawdown (MAE): `{trade['mae_r']}R` | Max Run (MFE): `{trade['mfe_r']}R` | Bars: `{trade['bars_held']}`",
+        f"### {status_icon} Trade #{trade.get('trade_id', 'N/A')}: {trade.get('symbol', 'N/A')} {trade.get('direction', 'N/A')} ({r_color})",
+        f"- **Strategy**: `{trade.get('strategy', 'N/A')}` | **Target R:R**: `1:{trade.get('target_rr', 'N/A')}`",
+        f"- **Entry**: `${trade.get('entry_price', 'N/A')}` ({dt_entry}) | **Exit**: `${trade.get('exit_price', 'N/A')}` ({dt_exit})",
+        f"- **Stop Loss**: `${trade.get('sl_price', 'N/A')}` | **TP1 Price**: `${tp1_price_val}` | **Final TP**: `${trade.get('tp_price', 'N/A')}`",
+        f"- **Performance**: Net R: `{r_color}` | Max Drawdown (MAE): `{trade.get('mae_r', 'N/A')}R` | Max Run (MFE): `{trade.get('mfe_r', 'N/A')}R` | Bars: `{trade.get('bars_held', 'N/A')}`",
+        "",
+        "**Dual-Stage Scale-Out Execution:**",
+        f"- *TP1 Status*: {scale_out_status}",
+        f"- *Net R Breakdown*: {net_r_breakdown}",
         "",
         "**Pre-Trade Analysis (Why Entered):**",
         f"- *Regime*: {ctx.get('regime', 'N/A')}",
@@ -40,10 +70,14 @@ def format_trade_markdown(trade: Dict[str, Any]) -> str:
         "**Post-Trade Diagnostic (Root Cause & Outcome):**",
         f"- *Catalyst Category*: **{diag.get('catalyst_type', 'N/A')}**",
         f"- *Diagnosis*: {diag.get('summary', 'N/A')}",
-        f"- *Key Contributing Factors*: {', '.join(diag.get('key_factors', [])) if diag.get('key_factors') else 'Standard trade evolution'}",
+        f"- *Key Contributing Factors*: {', '.join(key_factors) if key_factors else 'Standard trade evolution'}",
         "---"
     ]
     return "\n".join(lines)
+
+def format_trade_markdown(trade: Dict[str, Any]) -> str:
+    """Format a single trade record into structured Markdown (delegates to create_trade_journal_md)."""
+    return create_trade_journal_md(trade)
 
 def generate_full_simulation_report(
     results_by_strategy: Dict[str, Dict[str, Any]], 

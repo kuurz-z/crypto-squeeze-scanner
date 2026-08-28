@@ -68,7 +68,7 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
         "anchor_tf": "30m",
         "expected_hold_str": "25m - 2.5h",
         "max_holding_bars": 64,       # ~5.3 hours
-        "stagnation_bars": 10,        # ~50 mins fast capital recycling
+        "stagnation_bars": 18,        # ~1.5 hours smart stagnation
         "cooldown_minutes": 20,       # 4 bars
         "scan_interval_sec": 15,
     },
@@ -77,7 +77,7 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
         "anchor_tf": "1h",
         "expected_hold_str": "1.5h - 8h",
         "max_holding_bars": 64,       # ~16 hours
-        "stagnation_bars": 12,        # ~3 hours fast capital recycling
+        "stagnation_bars": 16,        # ~4 hours smart stagnation
         "cooldown_minutes": 45,       # 3 bars
         "scan_interval_sec": 20,
     },
@@ -86,7 +86,7 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
         "anchor_tf": "4h",
         "expected_hold_str": "3h - 16h",
         "max_holding_bars": 64,       # ~32 hours
-        "stagnation_bars": 10,        # ~5 hours fast capital recycling
+        "stagnation_bars": 16,        # ~8 hours smart stagnation
         "cooldown_minutes": 90,       # 3 bars
         "scan_interval_sec": 30,
     },
@@ -95,7 +95,7 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
         "anchor_tf": "1h/4h",
         "expected_hold_str": "Dynamic (1.5h - 16h)",
         "max_holding_bars": 64,
-        "stagnation_bars": 10,
+        "stagnation_bars": 16,
         "cooldown_minutes": 45,
         "scan_interval_sec": 20,
     },
@@ -104,7 +104,7 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
         "anchor_tf": "30m/1h/4h",
         "expected_hold_str": "Dynamic (25m - 32h)",
         "max_holding_bars": 64,
-        "stagnation_bars": 10,
+        "stagnation_bars": 16,
         "cooldown_minutes": 30,
         "scan_interval_sec": 15,
     }
@@ -124,7 +124,7 @@ class LiveCryptoBot:
         fixed_risk_usd: float = 1.0,
         timeframe: str = "15m",
         max_open_positions: int = 5,
-        target_rr: float = 3.0,
+        target_rr: float = 3.5,
         scan_interval_sec: Optional[int] = None,
         optimize_every_n_trades: int = 5,
         max_positions_per_sector: int = 2,
@@ -202,7 +202,7 @@ class LiveCryptoBot:
         self.active_params = {
             "rvol_min": 1.15,
             "atr_sl_mult": 2.20,
-            "target_rr": 3.0,
+            "target_rr": 3.5,
             "adx_min": 22.0,
             "rsi_min_long": 38.0,
             "rsi_max_long": 58.0,
@@ -221,7 +221,7 @@ class LiveCryptoBot:
         self.load_state()
         self.save_state()
 
-    def reset_account(self, initial_capital: float = 100.0, fixed_risk_usd: float = 1.0, target_rr: float = 3.0):
+    def reset_account(self, initial_capital: float = 100.0, fixed_risk_usd: float = 1.0, target_rr: float = 3.5):
         """Reset paper wallet balance to specified USD capital and clear depletion flags without wiping trade history."""
         self.initial_capital = initial_capital
         self.current_balance = initial_capital
@@ -657,10 +657,12 @@ class LiveCryptoBot:
 
     async def _update_open_positions(self, data_map: Any):
         """
-        Dynamic 3-Stage Milestone Exit Ladder with Unlimited Profit Runner Capability:
-        - Stage 1: Breakeven Defense at +1.0R MFE (SL moves to entry + 0.08R fee buffer).
-        - Stage 2: Guaranteed Profit Lock at +1.8R MFE (SL locks +1.00R profit).
-        - Stage 3: Unlimited Runner Mode at >= +3.0R MFE (Locks min +2.20R profit with 0.8x ATR trailing).
+        Dual-Stage Position Management & Smart Stagnation Ladder:
+        - Stage 1: Breakeven Defense at +1.00R MFE (SL moves to entry +- 0.15R fee shield).
+        - Stage 2: Partial Profit Harvest at +1.50R MFE (Banks +0.75R profit, halves position, SL moves to +0.50R).
+        - Stage 3: Dynamic Trailing Stop at +2.20R MFE (Locks min +1.50R profit, trails with 1.0x ATR).
+        - Stage 4: Unlimited Macro Runner at >= +3.50R MFE (Locks min +2.50R profit, trails with 0.8x ATR).
+        - Smart Stagnation Exit: Closes dead chop only if bars >= stagnation_bars, |unrealized| < 0.25R, and momentum flips against trade.
         """
         closed_symbols = []
         for sym, pos in list(self.open_positions.items()):
@@ -736,7 +738,9 @@ class LiveCryptoBot:
             # Hard Stop Loss Breach Evaluation
             sl_breached = (eval_low <= float(pos['sl_price'])) if is_long else (eval_high >= float(pos['sl_price']))
             if sl_breached:
-                if pos.get('is_unlimited_runner') or pos.get('is_profit_locked') or pos.get('is_trailing') or (is_long and float(pos['sl_price']) > entry_price + (0.1 * risk_dist)) or (not is_long and float(pos['sl_price']) < entry_price - (0.1 * risk_dist)):
+                if pos.get('tp1_hit'):
+                    outcome = "WIN"
+                elif pos.get('is_unlimited_runner') or pos.get('is_profit_locked') or pos.get('is_trailing') or (is_long and float(pos['sl_price']) > entry_price + (0.1 * risk_dist)) or (not is_long and float(pos['sl_price']) < entry_price - (0.1 * risk_dist)):
                     outcome = "TRAILING_STOP_WIN"
                 elif pos.get('is_breakeven_protected') or pos.get('is_breakeven'):
                     outcome = "BE_EXIT"
@@ -747,33 +751,48 @@ class LiveCryptoBot:
                 closed_symbols.append(sym)
                 continue
 
-            # STAGE 1 (Breakeven Defense at +1.0R MFE)
+            # STAGE 1 (Breakeven Defense at +1.00R MFE)
             if mfe >= 1.0 and not pos.get('is_breakeven_protected'):
-                be_price = entry_price + (0.08 * risk_dist) if is_long else entry_price - (0.08 * risk_dist)
+                be_price = entry_price + (0.15 * risk_dist) if is_long else entry_price - (0.15 * risk_dist)
                 curr_sl = float(pos['sl_price'])
                 if (is_long and be_price > curr_sl) or (not is_long and be_price < curr_sl):
                     pos['sl_price'] = format_price_precision(be_price)
                 pos['is_breakeven'] = True
                 pos['is_breakeven_protected'] = True
-                pos['exit_status'] = "Breakeven Protected 🛡️"
-                print(f"[LiveBot:ExitEngine] {sym} reached +1.0R MFE! Activated Breakeven Defense. SL adjusted to ${pos['sl_price']} (Risk eliminated).")
+                pos['exit_status'] = "Breakeven Protected 🛡️ (+0.15R fee shield)"
+                print(f"[LiveBot:ExitEngine] {sym} reached +1.0R MFE! Activated Breakeven Defense. SL adjusted to ${pos['sl_price']} (+0.15R fee shield).")
 
-            # STAGE 2 (Guaranteed Profit Lock at +1.8R MFE)
-            if mfe >= 1.8 and not pos.get('is_profit_locked'):
-                lock_price = entry_price + (1.00 * risk_dist) if is_long else entry_price - (1.00 * risk_dist)
+            # STAGE 2 (Partial Profit Harvest at +1.50R MFE)
+            if mfe >= 1.50 and not pos.get('tp1_hit'):
+                pos['tp1_hit'] = True
+                partial_gain_usd = round(0.75 * risk_usd, 2)
+                self.current_balance = round(self.current_balance + partial_gain_usd, 2)
+                pos['realized_partial_r'] = 0.75
+                pos['position_qty'] = round(pos.get('position_qty', 1.0) / 2.0, 6)
+                lock_price = entry_price + (0.50 * risk_dist) if is_long else entry_price - (0.50 * risk_dist)
                 curr_sl = float(pos['sl_price'])
                 if (is_long and lock_price > curr_sl) or (not is_long and lock_price < curr_sl):
                     pos['sl_price'] = format_price_precision(lock_price)
                 pos['is_profit_locked'] = True
-                pos['exit_status'] = "Profit Locked 🔒 (+1.0R)"
-                print(f"[LiveBot:ExitEngine] {sym} reached +1.8R MFE! Profit Lock active. SL adjusted to ${pos['sl_price']} (+1.0R guaranteed).")
+                pos['exit_status'] = "TP1 Booked 🎯 (+0.75R Banked, SL @ +0.50R)"
+                print(f"[LiveBot:ExitEngine] {sym} reached +1.50R MFE! TP1 Booked (+0.75R banked). Remaining half runner SL moved to ${pos['sl_price']} (+0.50R).")
 
-            # STAGE 3 (Unlimited Runner Mode at >= +3.0R MFE)
-            if mfe >= 3.0:
+            # STAGE 3 (Dynamic Trailing Stop at +2.20R MFE)
+            if mfe >= 2.20 and mfe < 3.50:
+                pos['is_trailing'] = True
+                pos['exit_status'] = "Trailing Runner 🏃 (+1.5R+)"
+                trail_sl = curr_price - (1.0 * atr) if is_long else curr_price + (1.0 * atr)
+                lock_price = entry_price + (1.50 * risk_dist) if is_long else entry_price - (1.50 * risk_dist)
+                curr_sl = float(pos['sl_price'])
+                best_sl = max(curr_sl, lock_price, trail_sl) if is_long else min(curr_sl, lock_price, trail_sl)
+                pos['sl_price'] = format_price_precision(best_sl)
+
+            # STAGE 4 (Unlimited Macro Runner at >= +3.50R MFE)
+            if mfe >= 3.50:
                 pos['is_unlimited_runner'] = True
-                pos['exit_status'] = "Profit Runner 🚀 (+2.2R+)"
-                lock_price = entry_price + (2.20 * risk_dist) if is_long else entry_price - (2.20 * risk_dist)
+                pos['exit_status'] = "Super Runner 🚀 (+2.5R+)"
                 trail_sl = curr_price - (0.8 * atr) if is_long else curr_price + (0.8 * atr)
+                lock_price = entry_price + (2.50 * risk_dist) if is_long else entry_price - (2.50 * risk_dist)
                 curr_sl = float(pos['sl_price'])
                 best_sl = max(curr_sl, lock_price, trail_sl) if is_long else min(curr_sl, lock_price, trail_sl)
                 pos['sl_price'] = format_price_precision(best_sl)
@@ -797,19 +816,28 @@ class LiveCryptoBot:
             # Timeframe-aware dynamic holding parameters
             pos_tf = pos.get('timeframe', '15m')
             tf_profile = TIMEFRAME_PROFILES.get(pos_tf, TIMEFRAME_PROFILES["15m"])
-            stagnation_bars = tf_profile.get("stagnation_bars", 12)
+            stagnation_bars = tf_profile.get("stagnation_bars", 16)
             max_hold_bars = tf_profile.get("max_holding_bars", 64)
 
-            # SAFEGUARD: Time Stagnation Exit (dead chop without movement)
-            # Protect active momentum trades: If trade reached >= +0.8R MFE or profit locked or unlimited runner, exempt from premature cut
-            if pos.get('bars_held', 0) >= stagnation_bars and abs(unrealized_dist / risk_dist) < 0.25 and not (mfe >= 0.8 or pos.get('is_profit_locked') or pos.get('is_unlimited_runner')):
-                print(f"[LiveBot:ExitEngine] {sym} Time Stagnation reached ({stagnation_bars} bars on {pos_tf} in dead chop). Exiting trade.")
+            # SMART STAGNATION EXIT:
+            # A trade is only closed for stagnation if:
+            # pos.get('bars_held', 0) >= stagnation_bars and abs(unrealized_dist / risk_dist) < 0.25 and not (mfe >= 0.80 or pos.get('tp1_hit') or pos.get('is_profit_locked') or pos.get('is_unlimited_runner'))
+            # AND momentum oscillator flips against trade direction ((is_long and mom < 0) or (not is_long and mom > 0))
+            is_stagnant = (
+                pos.get('bars_held', 0) >= stagnation_bars
+                and abs(unrealized_dist / risk_dist) < 0.25
+                and not (mfe >= 0.80 or pos.get('tp1_hit') or pos.get('is_profit_locked') or pos.get('is_unlimited_runner'))
+            )
+            mom_flipped = (is_long and mom < 0) or (not is_long and mom > 0)
+
+            if is_stagnant and mom_flipped:
+                print(f"[LiveBot:ExitEngine] {sym} Smart Stagnation exit reached ({stagnation_bars} bars on {pos_tf} in dead chop with momentum reversal). Exiting trade.")
                 await self._close_position(sym, exit_price=curr_price, exit_time=curr_time, outcome="TIME_EXIT", df=df)
                 closed_symbols.append(sym)
                 continue
 
             # SAFEGUARD: Max Holding Horizon Timeout (exempting active runners and profitable profit locks)
-            if pos.get('bars_held', 0) >= max_hold_bars and not pos.get('is_unlimited_runner') and not (pos.get('is_profit_locked') and mfe >= 1.8):
+            if pos.get('bars_held', 0) >= max_hold_bars and not pos.get('is_unlimited_runner') and not (pos.get('is_profit_locked') and mfe >= 1.50):
                 print(f"[LiveBot:ExitEngine] {sym} Max Holding Horizon reached ({max_hold_bars} bars on {pos_tf}). Closing trade at market.")
                 await self._close_position(sym, exit_price=curr_price, exit_time=curr_time, outcome="TIME_EXIT", df=df)
                 closed_symbols.append(sym)
@@ -879,10 +907,11 @@ class LiveCryptoBot:
                     direction = signal['direction']
                     entry_price = float(df.iloc[-1]['close'])
                     risk_dist = signal['risk_distance']
-                    target_rr = signal['target_rr']
+                    target_rr = signal.get('target_rr', 3.5)
                     sector = get_crypto_sector(sym)
 
                     sl_price = entry_price - risk_dist if direction == "LONG" else entry_price + risk_dist
+                    tp1_price = format_price_precision(entry_price + (1.50 * risk_dist)) if direction == "LONG" else format_price_precision(entry_price - (1.50 * risk_dist))
                     tp_price = entry_price + (target_rr * risk_dist) if direction == "LONG" else entry_price - (target_rr * risk_dist)
 
                     # Record discovered market signal for 24/7 Live Radar Feed
@@ -893,6 +922,7 @@ class LiveCryptoBot:
                         "direction": direction,
                         "entry_price": format_price_precision(entry_price),
                         "sl_price": format_price_precision(sl_price),
+                        "tp1_price": tp1_price,
                         "tp_price": format_price_precision(tp_price),
                         "target_rr": target_rr,
                         "discovered_at": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -908,6 +938,7 @@ class LiveCryptoBot:
                         "direction": direction,
                         "entry_price": entry_price,
                         "sl_price": sl_price,
+                        "tp1_price": tp1_price,
                         "tp_price": tp_price,
                         "risk_dist": risk_dist,
                         "target_rr": target_rr,
@@ -935,6 +966,7 @@ class LiveCryptoBot:
             signal_tf = cand["timeframe"]
             entry_price = cand["entry_price"]
             sl_price = cand["sl_price"]
+            tp1_price = cand["tp1_price"]
             tp_price = cand["tp_price"]
             risk_dist = cand["risk_dist"]
             target_rr = cand["target_rr"]
@@ -986,23 +1018,30 @@ class LiveCryptoBot:
                 "highest_since_entry": format_price_precision(entry_price),
                 "lowest_since_entry": format_price_precision(entry_price),
                 "sl_price": format_price_precision(sl_price),
+                "tp1_price": tp1_price,
                 "tp_price": format_price_precision(tp_price),
+                "tp1_hit": False,
+                "realized_partial_r": 0.0,
                 "risk_distance": risk_dist,
                 "risk_amount_usd": risk_amount_usd,
                 "position_qty": position_qty,
+                "initial_qty": position_qty,
                 "position_value_usd": position_value_usd,
                 "target_rr": target_rr,
                 "unrealized_r": 0.0,
                 "unrealized_pnl_usd": 0.0,
                 "mfe_r": 0.0,
                 "mae_r": 0.0,
+                "is_breakeven_protected": False,
+                "is_profit_locked": False,
+                "is_unlimited_runner": False,
                 "bars_held": 0,
                 "pre_trade_context": signal['pre_trade_context']
             }
 
             self.open_positions[sym] = pos_record
             self.symbol_last_entry_candle[sym] = candle_time
-            print(f"[LiveBot] OPENED {direction} on {sym} [{sector} | {signal_tf}] @ ${pos_record['entry_price']} (Fixed Risk: ${risk_amount_usd:.2f} USD, SL: ${pos_record['sl_price']}, TP: ${pos_record['tp_price']} [1:{target_rr} RR])")
+            print(f"[LiveBot] OPENED {direction} on {sym} [{sector} | {signal_tf}] @ ${pos_record['entry_price']} (Fixed Risk: ${risk_amount_usd:.2f} USD, SL: ${pos_record['sl_price']}, TP1: ${pos_record['tp1_price']}, TP: ${pos_record['tp_price']} [1:{target_rr} RR])")
             self.save_state()
 
     def _evaluate_active_strategy(
@@ -1067,27 +1106,40 @@ class LiveCryptoBot:
             return None
 
         is_long = (pos['direction'] == 'LONG')
-        risk_dist = pos.get('risk_distance', 1.0)
+        risk_dist = float(pos.get('risk_distance', 1.0))
+        risk_usd = float(pos.get('risk_amount_usd', self.fixed_risk_usd))
         friction_r = 0.08
         
-        if outcome == "WIN":
-            raw_r = pos['target_rr']
-            net_r = round(raw_r - friction_r, 2)
-        elif outcome in ["BE_EXIT", "BREAKEVEN_DEFENSE"]:
-            raw_r = 0.08
-            net_r = 0.0  # Zero loss (fees covered)
-        elif outcome in ["TRAILING_STOP_WIN", "MOMENTUM_EXIT", "TIME_EXIT", "FORCED_CLOSE", "MANUAL_CLOSE"]:
-            dist = (exit_price - pos['entry_price']) if is_long else (pos['entry_price'] - exit_price)
-            raw_r = round(dist / risk_dist, 2) if risk_dist > 0 else 0.0
-            net_r = round(raw_r - friction_r, 2)
-        else:  # LOSS
-            raw_r = -1.0
-            net_r = round(raw_r - friction_r, 2)
+        if pos.get('tp1_hit'):
+            # Dual-stage exit calculation for remaining half runner
+            runner_raw_r = ((exit_price - float(pos['entry_price'])) if is_long else (float(pos['entry_price']) - exit_price)) / risk_dist if risk_dist > 0 else 0.0
+            total_net_r = round(0.75 + (0.5 * (runner_raw_r - friction_r)), 2)
+            runner_pnl_usd = round(0.5 * (runner_raw_r - friction_r) * risk_usd, 2)
+            self.current_balance = round(self.current_balance + runner_pnl_usd, 2)
+            raw_r = round(0.75 + 0.5 * runner_raw_r, 2)
+            net_r = total_net_r
+            pnl_usd = round(total_net_r * risk_usd, 2)
 
-        risk_usd = pos.get('risk_amount_usd', self.fixed_risk_usd)
-        pnl_usd = round(net_r * risk_usd, 2)
-        
-        self.current_balance = round(self.current_balance + pnl_usd, 2)
+            if outcome == "LOSS" or outcome == "TRAILING_STOP_WIN" or outcome == "WIN":
+                outcome = "WIN" if total_net_r > 0.1 else "BE_EXIT"
+        else:
+            if outcome == "WIN":
+                raw_r = float(pos.get('target_rr', self.target_rr))
+                net_r = round(raw_r - friction_r, 2)
+            elif outcome in ["BE_EXIT", "BREAKEVEN_DEFENSE"]:
+                raw_r = 0.15
+                net_r = 0.0  # Zero loss (fees covered)
+            elif outcome in ["TRAILING_STOP_WIN", "MOMENTUM_EXIT", "TIME_EXIT", "FORCED_CLOSE", "MANUAL_CLOSE"]:
+                dist = (exit_price - float(pos['entry_price'])) if is_long else (float(pos['entry_price']) - exit_price)
+                raw_r = round(dist / risk_dist, 2) if risk_dist > 0 else 0.0
+                net_r = round(raw_r - friction_r, 2)
+            else:  # LOSS
+                raw_r = -1.0
+                net_r = round(raw_r - friction_r, 2)
+
+            pnl_usd = round(net_r * risk_usd, 2)
+            self.current_balance = round(self.current_balance + pnl_usd, 2)
+
         df_len = len(df) if df is not None else 1
         bars_held = max(1, pos.get('bars_held', df_len - 1))
 
@@ -1106,9 +1158,12 @@ class LiveCryptoBot:
             "exit_price": format_price_precision(exit_price),
             "sl_price": pos.get('sl_price', 0.0),
             "tp_price": pos.get('tp_price', 0.0),
+            "tp1_price": pos.get('tp1_price', 0.0),
+            "tp1_hit": pos.get('tp1_hit', False),
             "target_rr": pos.get('target_rr', self.target_rr),
             "risk_amount_usd": risk_usd,
             "position_qty": pos.get('position_qty', 1.0),
+            "initial_qty": pos.get('initial_qty', pos.get('position_qty', 1.0)),
             "position_value_usd": pos.get('position_value_usd', 0.0),
             "outcome": outcome,
             "raw_r": raw_r,

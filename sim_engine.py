@@ -95,6 +95,9 @@ def diagnose_trade_outcome(
             analysis["summary"] = f"Position was caught in choppy chop/counter-trend pressure over {bars_held} bars and eventually triggered 1R SL."
             analysis["key_factors"].append("Lack of sustained volume follow-through")
 
+    if trade.get('tp1_hit'):
+        analysis["key_factors"].append("Dual-Stage Scale-Out executed: Banked +0.75R guaranteed profit at TP1 (+1.50R target) with risk-free runner.")
+
     return analysis
 
 TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
@@ -151,7 +154,7 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
 def simulate_strategy_on_dataframe(
     df: pd.DataFrame, 
     strategy_cls: type[StrategyBase],
-    target_rr: float = 3.0,
+    target_rr: float = 3.5,
     fee_pct: float = 0.05,
     slippage_pct: float = 0.02,
     max_holding_bars: Optional[int] = None,
@@ -191,6 +194,13 @@ def simulate_strategy_on_dataframe(
         entry_time = int(df.iloc[i]['time'])
         
         is_long = (direction == 'LONG')
+        tp1_price = signal.get('tp1_price')
+        if tp1_price is None:
+            tp1_price = (entry_price + (1.50 * risk_dist)) if is_long else (entry_price - (1.50 * risk_dist))
+        else:
+            tp1_price = float(tp1_price)
+        tp1_hit = False
+
         bars_held = 0
         outcome = "OPEN"
         exit_price = entry_price
@@ -199,8 +209,6 @@ def simulate_strategy_on_dataframe(
         
         max_favorable_price = entry_price
         max_adverse_price = entry_price
-        is_be_protected = False
-        is_profit_locked = False
         is_trailing = False
         is_unlimited_runner = False
 
@@ -219,34 +227,32 @@ def simulate_strategy_on_dataframe(
                 max_adverse_price = min(max_adverse_price, bar_low)
                 current_mfe = max(0.0, (max_favorable_price - entry_price) / risk_dist)
 
-                # Tier 1: Breakeven at +1.0R
-                if current_mfe >= 1.0 and not is_be_protected:
-                    curr_sl = max(curr_sl, entry_price + (0.08 * risk_dist))
-                    is_be_protected = True
+                # Check TP1 hit
+                if bar_high >= tp1_price and not tp1_hit:
+                    tp1_hit = True
+                    curr_sl = max(curr_sl, entry_price + (0.15 * risk_dist))  # Risk-Free Breakeven + fee buffer
 
-                # Tier 2: Profit Lock at +1.6R
-                if current_mfe >= 1.6 and not is_profit_locked:
-                    curr_sl = max(curr_sl, entry_price + (0.75 * risk_dist))
-                    is_profit_locked = True
+                # At current_mfe >= 1.8 and tp1_hit: lock +0.5R
+                if current_mfe >= 1.8 and tp1_hit:
+                    curr_sl = max(curr_sl, entry_price + (0.50 * risk_dist))  # Lock +0.5R on remaining runner
 
-                # Tier 3: Dynamic Trailing Stop at +2.2R
-                if current_mfe >= 2.2 and current_mfe < 3.0:
+                # At current_mfe >= 2.2: dynamic trailing stop
+                if current_mfe >= 2.2:
                     is_trailing = True
                     trail_sl = bar_close - (1.0 * atr)
                     curr_sl = max(curr_sl, entry_price + (1.5 * risk_dist), trail_sl)
 
-                # Tier 4: Unlimited Profit Runner at >= +3.0R (trailing 0.8x ATR)
-                if current_mfe >= 3.0:
+                # At current_mfe >= 3.5: unlimited profit runner
+                if current_mfe >= 3.5:
                     is_unlimited_runner = True
-                    is_trailing = True
                     trail_sl = bar_close - (0.8 * atr)
-                    curr_sl = max(curr_sl, entry_price + (2.0 * risk_dist), trail_sl)
+                    curr_sl = max(curr_sl, entry_price + (2.5 * risk_dist), trail_sl)
 
                 # Check SL hit
                 if bar_low <= curr_sl:
-                    if is_trailing or curr_sl > entry_price + (0.1 * risk_dist):
+                    if is_trailing or curr_sl >= entry_price + (0.45 * risk_dist):
                         outcome = "TRAILING_STOP_WIN"
-                    elif is_be_protected:
+                    elif tp1_hit or curr_sl > entry_price:
                         outcome = "BE_EXIT"
                     else:
                         outcome = "LOSS"
@@ -263,46 +269,45 @@ def simulate_strategy_on_dataframe(
                     exit_idx = j
                     break
 
-                # Check Fast Stagnation Exit at 10 bars
-                elif bars_held >= stagnation_bars and abs((bar_close - entry_price) / risk_dist) < 0.25 and not (current_mfe >= 0.8 or is_trailing or is_profit_locked):
+                # Check Fast Stagnation Exit at stagnation_bars
+                elif bars_held >= stagnation_bars and abs((bar_close - entry_price) / risk_dist) < 0.25 and not (current_mfe >= 0.8 or is_trailing or tp1_hit):
                     outcome = "TIME_EXIT"
                     exit_price = bar_close
                     exit_time = bar_time
                     exit_idx = j
                     break
+
             else:  # SHORT
                 max_favorable_price = min(max_favorable_price, bar_low)
                 max_adverse_price = max(max_adverse_price, bar_high)
                 current_mfe = max(0.0, (entry_price - max_favorable_price) / risk_dist)
 
-                # Tier 1: Breakeven at +1.0R
-                if current_mfe >= 1.0 and not is_be_protected:
-                    curr_sl = min(curr_sl, entry_price - (0.08 * risk_dist))
-                    is_be_protected = True
+                # Check TP1 hit
+                if bar_low <= tp1_price and not tp1_hit:
+                    tp1_hit = True
+                    curr_sl = min(curr_sl, entry_price - (0.15 * risk_dist))  # Risk-Free Breakeven + fee buffer
 
-                # Tier 2: Profit Lock at +1.6R
-                if current_mfe >= 1.6 and not is_profit_locked:
-                    curr_sl = min(curr_sl, entry_price - (0.75 * risk_dist))
-                    is_profit_locked = True
+                # At current_mfe >= 1.8 and tp1_hit: lock +0.5R
+                if current_mfe >= 1.8 and tp1_hit:
+                    curr_sl = min(curr_sl, entry_price - (0.50 * risk_dist))  # Lock +0.5R on remaining runner
 
-                # Tier 3: Dynamic Trailing Stop at +2.2R
-                if current_mfe >= 2.2 and current_mfe < 3.0:
+                # At current_mfe >= 2.2: dynamic trailing stop
+                if current_mfe >= 2.2:
                     is_trailing = True
                     trail_sl = bar_close + (1.0 * atr)
                     curr_sl = min(curr_sl, entry_price - (1.5 * risk_dist), trail_sl)
 
-                # Tier 4: Unlimited Profit Runner at >= +3.0R (trailing 0.8x ATR)
-                if current_mfe >= 3.0:
+                # At current_mfe >= 3.5: unlimited profit runner
+                if current_mfe >= 3.5:
                     is_unlimited_runner = True
-                    is_trailing = True
                     trail_sl = bar_close + (0.8 * atr)
-                    curr_sl = min(curr_sl, entry_price - (2.0 * risk_dist), trail_sl)
+                    curr_sl = min(curr_sl, entry_price - (2.5 * risk_dist), trail_sl)
 
                 # Check SL hit
                 if bar_high >= curr_sl:
-                    if is_trailing or curr_sl < entry_price - (0.1 * risk_dist):
+                    if is_trailing or curr_sl <= entry_price - (0.45 * risk_dist):
                         outcome = "TRAILING_STOP_WIN"
-                    elif is_be_protected:
+                    elif tp1_hit or curr_sl < entry_price:
                         outcome = "BE_EXIT"
                     else:
                         outcome = "LOSS"
@@ -319,8 +324,8 @@ def simulate_strategy_on_dataframe(
                     exit_idx = j
                     break
 
-                # Check Fast Stagnation Exit at 10 bars
-                elif bars_held >= stagnation_bars and abs((entry_price - bar_close) / risk_dist) < 0.25 and not (current_mfe >= 0.8 or is_trailing or is_profit_locked):
+                # Check Fast Stagnation Exit at stagnation_bars
+                elif bars_held >= stagnation_bars and abs((entry_price - bar_close) / risk_dist) < 0.25 and not (current_mfe >= 0.8 or is_trailing or tp1_hit):
                     outcome = "TIME_EXIT"
                     exit_price = bar_close
                     exit_time = bar_time
@@ -333,11 +338,18 @@ def simulate_strategy_on_dataframe(
             exit_price = float(last_bar['close'])
             exit_time = int(last_bar['time'])
             exit_idx = min(i + max_holding_bars, n - 1)
-            pnl_dist = (exit_price - entry_price) if is_long else (entry_price - exit_price)
-            raw_r = round(pnl_dist / risk_dist, 2)
-            outcome = "WIN" if raw_r > 0 else "LOSS"
+            outcome = "TIME_EXIT"
+
+        runner_raw_r = (exit_price - entry_price) / risk_dist if is_long else (entry_price - exit_price) / risk_dist
+
+        if tp1_hit:
+            raw_r = round((0.5 * 1.50) + (0.5 * runner_raw_r), 2)
+            if outcome in ["LOSS", "TIME_EXIT", "BE_EXIT"]:
+                outcome = "WIN" if raw_r > 0.1 else ("BE_EXIT" if raw_r >= -0.05 else "LOSS")
         else:
-            raw_r = target_rr if outcome == "WIN" else -1.0
+            raw_r = round(runner_raw_r, 2)
+            if outcome in ["TIME_EXIT"]:
+                outcome = "WIN" if raw_r > 0.1 else ("BE_EXIT" if raw_r >= -0.05 else "LOSS")
 
         # Calculate MAE and MFE in terms of R-multiples
         if is_long:
@@ -364,6 +376,8 @@ def simulate_strategy_on_dataframe(
             "exit_price": round(exit_price, 6 if exit_price < 1 else 2),
             "sl_price": round(signal['sl_price'], 6 if signal['sl_price'] < 1 else 2),
             "tp_price": round(tp_price, 6 if tp_price < 1 else 2),
+            "tp1_price": round(tp1_price, 6 if tp1_price < 1 else 2),
+            "tp1_hit": tp1_hit,
             "target_rr": target_rr,
             "outcome": outcome,
             "raw_r": raw_r,

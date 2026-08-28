@@ -91,12 +91,25 @@ def compute_crypto_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df['bb_lower'] = df['sma20'] - (2.0 * df['std20'])
     df['bb_width'] = (df['bb_upper'] - df['bb_lower']) / df['sma20']
 
+    # Bollinger Band Width Percentile (Rolling 50-bar quantile rank: 0 to 100)
+    def _rolling_quantile_rank(w):
+        valid = w[~np.isnan(w)]
+        if len(valid) == 0:
+            return 50.0
+        return float((valid < valid[-1]).mean() * 100.0)
+
+    df['bb_width_percentile'] = df['bb_width'].rolling(50).apply(_rolling_quantile_rank, raw=True).fillna(50.0)
+
     # ATR (14)
     high_low = df['high'] - df['low']
     high_close = (df['high'] - df['close'].shift(1)).abs()
     low_close = (df['low'] - df['close'].shift(1)).abs()
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     df['atr14'] = tr.rolling(window=14).mean().bfill()
+
+    # ATR Volatility Expansion Ratio (Current ATR over rolling 20-bar SMA of ATR)
+    atr_sma20 = df['atr14'].rolling(20).mean()
+    df['atr_expansion'] = (df['atr14'] / atr_sma20.replace(0, np.nan)).fillna(1.0)
 
     # Keltner Channels (20 SMA, 1.5 ATR)
     df['kc_upper'] = df['sma20'] + (1.5 * df['atr14'])
@@ -295,7 +308,7 @@ class StrategyBase:
     def generate_signal(
         df: pd.DataFrame, 
         idx: int, 
-        target_rr: float = 2.0,
+        target_rr: float = 3.5,
         params: Optional[Dict[str, Any]] = None,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None,
         timeframe: str = "15m"
@@ -305,13 +318,13 @@ class StrategyBase:
 
 class SqueezeMomentumBreakout(StrategyBase):
     name = "Squeeze_Momentum_Breakout"
-    description = "Trades high-probability volatility expansion out of compressed Bollinger Bands/Keltner Channels with pullback/retest precision, volume surge, Hurst regime gating, and MTF alignment."
+    description = "Trades high-probability volatility expansion out of compressed Bollinger Bands/Keltner Channels with pullback/retest precision, volume surge, SMC order flow confirmation, Hurst regime gating, and MTF alignment."
 
     @staticmethod
     def generate_signal(
         df: pd.DataFrame, 
         idx: int, 
-        target_rr: float = 3.0,
+        target_rr: float = 3.5,
         params: Optional[Dict[str, Any]] = None,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None,
         timeframe: str = "15m"
@@ -323,15 +336,19 @@ class SqueezeMomentumBreakout(StrategyBase):
             return None
 
         p = params or {}
-        rvol_min = p.get("rvol_min", 1.20)
+        rvol_min = p.get("rvol_min", 1.60)
         atr_sl_mult = p.get("atr_sl_mult", 2.20)
         rsi_min_long = p.get("rsi_min_long", 44.0)
         rsi_max_long = p.get("rsi_max_long", 64.0)
         rsi_min_short = p.get("rsi_min_short", 36.0)
         rsi_max_short = p.get("rsi_max_short", 56.0)
-        min_body_ratio = p.get("min_body_ratio", 0.25)
-        max_wick_ratio = p.get("max_wick_ratio", 0.40)
+        min_body_ratio = p.get("min_body_ratio", 0.40)
+        max_wick_ratio = p.get("max_wick_ratio", 0.32)
         min_risk_dist_pct = p.get("min_risk_dist_pct", 0.012)
+        buyer_ratio_min_long = p.get("buyer_ratio_min_long", 53.0)
+        buyer_ratio_max_short = p.get("buyer_ratio_max_short", 47.0)
+        max_bb_width_percentile = p.get("max_bb_width_percentile", 30.0)
+        min_atr_expansion = p.get("min_atr_expansion", 1.05)
 
         curr = df.iloc[idx]
         
@@ -358,6 +375,12 @@ class SqueezeMomentumBreakout(StrategyBase):
         if atr <= 0:
             return None
 
+        # SMC Volatility Gating: Require BB compression (bb_width_percentile <= 30.0) or ATR expansion (atr_expansion >= 1.05)
+        bb_width_pct = float(curr['bb_width_percentile']) if 'bb_width_percentile' in curr and not pd.isna(curr['bb_width_percentile']) else 25.0
+        atr_exp = float(curr['atr_expansion']) if 'atr_expansion' in curr and not pd.isna(curr['atr_expansion']) else 1.10
+        if not (bb_width_pct <= max_bb_width_percentile or atr_exp >= min_atr_expansion):
+            return None
+
         # Regime Gating: Reject trades in strongly mean-reverting chop (H < 0.48) or dead trendless markets (ADX < 22)
         adx_min = p.get("adx_min", 22.0)
         if hurst < 0.48 or adx < adx_min:
@@ -368,10 +391,21 @@ class SqueezeMomentumBreakout(StrategyBase):
 
         # Long Setup: Squeeze release + Bullish Momentum + Safe RSI Corridor (44-64) + Retest / Breakout Confirmation
         swing_h5 = float(curr.get('swing_high_5', close)) if 'swing_high_5' in curr and not pd.isna(curr['swing_high_5']) else close
-        buyer_r = float(curr.get('buyer_ratio', 50.0)) if 'buyer_ratio' in curr and not pd.isna(curr['buyer_ratio']) else 50.0
+        if 'buyer_ratio' in curr and not pd.isna(curr['buyer_ratio']):
+            buyer_r = float(curr['buyer_ratio'])
+        else:
+            c_tot_r = max(high - low, 1e-6)
+            clv = ((close - low) - (high - close)) / c_tot_r
+            buyer_r = float(np.clip(((clv + 1.0) / 2.0 * 100.0), 0.0, 100.0))
 
-        # Bullish conditions: Momentum positive, price > EMA50, healthy RSI corridor, strong buyer participation
-        is_bullish_expansion = (mom > 0) and (close > ema50) and (rsi_min_long <= rsi <= rsi_max_long) and (rvol >= rvol_min) and (buyer_r >= 44.0)
+        # Bullish conditions: Momentum positive, price > EMA50, healthy RSI corridor, volume surge (>= 1.60), strong buyer participation (>= 53.0)
+        is_bullish_expansion = (
+            (mom > 0) 
+            and (close > ema50) 
+            and (rsi_min_long <= rsi <= rsi_max_long) 
+            and (rvol >= rvol_min) 
+            and (buyer_r >= buyer_ratio_min_long)
+        )
         # Entry triggered on breakout confirmation OR healthy pullback retest touching EMA20
         pullback_retest = (low <= ema20 * 1.004) and (close >= ema20 * 0.996)
         breakout_trigger = (close > curr['bb_upper'] or pullback_retest) and (close >= swing_h5 * 0.998)
@@ -400,13 +434,14 @@ class SqueezeMomentumBreakout(StrategyBase):
             body = close - open_p
             upper_wick = high - close
             
-            # Reject wick traps and dojis (ensure strong directional body closing near highs)
+            # Reject wick traps and dojis (body ratio >= 0.40, upper wick ratio <= 0.32)
             if body > 0 and (body / total_range) >= min_body_ratio and (upper_wick / total_range) <= max_wick_ratio:
                 # Structural Stop Loss: Below recent swing low or ATR buffer
                 recent_low = float(df['low'].iloc[max(0, idx-5):idx].min()) if idx >= 5 else low
                 sl_price = min(recent_low * 0.998, close - risk_dist)
                 risk_dist = close - sl_price
-                tp_price = close + (target_rr * risk_dist)
+                tp1_price = format_price_precision(close + (1.50 * risk_dist))
+                tp_price = format_price_precision(close + (target_rr * risk_dist))
                 
                 return {
                     "strategy": "Squeeze_Momentum_Breakout",
@@ -414,7 +449,9 @@ class SqueezeMomentumBreakout(StrategyBase):
                     "timeframe": timeframe,
                     "entry_price": format_price_precision(close),
                     "sl_price": format_price_precision(sl_price),
-                    "tp_price": format_price_precision(tp_price),
+                    "tp1_price": tp1_price,
+                    "tp1_rr": 1.5,
+                    "tp_price": tp_price,
                     "risk_distance": risk_dist,
                     "target_rr": target_rr,
                     "pre_trade_context": {
@@ -427,7 +464,10 @@ class SqueezeMomentumBreakout(StrategyBase):
                         "buyer_ratio": round(buyer_r, 1),
                         "ema_alignment": "Close > EMA50",
                         "body_ratio": round(body / total_range, 2),
+                        "upper_wick_ratio": round(upper_wick / total_range, 2),
                         "volatility_atr": round(atr, 4),
+                        "bb_width_percentile": round(bb_width_pct, 1),
+                        "atr_expansion": round(atr_exp, 2),
                         "timeframe": timeframe,
                         "mtf_alignment": mtf_summary
                     }
@@ -435,8 +475,20 @@ class SqueezeMomentumBreakout(StrategyBase):
 
         # Short Setup: Squeeze release + Bearish Momentum + Safe RSI Corridor (36-56) + Retest / Breakdown Confirmation
         swing_l5 = float(curr.get('swing_low_5', close)) if 'swing_low_5' in curr and not pd.isna(curr['swing_low_5']) else close
+        if 'buyer_ratio' in curr and not pd.isna(curr['buyer_ratio']):
+            buyer_r = float(curr['buyer_ratio'])
+        else:
+            c_tot_r = max(high - low, 1e-6)
+            clv = ((close - low) - (high - close)) / c_tot_r
+            buyer_r = float(np.clip(((clv + 1.0) / 2.0 * 100.0), 0.0, 100.0))
 
-        is_bearish_expansion = (mom < 0) and (close < ema50) and (rsi_min_short <= rsi <= rsi_max_short) and (rvol >= rvol_min) and (buyer_r <= 56.0)
+        is_bearish_expansion = (
+            (mom < 0) 
+            and (close < ema50) 
+            and (rsi_min_short <= rsi <= rsi_max_short) 
+            and (rvol >= rvol_min) 
+            and (buyer_r <= buyer_ratio_max_short)
+        )
         pullback_retest_short = (high >= ema20 * 0.996) and (close <= ema20 * 1.004)
         breakdown_trigger = (close < curr['bb_lower'] or pullback_retest_short) and (close <= swing_l5 * 1.002)
 
@@ -464,12 +516,13 @@ class SqueezeMomentumBreakout(StrategyBase):
             body = open_p - close
             lower_wick = close - low
             
-            # Reject wick traps and dojis (ensure strong directional body closing near lows)
+            # Reject wick traps and dojis (body ratio >= 0.40, lower wick ratio <= 0.32)
             if body > 0 and (body / total_range) >= min_body_ratio and (lower_wick / total_range) <= max_wick_ratio:
                 recent_high = float(df['high'].iloc[max(0, idx-5):idx].max()) if idx >= 5 else high
                 sl_price = max(recent_high * 1.002, close + risk_dist)
                 risk_dist = sl_price - close
-                tp_price = close - (target_rr * risk_dist)
+                tp1_price = format_price_precision(close - (1.50 * risk_dist))
+                tp_price = format_price_precision(close - (target_rr * risk_dist))
                 
                 return {
                     "strategy": "Squeeze_Momentum_Breakout",
@@ -477,7 +530,9 @@ class SqueezeMomentumBreakout(StrategyBase):
                     "timeframe": timeframe,
                     "entry_price": format_price_precision(close),
                     "sl_price": format_price_precision(sl_price),
-                    "tp_price": format_price_precision(tp_price),
+                    "tp1_price": tp1_price,
+                    "tp1_rr": 1.5,
+                    "tp_price": tp_price,
                     "risk_distance": risk_dist,
                     "target_rr": target_rr,
                     "pre_trade_context": {
@@ -490,7 +545,10 @@ class SqueezeMomentumBreakout(StrategyBase):
                         "buyer_ratio": round(buyer_r, 1),
                         "ema_alignment": "Close < EMA50",
                         "body_ratio": round(body / total_range, 2),
+                        "lower_wick_ratio": round(lower_wick / total_range, 2),
                         "volatility_atr": round(atr, 4),
+                        "bb_width_percentile": round(bb_width_pct, 1),
+                        "atr_expansion": round(atr_exp, 2),
                         "timeframe": timeframe,
                         "mtf_alignment": mtf_summary
                     }
@@ -506,7 +564,7 @@ class LiquiditySweepReversal(StrategyBase):
     def generate_signal(
         df: pd.DataFrame, 
         idx: int, 
-        target_rr: float = 3.0,
+        target_rr: float = 3.5,
         params: Optional[Dict[str, Any]] = None,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None,
         timeframe: str = "15m"
@@ -518,7 +576,8 @@ class LiquiditySweepReversal(StrategyBase):
             return None
 
         p = params or {}
-        rvol_min = p.get("rvol_min", 1.10)
+        rvol_min = p.get("rvol_min", 1.20)
+        min_rejection_wick_ratio = p.get("min_rejection_wick_ratio", 0.50)
         min_risk_dist_pct = p.get("min_risk_dist_pct", 0.012)
 
         curr = df.iloc[idx]
@@ -529,14 +588,25 @@ class LiquiditySweepReversal(StrategyBase):
         atr = float(curr['atr14'])
         swing_high = float(curr['swing_high_20'])
         swing_low = float(curr['swing_low_20'])
-        rvol = float(curr['rvol'])
-        rsi = float(curr['rsi14'])
+        rvol = float(curr.get('rvol', 1.0))
+        rsi = float(curr.get('rsi14', 50.0))
 
         if atr <= 0 or np.isnan(swing_high) or np.isnan(swing_low):
             return None
 
+        total_range = max(high - low, 1e-6)
+
         # Long: Sweep of swing low, closing with bullish rejection wick and non-overbought RSI
-        if low < swing_low and close > swing_low and close > open_p and rsi <= 55.0:
+        lower_wick = min(open_p, close) - low
+        lower_wick_ratio = lower_wick / total_range
+        if (
+            low < swing_low 
+            and close > swing_low 
+            and close > open_p 
+            and rsi <= 55.0 
+            and lower_wick_ratio >= min_rejection_wick_ratio 
+            and rvol >= rvol_min
+        ):
             anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
             mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
             if htf_data:
@@ -556,37 +626,46 @@ class LiquiditySweepReversal(StrategyBase):
                     "4h": mtf_ctx["4h"]
                 }
 
-            lower_wick = min(open_p, close) - low
-            body = abs(close - open_p)
-            if lower_wick >= 0.8 * (body + 1e-6) and rvol >= rvol_min:  # Valid rejection wick
-                risk_dist = max(atr * 1.5, (close - low) * 1.20, close * min_risk_dist_pct)
-                entry_price = close
-                sl_price = entry_price - risk_dist
-                tp_price = entry_price + (target_rr * risk_dist)
-                
-                return {
-                    "strategy": "Liquidity_Sweep_Reversal",
-                    "direction": "LONG",
+            risk_dist = max(atr * 1.5, (close - low) * 1.20, close * min_risk_dist_pct)
+            entry_price = close
+            sl_price = entry_price - risk_dist
+            tp1_price = format_price_precision(entry_price + (1.50 * risk_dist))
+            tp_price = format_price_precision(entry_price + (target_rr * risk_dist))
+            
+            return {
+                "strategy": "Liquidity_Sweep_Reversal",
+                "direction": "LONG",
+                "timeframe": timeframe,
+                "entry_price": format_price_precision(entry_price),
+                "sl_price": format_price_precision(sl_price),
+                "tp1_price": tp1_price,
+                "tp1_rr": 1.5,
+                "tp_price": tp_price,
+                "risk_distance": risk_dist,
+                "target_rr": target_rr,
+                "pre_trade_context": {
+                    "regime": "Liquidity Hunt Reversal (Bull Trap Clearance)",
+                    "reason": f"Price pierced 20-bar swing low ({round(swing_low, 4)}) on {timeframe} and rejected aggressively with lower wick (Anchored to {mtf_summary.get('anchor_tf', 'HTF')})",
+                    "rvol": round(rvol, 2),
+                    "rsi": round(rsi, 1),
+                    "lower_wick_ratio": round(lower_wick_ratio, 2),
+                    "volatility_atr": round(atr, 4),
                     "timeframe": timeframe,
-                    "entry_price": format_price_precision(entry_price),
-                    "sl_price": format_price_precision(sl_price),
-                    "tp_price": format_price_precision(tp_price),
-                    "risk_distance": risk_dist,
-                    "target_rr": target_rr,
-                    "pre_trade_context": {
-                        "regime": "Liquidity Hunt Reversal (Bull Trap Clearance)",
-                        "reason": f"Price pierced 20-bar swing low ({round(swing_low, 4)}) on {timeframe} and rejected aggressively with lower wick (Anchored to {mtf_summary.get('anchor_tf', 'HTF')})",
-                        "rvol": round(rvol, 2),
-                        "rsi": round(rsi, 1),
-                        "lower_wick_ratio": round(lower_wick / (body + 1e-6), 2),
-                        "volatility_atr": round(atr, 4),
-                        "timeframe": timeframe,
-                        "mtf_alignment": mtf_summary
-                    }
+                    "mtf_alignment": mtf_summary
                 }
+            }
 
         # Short: Sweep of swing high, closing with bearish rejection wick and non-oversold RSI
-        if high > swing_high and close < swing_high and close < open_p and rsi >= 45.0:
+        upper_wick = high - max(open_p, close)
+        upper_wick_ratio = upper_wick / total_range
+        if (
+            high > swing_high 
+            and close < swing_high 
+            and close < open_p 
+            and rsi >= 45.0 
+            and upper_wick_ratio >= min_rejection_wick_ratio 
+            and rvol >= rvol_min
+        ):
             anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
             mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
             if htf_data:
@@ -606,46 +685,46 @@ class LiquiditySweepReversal(StrategyBase):
                     "4h": mtf_ctx["4h"]
                 }
 
-            upper_wick = high - max(open_p, close)
-            body = abs(close - open_p)
-            if upper_wick >= 0.8 * (body + 1e-6) and rvol >= rvol_min:  # Valid rejection wick
-                risk_dist = max(atr * 1.5, (high - close) * 1.20, close * min_risk_dist_pct)
-                entry_price = close
-                sl_price = entry_price + risk_dist
-                tp_price = entry_price - (target_rr * risk_dist)
-                
-                return {
-                    "strategy": "Liquidity_Sweep_Reversal",
-                    "direction": "SHORT",
+            risk_dist = max(atr * 1.5, (high - close) * 1.20, close * min_risk_dist_pct)
+            entry_price = close
+            sl_price = entry_price + risk_dist
+            tp1_price = format_price_precision(entry_price - (1.50 * risk_dist))
+            tp_price = format_price_precision(entry_price - (target_rr * risk_dist))
+            
+            return {
+                "strategy": "Liquidity_Sweep_Reversal",
+                "direction": "SHORT",
+                "timeframe": timeframe,
+                "entry_price": format_price_precision(entry_price),
+                "sl_price": format_price_precision(sl_price),
+                "tp1_price": tp1_price,
+                "tp1_rr": 1.5,
+                "tp_price": tp_price,
+                "risk_distance": risk_dist,
+                "target_rr": target_rr,
+                "pre_trade_context": {
+                    "regime": "Liquidity Hunt Reversal (Bear Trap Clearance)",
+                    "reason": f"Price swept 20-bar swing high ({round(swing_high, 4)}) on {timeframe} and rejected aggressively with upper wick (Anchored to {mtf_summary.get('anchor_tf', 'HTF')})",
+                    "rvol": round(rvol, 2),
+                    "rsi": round(rsi, 1),
+                    "upper_wick_ratio": round(upper_wick_ratio, 2),
+                    "volatility_atr": round(atr, 4),
                     "timeframe": timeframe,
-                    "entry_price": format_price_precision(entry_price),
-                    "sl_price": format_price_precision(sl_price),
-                    "tp_price": format_price_precision(tp_price),
-                    "risk_distance": risk_dist,
-                    "target_rr": target_rr,
-                    "pre_trade_context": {
-                        "regime": "Liquidity Hunt Reversal (Bear Trap Clearance)",
-                        "reason": f"Price swept 20-bar swing high ({round(swing_high, 4)}) on {timeframe} and rejected aggressively with upper wick (Anchored to {mtf_summary.get('anchor_tf', 'HTF')})",
-                        "rvol": round(rvol, 2),
-                        "rsi": round(rsi, 1),
-                        "upper_wick_ratio": round(upper_wick / (body + 1e-6), 2),
-                        "volatility_atr": round(atr, 4),
-                        "timeframe": timeframe,
-                        "mtf_alignment": mtf_summary
-                    }
+                    "mtf_alignment": mtf_summary
                 }
+            }
 
         return None
 
 class TrendPullbackConfluence(StrategyBase):
     name = "Trend_Pullback_Confluence"
-    description = "Enters on high-probability pullbacks to EMA20/EMA50 value zones within established higher-timeframe trends with 1:3.0+ RR and 2.0x ATR protection."
+    description = "Enters on high-probability pullbacks to EMA20/EMA50 value zones within established higher-timeframe trends with 1:3.5+ RR and 2.0x ATR protection."
 
     @staticmethod
     def generate_signal(
         df: pd.DataFrame, 
         idx: int, 
-        target_rr: float = 3.0,
+        target_rr: float = 3.5,
         params: Optional[Dict[str, Any]] = None,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None,
         timeframe: str = "15m"
@@ -659,9 +738,9 @@ class TrendPullbackConfluence(StrategyBase):
         p = params or {}
         min_risk_dist_pct = p.get("min_risk_dist_pct", 0.012)
         atr_sl_mult = p.get("atr_sl_mult", 2.0)
-        rvol_min = p.get("rvol_min", 1.20)
-        buyer_ratio_min_long = p.get("buyer_ratio_min_long", 46.0)
-        buyer_ratio_max_short = p.get("buyer_ratio_max_short", 54.0)
+        rvol_min = p.get("rvol_min", 1.25)
+        buyer_ratio_min_long = p.get("buyer_ratio_min_long", 50.0)
+        buyer_ratio_max_short = p.get("buyer_ratio_max_short", 50.0)
         rsi_min_long = p.get("rsi_min_long", 38.0)
         rsi_max_long = p.get("rsi_max_long", 58.0)
         rsi_min_short = p.get("rsi_min_short", 42.0)
@@ -684,7 +763,12 @@ class TrendPullbackConfluence(StrategyBase):
         atr = float(curr.get('atr14', 0.0))
         rsi = float(curr.get('rsi14', 50.0))
         rvol = float(curr.get('rvol', 1.0))
-        buyer_r = float(curr.get('buyer_ratio', 50.0)) if 'buyer_ratio' in curr and not pd.isna(curr.get('buyer_ratio')) else 50.0
+        if 'buyer_ratio' in curr and not pd.isna(curr.get('buyer_ratio')):
+            buyer_r = float(curr['buyer_ratio'])
+        else:
+            c_tot_r = max(high - low, 1e-6)
+            clv = ((close - low) - (high - close)) / c_tot_r
+            buyer_r = float(np.clip(((clv + 1.0) / 2.0 * 100.0), 0.0, 100.0))
         hurst = float(curr.get('hurst', 0.55))
         adx = float(curr.get('adx14', 25.0))
 
@@ -704,10 +788,6 @@ class TrendPullbackConfluence(StrategyBase):
         # Swing high/low (5 bars)
         swing_l5 = float(curr.get('swing_low_5', close)) if 'swing_low_5' in curr and not pd.isna(curr.get('swing_low_5')) else (float(df['low'].iloc[max(0, idx-5):idx].min()) if idx >= 5 else low)
         swing_h5 = float(curr.get('swing_high_5', close)) if 'swing_high_5' in curr and not pd.isna(curr.get('swing_high_5')) else (float(df['high'].iloc[max(0, idx-5):idx].max()) if idx >= 5 else high)
-
-        # Pullback Value Pocket:
-        # Longs: low <= ema20 * 1.002 or low <= ema50 * 1.002
-        # Shorts: high >= ema20 * 0.998 or high >= ema50 * 0.998
 
         # Long: In strong uptrend, price pulled back into EMA20/EMA50 zone, RSI reset (38-58), bullish trigger candle reclaiming EMA20
         if (
@@ -742,7 +822,8 @@ class TrendPullbackConfluence(StrategyBase):
             raw_risk = close - sl_price
             risk_dist = max(raw_risk, close * min_risk_dist_pct)
             sl_price = close - risk_dist
-            tp_price = close + (target_rr * risk_dist)
+            tp1_price = format_price_precision(close + (1.50 * risk_dist))
+            tp_price = format_price_precision(close + (target_rr * risk_dist))
             entry_price = close
             
             return {
@@ -751,7 +832,9 @@ class TrendPullbackConfluence(StrategyBase):
                 "timeframe": timeframe,
                 "entry_price": format_price_precision(entry_price),
                 "sl_price": format_price_precision(sl_price),
-                "tp_price": format_price_precision(tp_price),
+                "tp1_price": tp1_price,
+                "tp1_rr": 1.5,
+                "tp_price": tp_price,
                 "risk_distance": risk_dist,
                 "target_rr": target_rr,
                 "pre_trade_context": {
@@ -801,7 +884,8 @@ class TrendPullbackConfluence(StrategyBase):
             raw_risk = sl_price - close
             risk_dist = max(raw_risk, close * min_risk_dist_pct)
             sl_price = close + risk_dist
-            tp_price = close - (target_rr * risk_dist)
+            tp1_price = format_price_precision(close - (1.50 * risk_dist))
+            tp_price = format_price_precision(close - (target_rr * risk_dist))
             entry_price = close
             
             return {
@@ -810,7 +894,9 @@ class TrendPullbackConfluence(StrategyBase):
                 "timeframe": timeframe,
                 "entry_price": format_price_precision(entry_price),
                 "sl_price": format_price_precision(sl_price),
-                "tp_price": format_price_precision(tp_price),
+                "tp1_price": tp1_price,
+                "tp1_rr": 1.5,
+                "tp_price": tp_price,
                 "risk_distance": risk_dist,
                 "target_rr": target_rr,
                 "pre_trade_context": {
@@ -834,3 +920,4 @@ AVAILABLE_STRATEGIES = [
     SqueezeMomentumBreakout,
     LiquiditySweepReversal
 ]
+

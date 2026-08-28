@@ -22,6 +22,10 @@ async def main():
 
     await close_http_session()
 
+def test_sanity_market_scan_and_backtest():
+    """Sanity test executing market scanner and backtester."""
+    asyncio.run(main())
+
 if __name__ == "__main__":
     asyncio.run(main())
 

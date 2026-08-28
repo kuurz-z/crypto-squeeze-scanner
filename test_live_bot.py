@@ -87,7 +87,7 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertEqual(t['total_closed_trades'], 2)
 
     def test_dynamic_exit_breakeven_and_trailing(self):
-        """Verify the 3-Stage Milestone Exit Ladder (+1.0R BE defense, +1.8R Profit Lock at +1.0R, +3.0R Runner at +2.2R)."""
+        """Verify the 4-Stage Dual-Stage Management & Milestone Ladder (+1.0R BE defense, +1.50R TP1 Harvest, +2.2R Trailing, +3.5R Super Runner)."""
         # Open a mock LONG position
         self.bot.open_positions["BTCUSDT"] = {
             "trade_id": 1,
@@ -99,14 +99,17 @@ class TestLiveBotEngine(unittest.TestCase):
             "entry_price": 100.0,
             "current_price": 100.0,
             "sl_price": 90.0,
-            "tp_price": 130.0,
+            "tp_price": 135.0,
+            "tp1_price": 115.0,
             "risk_distance": 10.0,
             "risk_amount_usd": 1.0,
-            "target_rr": 3.0,
+            "position_qty": 0.1,
+            "initial_qty": 0.1,
+            "target_rr": 3.5,
             "pre_trade_context": {"reason": "Test setup"}
         }
 
-        # Step 1: Candle advancing to +1.2R (High = 112.0, Close = 111.0, Low = 100.0) -> Stage 1 Breakeven Defense (+0.08R)
+        # Step 1: Candle advancing to +1.2R (High = 112.0, Close = 111.0, Low = 100.0) -> Stage 1 Breakeven Defense (+0.15R)
         df_step1 = pd.DataFrame([{
             'time': 1700000900,
             'close': 111.0,
@@ -123,10 +126,10 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertIsNotNone(pos)
         self.assertTrue(pos.get('is_breakeven'))
         self.assertTrue(pos.get('is_breakeven_protected'))
-        self.assertEqual(pos.get('exit_status'), "Breakeven Protected 🛡️")
-        self.assertEqual(float(pos['sl_price']), 100.8)  # 100 + 0.08 * 10
+        self.assertEqual(pos.get('exit_status'), "Breakeven Protected 🛡️ (+0.15R fee shield)")
+        self.assertEqual(float(pos['sl_price']), 101.5)  # 100 + 0.15 * 10
 
-        # Step 2: Candle advancing to +1.9R (High = 119.0, Close = 118.5, Low = 108.0) -> Stage 2 Guaranteed Profit Lock (+1.0R)
+        # Step 2: Candle advancing to +1.9R (High = 119.0, Close = 118.5, Low = 108.0) -> Stage 2 Partial Profit Harvest (+1.50R MFE)
         df_step2 = pd.DataFrame([{
             'time': 1700001800,
             'close': 118.5,
@@ -141,12 +144,16 @@ class TestLiveBotEngine(unittest.TestCase):
         asyncio.run(self.bot._update_open_positions({"BTCUSDT": df_step2}))
         pos = self.bot.open_positions.get("BTCUSDT")
         self.assertIsNotNone(pos)
+        self.assertTrue(pos.get('tp1_hit'))
         self.assertTrue(pos.get('is_profit_locked'))
-        self.assertEqual(pos.get('exit_status'), "Profit Locked 🔒 (+1.0R)")
-        self.assertEqual(float(pos['sl_price']), 110.0)  # 100 + 1.0 * 10
+        self.assertEqual(pos.get('realized_partial_r'), 0.75)
+        self.assertEqual(pos.get('position_qty'), 0.05)  # Halved size
+        self.assertEqual(pos.get('exit_status'), "TP1 Booked 🎯 (+0.75R Banked, SL @ +0.50R)")
+        self.assertEqual(float(pos['sl_price']), 105.0)  # 100 + 0.50 * 10
+        self.assertEqual(self.bot.current_balance, 100.75)
 
-        # Step 3: Candle advancing to +3.2R (High = 132.0, Close = 131.0, Low = 118.0) -> Stage 3 Unlimited Runner Mode (+2.2R lock & 0.8x ATR trailing)
-        # Lock price = 100 + 2.2 * 10 = 122.0. Trail SL = 131.0 - 0.8 * 5.0 = 127.0. Best SL = 127.0.
+        # Step 3: Candle advancing to +3.2R (High = 132.0, Close = 131.0, Low = 118.0) -> Stage 3 Dynamic Trailing Stop (+2.2R to +3.5R MFE)
+        # Trail SL = 131.0 - 1.0 * 5.0 = 126.0. Lock price = 100 + 1.50 * 10 = 115.0. Best SL = max(105.0, 115.0, 126.0) = 126.0
         df_step3 = pd.DataFrame([{
             'time': 1700002700,
             'close': 131.0,
@@ -161,16 +168,16 @@ class TestLiveBotEngine(unittest.TestCase):
         asyncio.run(self.bot._update_open_positions({"BTCUSDT": df_step3}))
         pos = self.bot.open_positions.get("BTCUSDT")
         self.assertIsNotNone(pos)
-        self.assertTrue(pos.get('is_unlimited_runner'))
-        self.assertEqual(pos.get('exit_status'), "Profit Runner 🚀 (+2.2R+)")
-        self.assertEqual(float(pos['sl_price']), 127.0)
+        self.assertTrue(pos.get('is_trailing'))
+        self.assertEqual(pos.get('exit_status'), "Trailing Runner 🏃 (+1.5R+)")
+        self.assertEqual(float(pos['sl_price']), 126.0)
 
-        # Step 4: Pullback triggering trailing stop (Low = 126.5 <= 127.0)
+        # Step 4: Pullback triggering trailing stop (Low = 125.5 <= 126.0)
         df_step4 = pd.DataFrame([{
             'time': 1700003600,
-            'close': 126.8,
+            'close': 125.8,
             'high': 129.0,
-            'low': 126.5,
+            'low': 125.5,
             'volume': 800,
             'atr14': 5.0,
             'momentum': -1.0,
@@ -181,11 +188,13 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertNotIn("BTCUSDT", self.bot.open_positions)
         self.assertEqual(len(self.bot.closed_trades), 1)
         last_trade = self.bot.closed_trades[-1]
-        self.assertEqual(last_trade['outcome'], "TRAILING_STOP_WIN")
-        self.assertGreaterEqual(last_trade['net_r'], 2.6)
+        self.assertEqual(last_trade['outcome'], "WIN")
+        # Runner net R = 0.5 * (2.60 - 0.08) = 1.26. Total net R = 0.75 + 1.26 = 2.01
+        self.assertEqual(last_trade['net_r'], 2.01)
+        self.assertEqual(self.bot.current_balance, 102.01)
 
     def test_three_stage_milestone_ladder_short(self):
-        """Verify 3-Stage Milestone Exit Ladder for SHORT positions."""
+        """Verify Milestone Exit Ladder for SHORT positions."""
         self.bot.open_positions["ETHUSDT"] = {
             "trade_id": 2,
             "symbol": "ETHUSDT",
@@ -196,14 +205,17 @@ class TestLiveBotEngine(unittest.TestCase):
             "entry_price": 100.0,
             "current_price": 100.0,
             "sl_price": 110.0,
-            "tp_price": 70.0,
+            "tp_price": 65.0,
+            "tp1_price": 85.0,
             "risk_distance": 10.0,
             "risk_amount_usd": 1.0,
-            "target_rr": 3.0,
+            "position_qty": 0.1,
+            "initial_qty": 0.1,
+            "target_rr": 3.5,
             "pre_trade_context": {"reason": "Test short setup"}
         }
 
-        # Step 1: Low = 88.0 (+1.2R MFE) -> Stage 1 Breakeven Defense (SL = 100 - 0.08*10 = 99.2)
+        # Step 1: Low = 88.0 (+1.2R MFE) -> Stage 1 Breakeven Defense (SL = 100 - 0.15*10 = 98.5)
         df_step1 = pd.DataFrame([{
             'time': 1700000900,
             'close': 89.0,
@@ -218,9 +230,9 @@ class TestLiveBotEngine(unittest.TestCase):
         pos = self.bot.open_positions.get("ETHUSDT")
         self.assertIsNotNone(pos)
         self.assertTrue(pos.get('is_breakeven'))
-        self.assertEqual(float(pos['sl_price']), 99.2)
+        self.assertEqual(float(pos['sl_price']), 98.5)
 
-        # Step 2: Low = 81.0 (+1.9R MFE) -> Stage 2 Profit Lock (SL = 100 - 1.0*10 = 90.0)
+        # Step 2: Low = 81.0 (+1.9R MFE) -> Stage 2 Partial Profit Harvest (SL = 100 - 0.50*10 = 95.0)
         df_step2 = pd.DataFrame([{
             'time': 1700001800,
             'close': 81.5,
@@ -234,11 +246,14 @@ class TestLiveBotEngine(unittest.TestCase):
         asyncio.run(self.bot._update_open_positions({"ETHUSDT": df_step2}))
         pos = self.bot.open_positions.get("ETHUSDT")
         self.assertIsNotNone(pos)
+        self.assertTrue(pos.get('tp1_hit'))
         self.assertTrue(pos.get('is_profit_locked'))
-        self.assertEqual(float(pos['sl_price']), 90.0)
+        self.assertEqual(pos.get('realized_partial_r'), 0.75)
+        self.assertEqual(float(pos['sl_price']), 95.0)
+        self.assertEqual(self.bot.current_balance, 100.75)
 
-        # Step 3: Low = 67.0 (+3.3R MFE), Close = 68.0, ATR = 4.0 -> Stage 3 Runner Mode
-        # Lock price = 100 - 2.2*10 = 78.0. Trail SL = 68.0 + 0.8*4.0 = 71.2. Best SL = min(90.0, 78.0, 71.2) = 71.2
+        # Step 3: Low = 67.0 (+3.3R MFE), Close = 68.0, ATR = 4.0 -> Stage 3 Trailing Stop Mode
+        # Trail SL = 68.0 + 1.0*4.0 = 72.0. Lock price = 100 - 1.50*10 = 85.0. Best SL = min(95.0, 85.0, 72.0) = 72.0
         df_step3 = pd.DataFrame([{
             'time': 1700002700,
             'close': 68.0,
@@ -252,14 +267,14 @@ class TestLiveBotEngine(unittest.TestCase):
         asyncio.run(self.bot._update_open_positions({"ETHUSDT": df_step3}))
         pos = self.bot.open_positions.get("ETHUSDT")
         self.assertIsNotNone(pos)
-        self.assertTrue(pos.get('is_unlimited_runner'))
-        self.assertEqual(float(pos['sl_price']), 71.2)
+        self.assertTrue(pos.get('is_trailing'))
+        self.assertEqual(float(pos['sl_price']), 72.0)
 
-        # Step 4: Rebound triggering trailing stop (High = 72.0 >= 71.2)
+        # Step 4: Rebound triggering trailing stop (High = 72.5 >= 72.0)
         df_step4 = pd.DataFrame([{
             'time': 1700003600,
-            'close': 71.5,
-            'high': 72.0,
+            'close': 72.2,
+            'high': 72.5,
             'low': 70.0,
             'volume': 800,
             'atr14': 4.0,
@@ -269,8 +284,10 @@ class TestLiveBotEngine(unittest.TestCase):
         asyncio.run(self.bot._update_open_positions({"ETHUSDT": df_step4}))
         self.assertNotIn("ETHUSDT", self.bot.open_positions)
         self.assertEqual(len(self.bot.closed_trades), 1)
-        self.assertEqual(self.bot.closed_trades[-1]['outcome'], "TRAILING_STOP_WIN")
-        self.assertGreaterEqual(self.bot.closed_trades[-1]['net_r'], 2.7)
+        self.assertEqual(self.bot.closed_trades[-1]['outcome'], "WIN")
+        # Runner net R = 0.5 * (2.80 - 0.08) = 1.36. Total net R = 0.75 + 1.36 = 2.11
+        self.assertEqual(self.bot.closed_trades[-1]['net_r'], 2.11)
+        self.assertEqual(self.bot.current_balance, 102.11)
 
     def test_four_hour_loss_quarantine_enforcement(self):
         """Verify that a loss enforces a 4-hour anti-churn quarantine while BE/Time exits enforce 2 hours."""
@@ -330,10 +347,10 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertGreater(lockout_diff.total_seconds(), 23.9 * 3600)
 
     def test_stagnation_exit_behavior_and_exemptions(self):
-        """Verify stagnation exit triggers after 12 bars on 15m in dead chop, but exempts >= +0.8R MFE or profit locked."""
+        """Verify stagnation exit triggers after 16 bars on 15m in dead chop with momentum reversal, but exempts >= +0.8R MFE or profit locked."""
         self.bot.set_timeframe("15m")
         
-        # 1. Stagnant position with MFE < 0.8R and bars_held >= 12 -> exits on TIME_EXIT
+        # 1. Stagnant position with MFE < 0.8R and bars_held >= 16 and negative momentum -> exits on TIME_EXIT
         self.bot.open_positions["STAG1"] = {
             "trade_id": 20,
             "symbol": "STAG1",
@@ -343,7 +360,7 @@ class TestLiveBotEngine(unittest.TestCase):
             "sl_price": 95.0,
             "tp_price": 115.0,
             "risk_distance": 5.0,
-            "bars_held": 12,
+            "bars_held": 16,
             "entry_candle_time": 1000
         }
         df_chop = pd.DataFrame([{
@@ -353,14 +370,14 @@ class TestLiveBotEngine(unittest.TestCase):
             'low': 99.5,
             'volume': 500,
             'atr14': 2.0,
-            'momentum': 0.0,
+            'momentum': -0.5,
             'rsi14': 50.0
         }])
         asyncio.run(self.bot._update_open_positions({"STAG1": df_chop}))
         self.assertNotIn("STAG1", self.bot.open_positions)
         self.assertEqual(self.bot.closed_trades[-1]['outcome'], "TIME_EXIT")
 
-        # 2. Position with MFE >= 0.8R held for 12 bars -> EXEMPT from stagnation exit
+        # 2. Position with MFE >= 0.8R held for 16 bars -> EXEMPT from stagnation exit
         self.bot.open_positions["STAG2"] = {
             "trade_id": 21,
             "symbol": "STAG2",
@@ -370,7 +387,7 @@ class TestLiveBotEngine(unittest.TestCase):
             "sl_price": 95.0,
             "tp_price": 115.0,
             "risk_distance": 5.0,
-            "bars_held": 12,
+            "bars_held": 16,
             "highest_since_entry": 104.5, # MFE = 4.5 / 5.0 = 0.9R (>= 0.8R)
             "entry_candle_time": 1000
         }
@@ -381,7 +398,7 @@ class TestLiveBotEngine(unittest.TestCase):
             'low': 99.5,
             'volume': 500,
             'atr14': 2.0,
-            'momentum': 0.0,
+            'momentum': -0.5,
             'rsi14': 50.0
         }])
         asyncio.run(self.bot._update_open_positions({"STAG2": df_pullback}))
@@ -397,7 +414,7 @@ class TestLiveBotEngine(unittest.TestCase):
             "sl_price": 95.0,
             "tp_price": 115.0,
             "risk_distance": 5.0,
-            "bars_held": 12,
+            "bars_held": 16,
             "is_profit_locked": True,
             "entry_candle_time": 1000
         }
@@ -416,7 +433,7 @@ class TestLiveBotEngine(unittest.TestCase):
         mock_df = pd.DataFrame({
             'time': [int(d.timestamp()) for d in dates],
             'open': [120.0] * 59 + [146.0],
-            'high': [125.0] * 59 + [152.0],
+            'high': [125.0] * 59 + [149.0],
             'low': [118.0] * 59 + [144.5],
             'close': [122.0] * 59 + [148.0],
             'volume': [1000] * 59 + [5000],
@@ -826,7 +843,7 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertEqual(self.bot.timeframe, "15m")
         self.assertEqual(self.bot.timeframe_profile["anchor_tf"], "1h")
         self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 64)
-        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 12)
+        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 16)
         self.assertEqual(self.bot.cooldown_minutes, 45)
 
         # 2. Switch to 30m (4h MTF Anchor)
@@ -835,7 +852,7 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertEqual(self.bot.timeframe, "30m")
         self.assertEqual(self.bot.timeframe_profile["anchor_tf"], "4h")
         self.assertEqual(self.bot.timeframe_profile["max_holding_bars"], 64)
-        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 10)
+        self.assertEqual(self.bot.timeframe_profile["stagnation_bars"], 16)
         self.assertEqual(self.bot.cooldown_minutes, 90)
 
         # 3. 1h, 4h, 1d, 99m are strictly rejected
@@ -867,7 +884,7 @@ class TestLiveBotEngine(unittest.TestCase):
             "pre_trade_context": {"reason": "Test stagnation"}
         }
 
-        # Mock candle with negligible progress (< 0.4R = < $20 move)
+        # Mock candle with negligible progress (< 0.4R = < $20 move) and flipped momentum
         df_chop = pd.DataFrame([{
             'time': 1700000900,
             'close': 2003.0,
@@ -875,7 +892,7 @@ class TestLiveBotEngine(unittest.TestCase):
             'low': 1995.0,
             'volume': 500,
             'atr14': 30.0,
-            'momentum': 0.1,
+            'momentum': -0.5,
             'rsi14': 50.0
         }])
 
@@ -1054,18 +1071,18 @@ class TestLiveBotEngine(unittest.TestCase):
 
     def test_mixed_timeframe_dynamic_holding_rules(self):
         """Verify that open positions with 5m, 15m, and 30m adhere to their respective max holding bars and stagnation limits."""
-        # Create a mock dataframe
+        # Create a mock dataframe with momentum flipped against long
         df = pd.DataFrame({
             "close": [100.0] * 70,
             "open": [100.0] * 70,
             "high": [100.5] * 70,
             "low": [99.5] * 70,
             "atr14": [1.0] * 70,
-            "momentum": [0.0] * 70,
+            "momentum": [-0.5] * 70,
             "rsi14": [50.0] * 70
         })
 
-        # 5m position held for 25 bars in dead chop -> should exit on stagnation (stagnation_bars: 24)
+        # 5m position held for 25 bars (>= 18) in dead chop -> should exit on stagnation (stagnation_bars: 18)
         self.bot.open_positions["SCALP_COIN"] = {
             "trade_id": 101,
             "symbol": "SCALP_COIN",
