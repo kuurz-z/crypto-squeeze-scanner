@@ -1,3 +1,4 @@
+from test_causal_fixtures import signal_with_history, simulation_fixture
 import unittest
 import numpy as np
 import pandas as pd
@@ -9,7 +10,7 @@ from strategies import (
     format_price_precision,
     StrategyBase
 )
-from sim_engine import simulate_strategy_on_dataframe, diagnose_trade_outcome
+from sim_engine import simulate_strategy_on_dataframe, diagnose_trade_outcome, compile_simulation_metrics
 
 class TestProfitabilityAndRR(unittest.TestCase):
 
@@ -130,12 +131,12 @@ class TestProfitabilityAndRR(unittest.TestCase):
         # 1. Low volume rejection: rvol = 1.30 (< 1.60)
         df_low_vol = make_base_df()
         df_low_vol.loc[59, "rvol"] = 1.30
-        self.assertIsNone(SqueezeMomentumBreakout.generate_signal(df_low_vol, 59, timeframe="15m"))
+        self.assertIsNone(signal_with_history(SqueezeMomentumBreakout, df_low_vol, 59, timeframe="15m"))
 
         # 2. Low buyer ratio rejection for Long: buyer_ratio = 48.0 (< 53.0)
         df_low_buyer = make_base_df()
         df_low_buyer.loc[59, "buyer_ratio"] = 48.0
-        self.assertIsNone(SqueezeMomentumBreakout.generate_signal(df_low_buyer, 59, timeframe="15m"))
+        self.assertIsNone(signal_with_history(SqueezeMomentumBreakout, df_low_buyer, 59, timeframe="15m"))
 
         # 3. High upper wick rejection (wick trap): upper wick ratio = (105.0 - 100.0) / (105.0 - 97.5) = 5.0 / 7.5 = 0.667 (> 0.32)
         df_wick_trap = make_base_df()
@@ -143,7 +144,7 @@ class TestProfitabilityAndRR(unittest.TestCase):
         df_wick_trap.loc[59, "close"] = 100.0
         df_wick_trap.loc[59, "open"] = 98.0
         df_wick_trap.loc[59, "low"] = 97.5
-        self.assertIsNone(SqueezeMomentumBreakout.generate_signal(df_wick_trap, 59, timeframe="15m"))
+        self.assertIsNone(signal_with_history(SqueezeMomentumBreakout, df_wick_trap, 59, timeframe="15m"))
 
         # 4. Small body ratio rejection: body ratio = (100.2 - 100.0) / (102.0 - 98.0) = 0.2 / 4.0 = 0.05 (< 0.40)
         df_small_body = make_base_df()
@@ -151,13 +152,13 @@ class TestProfitabilityAndRR(unittest.TestCase):
         df_small_body.loc[59, "close"] = 100.2
         df_small_body.loc[59, "high"] = 102.0
         df_small_body.loc[59, "low"] = 98.0
-        self.assertIsNone(SqueezeMomentumBreakout.generate_signal(df_small_body, 59, timeframe="15m"))
+        self.assertIsNone(signal_with_history(SqueezeMomentumBreakout, df_small_body, 59, timeframe="15m"))
 
         # 5. Non-compressed bandwidth and no ATR expansion: bb_width_percentile = 65.0 (> 30.0) and atr_expansion = 0.98 (< 1.05)
         df_no_squeeze_expansion = make_base_df()
         df_no_squeeze_expansion.loc[59, "bb_width_percentile"] = 65.0
         df_no_squeeze_expansion.loc[59, "atr_expansion"] = 0.98
-        self.assertIsNone(SqueezeMomentumBreakout.generate_signal(df_no_squeeze_expansion, 59, timeframe="15m"))
+        self.assertIsNone(signal_with_history(SqueezeMomentumBreakout, df_no_squeeze_expansion, 59, timeframe="15m"))
 
         # 6. Short setup: high lower wick rejection (wick trap for shorts): lower wick ratio = (98.0 - 92.0) / (100.5 - 92.0) = 6.0 / 8.5 = 0.706 (> 0.32)
         df_short_wick = make_base_df()
@@ -171,7 +172,7 @@ class TestProfitabilityAndRR(unittest.TestCase):
         df_short_wick["buyer_ratio"] = [40.0] * 60
         df_short_wick["rsi14"] = [45.0] * 60
         df_short_wick["swing_low_5"] = [99.0] * 60
-        self.assertIsNone(SqueezeMomentumBreakout.generate_signal(df_short_wick, 59, timeframe="15m"))
+        self.assertIsNone(signal_with_history(SqueezeMomentumBreakout, df_short_wick, 59, timeframe="15m"))
 
         # 7. Short setup: buyer_ratio = 52.0 (> 47.0)
         df_short_buyer = make_base_df()
@@ -185,7 +186,7 @@ class TestProfitabilityAndRR(unittest.TestCase):
         df_short_buyer["buyer_ratio"] = [52.0] * 60
         df_short_buyer["rsi14"] = [45.0] * 60
         df_short_buyer["swing_low_5"] = [99.0] * 60
-        self.assertIsNone(SqueezeMomentumBreakout.generate_signal(df_short_buyer, 59, timeframe="15m"))
+        self.assertIsNone(signal_with_history(SqueezeMomentumBreakout, df_short_buyer, 59, timeframe="15m"))
 
     def test_valid_squeeze_signal_structure(self):
         """Verify that a valid squeeze signal produces tp1_price (1.50R), target_rr (3.50R default), sl_price, and complete pre-trade context."""
@@ -216,7 +217,7 @@ class TestProfitabilityAndRR(unittest.TestCase):
             "hurst": [0.58] * 60,
             "swing_high_5": [99.0] * 60
         })
-        sig_long = SqueezeMomentumBreakout.generate_signal(df_long, 59, timeframe="15m")
+        sig_long = signal_with_history(SqueezeMomentumBreakout, df_long, 59, timeframe="15m")
         self.assertIsNotNone(sig_long)
         self.assertEqual(sig_long["strategy"], "Squeeze_Momentum_Breakout")
         self.assertEqual(sig_long["direction"], "LONG")
@@ -271,7 +272,7 @@ class TestProfitabilityAndRR(unittest.TestCase):
             "hurst": [0.58] * 60,
             "swing_low_5": [99.0] * 60
         })
-        sig_short = SqueezeMomentumBreakout.generate_signal(df_short, 59, timeframe="15m")
+        sig_short = signal_with_history(SqueezeMomentumBreakout, df_short, 59, timeframe="15m")
         self.assertIsNotNone(sig_short)
         self.assertEqual(sig_short["strategy"], "Squeeze_Momentum_Breakout")
         self.assertEqual(sig_short["direction"], "SHORT")
@@ -313,7 +314,7 @@ class TestProfitabilityAndRR(unittest.TestCase):
             "hurst": [0.55] * 60,
             "swing_low_5": [94.0] * 60
         })
-        sig_pb_long = TrendPullbackConfluence.generate_signal(df_pb_long, 59, timeframe="15m")
+        sig_pb_long = signal_with_history(TrendPullbackConfluence, df_pb_long, 59, timeframe="15m")
         self.assertIsNotNone(sig_pb_long)
         self.assertEqual(sig_pb_long["direction"], "LONG")
         self.assertEqual(sig_pb_long["target_rr"], 3.5)
@@ -325,12 +326,12 @@ class TestProfitabilityAndRR(unittest.TestCase):
         # Rejection when rvol < 1.25
         df_pb_low_rvol = df_pb_long.copy()
         df_pb_low_rvol.loc[59, "rvol"] = 1.10
-        self.assertIsNone(TrendPullbackConfluence.generate_signal(df_pb_low_rvol, 59, timeframe="15m"))
+        self.assertIsNone(signal_with_history(TrendPullbackConfluence, df_pb_low_rvol, 59, timeframe="15m"))
 
         # Rejection when buyer_ratio < 50.0 for Long
         df_pb_low_buyer = df_pb_long.copy()
         df_pb_low_buyer.loc[59, "buyer_ratio"] = 46.0
-        self.assertIsNone(TrendPullbackConfluence.generate_signal(df_pb_low_buyer, 59, timeframe="15m"))
+        self.assertIsNone(signal_with_history(TrendPullbackConfluence, df_pb_low_buyer, 59, timeframe="15m"))
 
         # 2. TrendPullbackConfluence SHORT
         df_pb_short = pd.DataFrame({
@@ -351,7 +352,7 @@ class TestProfitabilityAndRR(unittest.TestCase):
             "hurst": [0.54] * 60,
             "swing_high_5": [106.0] * 60
         })
-        sig_pb_short = TrendPullbackConfluence.generate_signal(df_pb_short, 59, timeframe="15m")
+        sig_pb_short = signal_with_history(TrendPullbackConfluence, df_pb_short, 59, timeframe="15m")
         self.assertIsNotNone(sig_pb_short)
         self.assertEqual(sig_pb_short["direction"], "SHORT")
         self.assertEqual(sig_pb_short["target_rr"], 3.5)
@@ -376,7 +377,7 @@ class TestProfitabilityAndRR(unittest.TestCase):
             "rsi14": [45.0] * 60,
             "rvol": [1.30] * 60
         })
-        sig_sw_long = LiquiditySweepReversal.generate_signal(df_sw_long, 59, timeframe="15m")
+        sig_sw_long = signal_with_history(LiquiditySweepReversal, df_sw_long, 59, timeframe="15m")
         self.assertIsNotNone(sig_sw_long)
         self.assertEqual(sig_sw_long["strategy"], "Liquidity_Sweep_Reversal")
         self.assertEqual(sig_sw_long["direction"], "LONG")
@@ -389,12 +390,12 @@ class TestProfitabilityAndRR(unittest.TestCase):
         # Rejection when lower wick ratio < 0.50
         df_sw_bad_wick = df_sw_long.copy()
         df_sw_bad_wick.loc[59, "low"] = 97.8 # lower wick = 98.5 - 97.8 = 0.7 / 1.7 = 0.41 (< 0.50)
-        self.assertIsNone(LiquiditySweepReversal.generate_signal(df_sw_bad_wick, 59, timeframe="15m"))
+        self.assertIsNone(signal_with_history(LiquiditySweepReversal, df_sw_bad_wick, 59, timeframe="15m"))
 
         # Rejection when rvol < 1.20
         df_sw_low_rvol = df_sw_long.copy()
         df_sw_low_rvol.loc[59, "rvol"] = 1.05
-        self.assertIsNone(LiquiditySweepReversal.generate_signal(df_sw_low_rvol, 59, timeframe="15m"))
+        self.assertIsNone(signal_with_history(LiquiditySweepReversal, df_sw_low_rvol, 59, timeframe="15m"))
 
         # 4. LiquiditySweepReversal SHORT
         # Candle sweeps above 20-bar swing high (102.0) up to 104.0, rejects down to close at 101.0 (open 101.5, low 100.5)
@@ -412,7 +413,7 @@ class TestProfitabilityAndRR(unittest.TestCase):
             "rsi14": [55.0] * 60,
             "rvol": [1.35] * 60
         })
-        sig_sw_short = LiquiditySweepReversal.generate_signal(df_sw_short, 59, timeframe="15m")
+        sig_sw_short = signal_with_history(LiquiditySweepReversal, df_sw_short, 59, timeframe="15m")
         self.assertIsNotNone(sig_sw_short)
         self.assertEqual(sig_sw_short["strategy"], "Liquidity_Sweep_Reversal")
         self.assertEqual(sig_sw_short["direction"], "SHORT")
@@ -422,266 +423,94 @@ class TestProfitabilityAndRR(unittest.TestCase):
         self.assertEqual(sig_sw_short["tp1_price"], format_price_precision(101.0 - 1.5 * r_dist_sws))
         self.assertEqual(sig_sw_short["tp_price"], format_price_precision(101.0 - 3.5 * r_dist_sws))
 
+    def _simulate_path(self, path, direction="LONG", target_rr=3.5, **options):
+        class OneSignal(StrategyBase):
+            name = "DeterministicExecutionFixture"
+
+            @staticmethod
+            def generate_signal(df, idx, target_rr=3.5, **kwargs):
+                if idx != 199:
+                    return None
+                return {"direction": direction, "risk_distance": 2.0,
+                        "target_rr": target_rr, "pre_trade_context": {"fixture": True}}
+
+        frame, anchors = simulation_fixture(path)
+        settings = {"fee_pct": 0.0, "slippage_pct": 0.0, **options}
+        result = simulate_strategy_on_dataframe(frame, OneSignal, target_rr=target_rr,
+                    timeframe="15m", htf_data=anchors, **settings)
+        self.assertEqual(result["total_trades"], 1)
+        trade = result["trades"][0]
+        self.assertEqual(trade["entry_time"], int(frame.iloc[200]["time"]))
+        self.assertEqual(trade["original_risk_distance"], 2.0)
+        return trade
+
     def test_sim_engine_correctly_calculates_trailing_and_breakeven_pnl(self):
-        """Verify sim engine calculates exact raw_r and net_r for trailing stop wins, breakeven exits, and timeouts without reverting to -1.0."""
-        class MockTrailingLongStrategy(StrategyBase):
-            name = "MockTrailingLong"
-            @staticmethod
-            def generate_signal(df, idx, target_rr=3.5, params=None, htf_data=None, timeframe="15m"):
-                if idx == 50:
-                    entry = 100.0
-                    risk_dist = 2.0
-                    return {
-                        "strategy": "MockTrailingLong",
-                        "direction": "LONG",
-                        "entry_price": entry,
-                        "sl_price": entry - risk_dist,       # 98.0
-                        "tp_price": entry + target_rr * risk_dist, # 107.0
-                        "tp1_price": entry + 1.5 * risk_dist,      # 103.0
-                        "risk_distance": risk_dist,
-                        "pre_trade_context": {"test": True},
-                        "target_rr": target_rr
-                    }
-                return None
+        """Causal fills retain their actual protected, loss, and timeout PnL."""
+        trail_path = [(100, 105, 100, 104), (104, 104.5, 102, 102.5)]
+        trail = self._simulate_path(trail_path)
+        self.assertEqual(trail["exit_reason"], "PROTECTED_STOP")
+        self.assertEqual(trail["exit_price"], 103.0)
+        self.assertTrue(trail["tp1_hit"])
+        self.assertAlmostEqual(trail["raw_r"], 1.5)
 
-        # Create 60-bar dataframe where trade enters at idx 50, reaches 2.5R MFE at idx 51, and stops out at trailing stop (103.0) at idx 52
-        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
-        df_trail = pd.DataFrame({
-            "time": [int(d.timestamp()) for d in dates],
-            "open": [100.0] * 60,
-            "high": [101.0] * 60,
-            "low": [99.0] * 60,
-            "close": [100.0] * 60,
-            "volume": [1000.0] * 60,
-            "atr14": [1.0] * 60,
-            "symbol": "BTCUSDT"
-        })
-        # At bar 51: High reaches 105.0 (MFE = 2.5R >= 2.2R), Close = 104.0. Trailing SL = bar_close - 1.0*atr = 103.0.
-        df_trail.loc[51, "high"] = 105.0
-        df_trail.loc[51, "low"] = 100.0
-        df_trail.loc[51, "close"] = 104.0
-        # At bar 52: Low drops to 102.0, hitting the trailing SL at 103.0
-        df_trail.loc[52, "high"] = 104.0
-        df_trail.loc[52, "low"] = 102.0
-        df_trail.loc[52, "close"] = 102.5
+        protected = self._simulate_path([(100, 102.2, 99.5, 101.8),
+                                         (101.8, 102, 100.1, 100.2)])
+        self.assertFalse(protected["tp1_hit"])
+        self.assertEqual(protected["exit_reason"], "PROTECTED_STOP")
+        self.assertAlmostEqual(protected["raw_r"], .15)
 
-        res = simulate_strategy_on_dataframe(df_trail, MockTrailingLongStrategy, target_rr=3.5, fee_pct=0.05, slippage_pct=0.02)
-        self.assertEqual(len(res["trades"]), 1)
-        t = res["trades"][0]
-        self.assertTrue(t["tp1_hit"])
-        self.assertEqual(t["exit_price"], 103.0)  # SL hit at 103.0
-        # runner_raw_r = (103.0 - 100.0) / 2.0 = 1.50
-        # raw_r = round(0.5 * 1.50 + 0.5 * 1.50, 2) = 1.50
-        self.assertEqual(t["raw_r"], 1.50)
-        self.assertGreater(t["net_r"], 1.40)
-        self.assertIn(t["outcome"], ["WIN", "TRAILING_STOP_WIN"])
-        self.assertNotEqual(t["raw_r"], -1.0)
-        self.assertNotEqual(t["raw_r"], 3.5)
+        loss = self._simulate_path([(100, 100.5, 97, 97.5)])
+        self.assertFalse(loss["tp1_hit"])
+        self.assertEqual(loss["exit_reason"], "STOP_LOSS")
+        self.assertAlmostEqual(loss["raw_r"], -1.0)
+        self.assertEqual(loss["outcome"], "LOSS")
 
-        # Also test pure Loss without TP1 hit
-        class MockLossStrategy(StrategyBase):
-            name = "MockLoss"
-            @staticmethod
-            def generate_signal(df, idx, target_rr=3.5, params=None, htf_data=None, timeframe="15m"):
-                if idx == 50:
-                    entry = 100.0
-                    risk_dist = 2.0
-                    return {
-                        "strategy": "MockLoss",
-                        "direction": "LONG",
-                        "entry_price": entry,
-                        "sl_price": 98.0,
-                        "tp_price": 107.0,
-                        "tp1_price": 103.0,
-                        "risk_distance": risk_dist,
-                        "pre_trade_context": {"test": True},
-                        "target_rr": target_rr
-                    }
-                return None
+        timeout = self._simulate_path([(100, 100.8, 99.2, 100.4)] * 5,
+                                       max_holding_bars=5, stagnation_bars=20)
+        self.assertEqual(timeout["exit_reason"], "MAX_HOLD")
+        self.assertAlmostEqual(timeout["raw_r"], .2)
+        self.assertEqual(timeout["outcome"], "WIN")
 
-        df_loss = df_trail.copy()
-        df_loss.loc[51, "high"] = 100.5
-        df_loss.loc[51, "low"] = 97.0  # Triggers SL at 98.0
-        df_loss.loc[51, "close"] = 97.5
-
-        res_loss = simulate_strategy_on_dataframe(df_loss, MockLossStrategy, target_rr=3.5)
-        self.assertEqual(len(res_loss["trades"]), 1)
-        t_loss = res_loss["trades"][0]
-        self.assertFalse(t_loss["tp1_hit"])
-        self.assertEqual(t_loss["raw_r"], -1.0)
-        self.assertEqual(t_loss["outcome"], "LOSS")
-        self.assertLess(t_loss["net_r"], -1.0)
-
-        # Test Timeout exit
-        class MockTimeoutStrategy(StrategyBase):
-            name = "MockTimeout"
-            @staticmethod
-            def generate_signal(df, idx, target_rr=3.5, params=None, htf_data=None, timeframe="15m"):
-                if idx == 50:
-                    return {
-                        "strategy": "MockTimeout",
-                        "direction": "LONG",
-                        "entry_price": 100.0,
-                        "sl_price": 95.0,
-                        "tp_price": 110.0,
-                        "tp1_price": 105.0,
-                        "risk_distance": 2.0,
-                        "pre_trade_context": {"test": True},
-                        "target_rr": target_rr
-                    }
-                return None
-
-        df_timeout = df_trail.copy()
-        for k in range(51, 60):
-            df_timeout.loc[k, "high"] = 100.8
-            df_timeout.loc[k, "low"] = 99.2
-            df_timeout.loc[k, "close"] = 100.4
-
-        res_to = simulate_strategy_on_dataframe(df_timeout, MockTimeoutStrategy, target_rr=3.5, max_holding_bars=5, stagnation_bars=20)
-        self.assertEqual(len(res_to["trades"]), 1)
-        t_to = res_to["trades"][0]
-        self.assertFalse(t_to["tp1_hit"])
-        # runner_raw_r = (100.4 - 100.0) / 2.0 = 0.20
-        self.assertEqual(t_to["raw_r"], 0.20)
-        self.assertEqual(t_to["outcome"], "WIN")  # raw_r > 0.1
+        costed = self._simulate_path(trail_path, fee_pct=.05, slippage_pct=.02)
+        actual_gross = sum((fill["price"] - costed["entry_price"]) * fill["quantity"]
+                           for fill in costed["fills"] if fill["kind"] != "ENTRY")
+        actual_fees = sum(fill["notional_usd"] * .0005 for fill in costed["fills"])
+        self.assertAlmostEqual(costed["gross_pnl_usd"], actual_gross)
+        self.assertAlmostEqual(costed["pnl_usd"], actual_gross - actual_fees)
+        self.assertLess(costed["net_r"], costed["raw_r"])
+        self.assertAlmostEqual(sum(fill["cash_delta_usd"] for fill in costed["fills"]), costed["pnl_usd"])
 
     def test_sim_engine_dual_stage_scale_out(self):
-        """Verify dual-stage scale-out logic: TP1 hit, SL adjustment to +0.15R, 50/50 profit weighting, and diagnostics."""
-        class MockDualStageStrategy(StrategyBase):
-            name = "MockDualStage"
-            @staticmethod
-            def generate_signal(df, idx, target_rr=3.5, params=None, htf_data=None, timeframe="15m"):
-                if idx == 50:
-                    is_short = df.iloc[idx].get("is_short", False)
-                    entry = 100.0
-                    risk_dist = 2.0
-                    direction = "SHORT" if is_short else "LONG"
-                    sl = entry + risk_dist if is_short else entry - risk_dist
-                    tp = entry - target_rr * risk_dist if is_short else entry + target_rr * risk_dist
-                    tp1 = entry - 1.5 * risk_dist if is_short else entry + 1.5 * risk_dist
-                    return {
-                        "strategy": "MockDualStage",
-                        "direction": direction,
-                        "entry_price": entry,
-                        "sl_price": sl,
-                        "tp_price": tp,
-                        "tp1_price": tp1,
-                        "risk_distance": risk_dist,
-                        "pre_trade_context": {"test": True},
-                        "target_rr": target_rr
-                    }
-                return None
+        """Partial and final fills use preserved quantity and the live +0.5R lock."""
+        for direction, path, expected_tp1, expected_exit in (
+            ("LONG", [(100, 103.2, 99.5, 102.5), (102.5, 102.6, 100.1, 100.2)], 103, 101),
+            ("SHORT", [(100, 100.5, 96.8, 97.5), (97.5, 99.9, 97, 99.8)], 97, 99),
+        ):
+            with self.subTest(direction=direction):
+                trade = self._simulate_path(path, direction=direction)
+                self.assertTrue(trade["tp1_hit"])
+                self.assertEqual(trade["tp1_price"], expected_tp1)
+                self.assertEqual(trade["exit_price"], expected_exit)
+                self.assertAlmostEqual(trade["raw_r"], 1.0)  # .5*1.5R + .5*.5R
+                exits = [fill for fill in trade["fills"] if fill["kind"] != "ENTRY"]
+                self.assertEqual([fill["quantity"] for fill in exits], [.25, .25])
+                self.assertEqual(trade["position_qty"], 0)
+                self.assertEqual(trade["diagnostic"]["catalyst_type"], "PROTECTED_STOP")
 
-        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
-        
-        # 1. LONG: TP1 hit at 103.0 (+1.5R), then price reverses and stops out at risk-free breakeven (+0.15R -> 100.30)
-        df_long_be = pd.DataFrame({
-            "time": [int(d.timestamp()) for d in dates],
-            "open": [100.0] * 60,
-            "high": [101.0] * 60,
-            "low": [99.0] * 60,
-            "close": [100.0] * 60,
-            "volume": [1000.0] * 60,
-            "symbol": "BTCUSDT"
-        })
-        # Bar 51: Reaches TP1 (103.0), but does not reach +1.8R (103.6) or full TP (107.0)
-        df_long_be.loc[51, "high"] = 103.2
-        df_long_be.loc[51, "low"] = 99.5
-        df_long_be.loc[51, "close"] = 102.5
-        # Bar 52: Drops below 100.30 (curr_sl) -> exits at 100.30
-        df_long_be.loc[52, "high"] = 102.0
-        df_long_be.loc[52, "low"] = 100.1
-        df_long_be.loc[52, "close"] = 100.2
+        target = self._simulate_path([(100, 103.2, 99.5, 103),
+                                      (103, 106.5, 102.5, 106)], target_rr=3.0)
+        self.assertEqual(target["exit_reason"], "TAKE_PROFIT")
+        self.assertEqual(target["exit_price"], 106)
+        self.assertAlmostEqual(target["raw_r"], 2.25)
 
-        res_long = simulate_strategy_on_dataframe(df_long_be, MockDualStageStrategy, target_rr=3.5)
-        self.assertEqual(len(res_long["trades"]), 1)
-        t_l = res_long["trades"][0]
-        self.assertTrue(t_l["tp1_hit"])
-        self.assertEqual(t_l["tp1_price"], 103.0)
-        self.assertEqual(t_l["exit_price"], 100.30)
-        # 50% * 1.50 + 50% * 0.15 = 0.75 + 0.075 = 0.825 -> round 0.82
-        self.assertEqual(t_l["raw_r"], 0.82)
-        self.assertEqual(t_l["outcome"], "WIN")
-        self.assertGreater(t_l["net_r"], 0.70)
-        self.assertIn(
-            "Dual-Stage Scale-Out executed: Banked +0.75R guaranteed profit at TP1 (+1.50R target) with risk-free runner.",
-            t_l["diagnostic"]["key_factors"]
-        )
-
-        # 2. LONG: Reaches target TP at target_rr=3.0 (106.0) on bar 52 after TP1 hit on bar 51
-        df_long_tp = df_long_be.copy()
-        # Bar 51: Triggers TP1 (103.0), curr_sl moves to 100.30
-        df_long_tp.loc[51, "open"] = 100.5
-        df_long_tp.loc[51, "high"] = 103.2
-        df_long_tp.loc[51, "low"] = 100.5
-        df_long_tp.loc[51, "close"] = 103.0
-        # Bar 52: Continues upward, low stays well above trailing stop (103.77), reaches TP (106.0)
-        df_long_tp.loc[52, "open"] = 103.0
-        df_long_tp.loc[52, "high"] = 106.5
-        df_long_tp.loc[52, "low"] = 105.0
-        df_long_tp.loc[52, "close"] = 106.0
-
-        res_tp = simulate_strategy_on_dataframe(df_long_tp, MockDualStageStrategy, target_rr=3.0)
-        t_tp = res_tp["trades"][0]
-        self.assertTrue(t_tp["tp1_hit"])
-        self.assertEqual(t_tp["exit_price"], 106.0)
-        # 50% * 1.50 + 50% * 3.00 = 0.75 + 1.50 = 2.25
-        self.assertEqual(t_tp["raw_r"], 2.25)
-        self.assertEqual(t_tp["outcome"], "WIN")
-        self.assertIn(
-            "Dual-Stage Scale-Out executed: Banked +0.75R guaranteed profit at TP1 (+1.50R target) with risk-free runner.",
-            t_tp["diagnostic"]["key_factors"]
-        )
-
-        # 2b. LONG: Unlimited runner at >= 3.5R (locks minimum +2.5R on runner -> >= 105.0)
-        df_long_runner = df_long_be.copy()
-        # Bar 51: Surges past 3.5R to 108.0, activating unlimited runner mode and setting curr_sl >= 105.0
-        df_long_runner.loc[51, "open"] = 106.0
-        df_long_runner.loc[51, "high"] = 108.0
-        df_long_runner.loc[51, "low"] = 106.0
-        df_long_runner.loc[51, "close"] = 107.0
-        # Bar 52: Retraces down to 104.0, stopping out at curr_sl >= 105.0
-        df_long_runner.loc[52, "open"] = 107.0
-        df_long_runner.loc[52, "high"] = 107.2
-        df_long_runner.loc[52, "low"] = 104.0
-        df_long_runner.loc[52, "close"] = 104.5
-
-        res_runner = simulate_strategy_on_dataframe(df_long_runner, MockDualStageStrategy, target_rr=3.5)
-        t_runner = res_runner["trades"][0]
-        self.assertTrue(t_runner["tp1_hit"])
-        self.assertGreaterEqual(t_runner["exit_price"], 105.0)
-        self.assertGreaterEqual(t_runner["raw_r"], 2.00)
-        self.assertIn(t_runner["outcome"], ["WIN", "TRAILING_STOP_WIN"])
-        self.assertIn(
-            "Dual-Stage Scale-Out executed: Banked +0.75R guaranteed profit at TP1 (+1.50R target) with risk-free runner.",
-            t_runner["diagnostic"]["key_factors"]
-        )
-
-        # 3. SHORT: TP1 hit at 97.0 (-1.5R), then price reverses up and stops out at 99.70 (-0.15R SL)
-        df_short = df_long_be.copy()
-        df_short["is_short"] = True
-        # Bar 51: Low reaches 96.8 (<= 97.0 TP1), High is 100.5
-        df_short.loc[51, "high"] = 100.5
-        df_short.loc[51, "low"] = 96.8
-        df_short.loc[51, "close"] = 97.5
-        # Bar 52: High climbs to 99.9 (>= 99.70 SL) -> exits at 99.70
-        df_short.loc[52, "high"] = 99.9
-        df_short.loc[52, "low"] = 97.0
-        df_short.loc[52, "close"] = 99.8
-
-        res_short = simulate_strategy_on_dataframe(df_short, MockDualStageStrategy, target_rr=3.5)
-        t_s = res_short["trades"][0]
-        self.assertTrue(t_s["tp1_hit"])
-        self.assertEqual(t_s["tp1_price"], 97.0)
-        self.assertEqual(t_s["exit_price"], 99.70)
-        # runner_raw_r = (100.0 - 99.70) / 2.0 = 0.15
-        # raw_r = round(0.5 * 1.50 + 0.5 * 0.15, 2) = 0.82
-        self.assertEqual(t_s["raw_r"], 0.82)
-        self.assertEqual(t_s["outcome"], "WIN")
-        self.assertIn(
-            "Dual-Stage Scale-Out executed: Banked +0.75R guaranteed profit at TP1 (+1.50R target) with risk-free runner.",
-            t_s["diagnostic"]["key_factors"]
-        )
+        # A 5R target is still standing when 3.5R starts the runner. A 3.5R
+        # target would already have filled and cannot be retroactively canceled.
+        runner = self._simulate_path([(100, 108, 99.5, 107),
+                                      (107, 107.2, 104, 104.5)], target_rr=5.0)
+        self.assertTrue(runner["is_unlimited_runner"])
+        self.assertEqual(runner["exit_reason"], "PROTECTED_STOP")
+        self.assertAlmostEqual(runner["exit_price"], 106.2)
+        self.assertAlmostEqual(runner["raw_r"], 2.3)
 
     def test_live_bot_partial_take_profit_and_breakeven(self):
         """Verify LiveCryptoBot dual-stage position management: +1.0R BE defense (+0.15R fee shield), +1.50R TP1 harvest (+0.75R banked, position halved, SL @ +0.50R), and dual-stage close accounting."""
@@ -790,6 +619,117 @@ class TestProfitabilityAndRR(unittest.TestCase):
             self.assertEqual(t['net_r'], 0.96)
             self.assertEqual(t['pnl_usd'], 0.96)
             self.assertEqual(bot.current_balance, 100.96)
+        finally:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+
+    def test_live_bot_partial_take_profit_and_breakeven_target_rr_2(self):
+        """Verify LiveCryptoBot dual-stage position management under strict 1:2.0 RR: +0.80R BE defense, +1.00R TP1 harvest (+0.50R banked, SL @ +0.50R), and mathematical balance parity."""
+        import tempfile
+        import shutil
+        import asyncio
+        from live_bot import LiveCryptoBot
+
+        tmpdir = tempfile.mkdtemp()
+        try:
+            bot = LiveCryptoBot(initial_capital=100.0, fixed_risk_usd=1.0, target_rr=2.0, data_dir=tmpdir)
+            bot.open_positions = {}
+            bot.closed_trades = []
+            bot.current_balance = 100.0
+
+            # 1. Open mock LONG position with target_rr=2.0, tp1_price=110.0 (+1.0R), tp_price=120.0 (+2.0R)
+            entry_p = 100.0
+            risk_d = 10.0
+            bot.open_positions["BTCUSDT"] = {
+                "trade_id": 1,
+                "symbol": "BTCUSDT",
+                "strategy": "Trend_Pullback_Confluence",
+                "direction": "LONG",
+                "entry_time": 1700000000,
+                "entry_time_str": "2026-08-20 12:00:00",
+                "entry_price": entry_p,
+                "current_price": entry_p,
+                "sl_price": entry_p - risk_d,        # 90.0
+                "tp_price": entry_p + (2.0 * risk_d), # 120.0
+                "tp1_price": entry_p + (1.0 * risk_d),# 110.0
+                "risk_distance": risk_d,
+                "risk_amount_usd": 1.0,
+                "position_qty": 0.10,
+                "initial_qty": 0.10,
+                "position_value_usd": 10.0,
+                "target_rr": 2.0,
+                "tp1_hit": False,
+                "realized_partial_r": 0.0,
+                "is_breakeven_protected": False,
+                "is_profit_locked": False,
+                "is_unlimited_runner": False,
+                "bars_held": 0,
+                "pre_trade_context": {"reason": "1:2.0 RR test setup"}
+            }
+
+            # Step A: High = 108.5 (+0.85R MFE >= 0.80R) -> Stage 1 Breakeven Defense (+0.15R)
+            df_step1 = pd.DataFrame([{
+                'time': 1700000900,
+                'close': 108.0,
+                'high': 108.5,
+                'low': 100.0,
+                'volume': 1000,
+                'atr14': 6.0,
+                'momentum': 4.0,
+                'rsi14': 58.0
+            }])
+            asyncio.run(bot._update_open_positions({"BTCUSDT": df_step1}))
+            pos = bot.open_positions.get("BTCUSDT")
+            self.assertIsNotNone(pos)
+            self.assertTrue(pos['is_breakeven_protected'])
+            self.assertTrue(pos['is_breakeven'])
+            self.assertEqual(float(pos['sl_price']), 101.5)  # 100 + 0.15 * 10
+            self.assertEqual(pos['exit_status'], "Breakeven Protected 🛡️ (+0.15R fee shield)")
+
+            # Step B: High = 110.5 (+1.05R MFE >= 1.00R) -> Stage 2 Partial Profit Harvest (+0.50R Banked, SL @ +0.50R)
+            df_step2 = pd.DataFrame([{
+                'time': 1700001800,
+                'close': 110.2,
+                'high': 110.5,
+                'low': 105.0,
+                'volume': 1200,
+                'atr14': 6.0,
+                'momentum': 6.0,
+                'rsi14': 64.0
+            }])
+            asyncio.run(bot._update_open_positions({"BTCUSDT": df_step2}))
+            pos = bot.open_positions.get("BTCUSDT")
+            self.assertIsNotNone(pos)
+            self.assertTrue(pos['tp1_hit'])
+            self.assertTrue(pos['is_profit_locked'])
+            self.assertEqual(pos['realized_partial_r'], 0.50)
+            self.assertEqual(pos['position_qty'], 0.05)  # Halved position size
+            self.assertEqual(float(pos['sl_price']), 105.0)  # 100 + 0.50 * 10
+            self.assertEqual(pos['exit_status'], "TP1 Booked 🎯 (+0.50R Banked, SL @ +0.50R)")
+            self.assertEqual(bot.current_balance, 100.50)
+
+            # Step C: Reversal stopping out at +0.50R SL (Low = 104.5 <= 105.0)
+            df_step3 = pd.DataFrame([{
+                'time': 1700002700,
+                'close': 104.8,
+                'high': 109.0,
+                'low': 104.5,
+                'volume': 800,
+                'atr14': 6.0,
+                'momentum': -2.0,
+                'rsi14': 45.0
+            }])
+            asyncio.run(bot._update_open_positions({"BTCUSDT": df_step3}))
+            self.assertNotIn("BTCUSDT", bot.open_positions)
+            self.assertEqual(len(bot.closed_trades), 1)
+            t = bot.closed_trades[-1]
+            self.assertTrue(t['tp1_hit'])
+            self.assertEqual(t['outcome'], "WIN")
+            # runner_raw_r = (105.0 - 100.0) / 10.0 = 0.50
+            # total_net_r = round(0.50 + (0.5 * (0.50 - 0.08)), 2) = round(0.50 + 0.21, 2) = 0.71
+            self.assertEqual(t['raw_r'], 0.75)
+            self.assertEqual(t['net_r'], 0.71)
+            self.assertEqual(t['pnl_usd'], 0.71)
+            self.assertEqual(bot.current_balance, 100.71)
         finally:
             shutil.rmtree(tmpdir, ignore_errors=True)
 
@@ -964,6 +904,32 @@ class TestProfitabilityAndRR(unittest.TestCase):
         md_loss = create_trade_journal_md(trade_loss)
         self.assertIn("TP1 Not Reached", md_loss)
         self.assertIn("-1.08R Net", md_loss)
+
+    def test_configured_strategy_is_unvalidated_until_measured(self):
+        """Synthetic execution examples cannot establish a strategy win rate."""
+        import tempfile
+        from live_bot import LiveCryptoBot
+
+        with tempfile.TemporaryDirectory() as directory:
+            bot = LiveCryptoBot(data_dir=directory)
+            self.assertEqual(bot.active_strategy_name, "Trend_Pullback_Confluence")
+            self.assertEqual(bot.target_rr, 2.0)
+            self.assertEqual(bot.active_params["target_rr"], 2.0)
+            self.assertGreaterEqual(bot.active_params["rvol_min"], 1.45)
+            self.assertEqual(bot.champion_stats["validation_status"], "NOT_VALIDATED")
+            self.assertIsNone(bot.champion_stats["win_rate"])
+            self.assertIsNone(bot.champion_stats["expectancy_r"])
+            self.assertIsNone(bot.champion_stats["score"])
+
+        # Check two explicit execution paths without choosing their frequency or
+        # claiming that either outcome predicts market profitability.
+        take_profit = self._simulate_path([(100, 104.2, 99.5, 104)], target_rr=2.0)
+        stopped = self._simulate_path([(100, 100.2, 97.5, 98)], target_rr=2.0)
+        self.assertEqual(take_profit["exit_reason"], "TAKE_PROFIT")
+        self.assertEqual([f["kind"] for f in take_profit["fills"]], ["ENTRY", "TP1", "EXIT"])
+        self.assertAlmostEqual(take_profit["raw_r"], 1.5)  # half at 1R, half at 2R
+        self.assertEqual(stopped["exit_reason"], "STOP_LOSS")
+        self.assertAlmostEqual(stopped["raw_r"], -1.0)
 
 if __name__ == "__main__":
     unittest.main()

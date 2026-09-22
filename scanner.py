@@ -107,6 +107,8 @@ async def fetch_klines(session: aiohttp.ClientSession, symbol: str, interval: st
     df = await fetch_symbol_klines(session, symbol, interval=interval, limit=limit)
     if df is not None and len(df) >= 50:
         cols = ['time', 'open', 'high', 'low', 'close', 'volume']
+        if 'close_time' in df.columns:
+            cols.append('close_time')
         if 'taker_buy_base' in df.columns:
             cols.append('taker_buy_base')
         return df[cols]
@@ -134,7 +136,7 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     low_close = (df['low'] - df['close'].shift(1)).abs()
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
     df['atr14'] = tr.rolling(window=14).mean()
-    df['atr14'] = df['atr14'].bfill()
+    # Warmup values stay unknown instead of borrowing later candles.
     
     df['kc_upper'] = df['sma20'] + (1.5 * df['atr14'])
     df['kc_lower'] = df['sma20'] - (1.5 * df['atr14'])
@@ -446,5 +448,4 @@ async def scan_market_multi_tf(
 
     valid_results.sort(key=sort_priority, reverse=True)
     return valid_results
-
 

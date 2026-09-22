@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
+import time
 from typing import Dict, Any, List, Optional
+from data_loader import ANCHOR_TIMEFRAMES, INDICATOR_WARMUP, completed_candles, interval_seconds
 
 def calculate_hurst_exponent(
     price_series: np.ndarray, 
@@ -75,6 +77,8 @@ def format_price_precision(price: float) -> float:
 
 def compute_crypto_indicators(df: pd.DataFrame) -> pd.DataFrame:
     """Calculate comprehensive technical indicators for crypto strategy analysis."""
+    if 'hurst' in df.columns and 'ema20' in df.columns and 'atr14' in df.columns and 'rvol' in df.columns and 'bb_width_percentile' in df.columns:
+        return df
     df = df.copy()
     if len(df) < 50:
         return df
@@ -105,7 +109,8 @@ def compute_crypto_indicators(df: pd.DataFrame) -> pd.DataFrame:
     high_close = (df['high'] - df['close'].shift(1)).abs()
     low_close = (df['low'] - df['close'].shift(1)).abs()
     tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-    df['atr14'] = tr.rolling(window=14).mean().bfill()
+    # No backwards filling: early warmup values must not depend on future bars.
+    df['atr14'] = tr.rolling(window=14).mean()
 
     # ATR Volatility Expansion Ratio (Current ATR over rolling 20-bar SMA of ATR)
     atr_sma20 = df['atr14'].rolling(20).mean()
@@ -179,7 +184,7 @@ def evaluate_tf_trend(df: Optional[pd.DataFrame]) -> Dict[str, Any]:
     Evaluate trend direction, EMA alignment, and momentum state on any timeframe dataframe (e.g. 30m, 4h).
     Returns regime (BULLISH, BEARISH, NEUTRAL), key EMAs, RSI, and momentum.
     """
-    if df is None or len(df) < 30:
+    if df is None or len(df) < INDICATOR_WARMUP:
         return {
             "regime": "NEUTRAL",
             "close": 0.0,
@@ -224,81 +229,75 @@ def evaluate_tf_trend(df: Optional[pd.DataFrame]) -> Dict[str, Any]:
         "rsi": round(rsi, 1),
         "momentum": round(mom, 4),
         "pct_change_3b": round(pct_3b, 2),
-        "is_valid": True
+        "is_valid": bool(np.isfinite([close, ema50, ema200, rsi, mom]).all())
     }
 
 def evaluate_mtf_alignment(
-    df_1h: Optional[pd.DataFrame] = None, 
-    df_4h: Optional[pd.DataFrame] = None, 
+    df_1h: Optional[pd.DataFrame] = None,
+    df_4h: Optional[pd.DataFrame] = None,
     direction: str = "LONG",
     entry_tf: str = "15m",
     df_30m: Optional[pd.DataFrame] = None,
+    decision_time: Optional[float] = None,
     **kwargs
 ) -> tuple[bool, Dict[str, Any]]:
-    """
-    Strict Multi-Timeframe Alignment:
-      - 5m entries MUST align with 30m higher-timeframe trend.
-      - 15m entries MUST align with 1h higher-timeframe trend.
-      - 30m entries MUST align with 4h higher-timeframe macro trend.
-      - 1h, 4h, 1d entries are strictly BLOCKED.
-      
-    For LONG:
-      - Anchor TF must NOT be BEARISH (should be BULLISH or NEUTRAL)
-    For SHORT:
-      - Anchor TF must NOT be BULLISH (should be BEARISH or NEUTRAL)
-    """
-    # STRICT RULE: Only 5m, 15m, and 30m timeframes can generate trade entries
-    if entry_tf not in ["5m", "15m", "30m"]:
-        return False, {
-            "entry_tf": entry_tf,
-            "anchor_tf": "N/A",
-            "anchor_regime": "N/A",
-            "30m": "N/A",
-            "1h": "N/A",
-            "4h": "N/A",
-            "aligned": False,
-            "reasons": [f"Entries on timeframe '{entry_tf}' are blocked. Entries are strictly restricted to 5m, 15m, and 30m."]
-        }
-
-    t_30m = evaluate_tf_trend(df_30m) if df_30m is not None else {"is_valid": False, "regime": "N/A"}
-    t_1h = evaluate_tf_trend(df_1h) if df_1h is not None else {"is_valid": False, "regime": "N/A"}
-    t_4h = evaluate_tf_trend(df_4h) if df_4h is not None else {"is_valid": False, "regime": "N/A"}
-
-    if entry_tf == "5m":
-        t_anchor = t_30m
-        anchor_tf = "30m"
-    elif entry_tf == "15m":
-        t_anchor = t_1h
-        anchor_tf = "1h"
-    else:  # 30m
-        t_anchor = t_4h
-        anchor_tf = "4h"
-
+    """Require a fresh completed anchor with 200 bars; neutral remains allowed."""
+    as_of = time.time() if decision_time is None else float(decision_time)
+    anchor_tf = ANCHOR_TIMEFRAMES.get(entry_tf)
     context = {
-        "entry_tf": entry_tf,
-        "anchor_tf": anchor_tf,
-        "anchor_regime": t_anchor.get("regime", "N/A"),
-        "30m": t_30m.get("regime", "N/A"),
-        "1h": t_1h.get("regime", "N/A"),
-        "4h": t_4h.get("regime", "N/A"),
-        "aligned": True,
-        "reasons": []
+        "entry_tf": entry_tf, "anchor_tf": anchor_tf or "N/A",
+        "anchor_regime": "N/A", "anchor_time": None, "anchor_close_time": None,
+        "decision_time": as_of, "30m": "N/A", "1h": "N/A", "4h": "N/A",
+        "aligned": False, "reasons": [],
     }
-
-    if direction == "LONG":
-        if t_anchor.get("is_valid") and t_anchor.get("regime") == "BEARISH":
-            context["aligned"] = False
-            context["reasons"].append(
-                f"{anchor_tf} Anchor Trend is BEARISH (Close ${t_anchor.get('close', 0):.4f} < EMA50 ${t_anchor.get('ema50', 0):.4f}, RSI {t_anchor.get('rsi', 0)})"
-            )
-    elif direction == "SHORT":
-        if t_anchor.get("is_valid") and t_anchor.get("regime") == "BULLISH":
-            context["aligned"] = False
-            context["reasons"].append(
-                f"{anchor_tf} Anchor Trend is BULLISH (Close ${t_anchor.get('close', 0):.4f} > EMA50 ${t_anchor.get('ema50', 0):.4f}, RSI {t_anchor.get('rsi', 0)})"
-            )
-
+    if anchor_tf is None:
+        context["reasons"].append("UNSUPPORTED_ENTRY_TIMEFRAME")
+        return False, context
+    frames = {"30m": df_30m, "1h": df_1h, "4h": df_4h}
+    anchor = completed_candles(frames[anchor_tf], anchor_tf, as_of)
+    if len(anchor) < INDICATOR_WARMUP:
+        context["reasons"].append("MISSING_OR_INSUFFICIENT_ANCHOR")
+        return False, context
+    last = anchor.iloc[-1]
+    context["anchor_time"] = int(last["time"])
+    context["anchor_close_time"] = float(last["close_time"])
+    duration = interval_seconds(anchor_tf)
+    expected_open = int(as_of // duration) * duration - duration
+    if int(last["time"]) != expected_open:
+        context["reasons"].append("STALE_ANCHOR")
+        return False, context
+    trend = evaluate_tf_trend(anchor)
+    if not trend["is_valid"]:
+        context["reasons"].append("INVALID_ANCHOR")
+        return False, context
+    context[anchor_tf] = context["anchor_regime"] = trend["regime"]
+    if direction not in ("LONG", "SHORT"):
+        context["reasons"].append("INVALID_DIRECTION")
+    elif (direction == "LONG" and trend["regime"] == "BEARISH") or (
+            direction == "SHORT" and trend["regime"] == "BULLISH"):
+        context["reasons"].append("OPPOSING_ANCHOR")
+    context["aligned"] = not context["reasons"]
     return context["aligned"], context
+
+
+def _signal_decision_time(df: pd.DataFrame, idx: int, timeframe: str,
+                          decision_time: Optional[float]) -> Optional[float]:
+    if idx < INDICATOR_WARMUP - 1 or idx >= len(df) or "time" not in df:
+        return None
+    row = df.iloc[idx]
+    candle_end = float(row.get("close_time", float(row["time"]) + interval_seconds(timeframe) - 0.001))
+    as_of = min(time.time(), candle_end + 0.001) if decision_time is None else float(decision_time)
+    if not np.isfinite(candle_end) or candle_end >= as_of:
+        return None
+    return as_of
+
+
+def _signal_alignment(htf_data, direction, timeframe, decision_time):
+    htf = htf_data or {}
+    return evaluate_mtf_alignment(
+        htf.get("1h", htf.get("1hr")), htf.get("4h", htf.get("4hr")),
+        direction, entry_tf=timeframe, df_30m=htf.get("30m"), decision_time=decision_time,
+    )
 
 class StrategyBase:
     name: str = "BaseStrategy"
@@ -311,7 +310,8 @@ class StrategyBase:
         target_rr: float = 3.5,
         params: Optional[Dict[str, Any]] = None,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None,
-        timeframe: str = "15m"
+        timeframe: str = "15m",
+        decision_time: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         """Evaluate a candle and return a trade order dict if triggered."""
         raise NotImplementedError
@@ -327,15 +327,20 @@ class SqueezeMomentumBreakout(StrategyBase):
         target_rr: float = 3.5,
         params: Optional[Dict[str, Any]] = None,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None,
-        timeframe: str = "15m"
+        timeframe: str = "15m",
+        decision_time: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         # STRICT RULE: Trading entries are allowed on 5m, 15m, and 30m
         if timeframe not in ["5m", "15m", "30m"]:
             return None
-        if idx < 50:
+        decision_time = _signal_decision_time(df, idx, timeframe, decision_time)
+        if decision_time is None:
             return None
+        # Discard future rows before computing any indicators.
+        df = compute_crypto_indicators(df.iloc[:idx + 1])
 
         p = params or {}
+        target_rr = float(p.get("target_rr", target_rr))
         rvol_min = p.get("rvol_min", 1.60)
         atr_sl_mult = p.get("atr_sl_mult", 2.20)
         rsi_min_long = p.get("rsi_min_long", 44.0)
@@ -412,24 +417,9 @@ class SqueezeMomentumBreakout(StrategyBase):
 
         if is_bullish_expansion and breakout_trigger:
             # Check 5m(30m) / 15m(1h) / 30m(4h) Multi-Timeframe Alignment
-            anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
-            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
-            if htf_data:
-                df_30m = htf_data.get("30m")
-                df_1h = htf_data.get("1h", htf_data.get("1hr"))
-                df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "LONG", entry_tf=timeframe, df_30m=df_30m)
-                if not aligned:
-                    return None
-                mtf_summary = {
-                    "aligned": True,
-                    "entry_tf": timeframe,
-                    "anchor_tf": mtf_ctx["anchor_tf"],
-                    "anchor_regime": mtf_ctx["anchor_regime"],
-                    "30m": mtf_ctx["30m"],
-                    "1h": mtf_ctx["1h"],
-                    "4h": mtf_ctx["4h"]
-                }
+            aligned, mtf_summary = _signal_alignment(htf_data, "LONG", timeframe, decision_time)
+            if not aligned:
+                return None
 
             body = close - open_p
             upper_wick = high - close
@@ -440,7 +430,8 @@ class SqueezeMomentumBreakout(StrategyBase):
                 recent_low = float(df['low'].iloc[max(0, idx-5):idx].min()) if idx >= 5 else low
                 sl_price = min(recent_low * 0.998, close - risk_dist)
                 risk_dist = close - sl_price
-                tp1_price = format_price_precision(close + (1.50 * risk_dist))
+                tp1_rr = 1.0 if target_rr <= 2.0 else 1.5
+                tp1_price = format_price_precision(close + (tp1_rr * risk_dist))
                 tp_price = format_price_precision(close + (target_rr * risk_dist))
                 
                 return {
@@ -450,7 +441,7 @@ class SqueezeMomentumBreakout(StrategyBase):
                     "entry_price": format_price_precision(close),
                     "sl_price": format_price_precision(sl_price),
                     "tp1_price": tp1_price,
-                    "tp1_rr": 1.5,
+                    "tp1_rr": tp1_rr,
                     "tp_price": tp_price,
                     "risk_distance": risk_dist,
                     "target_rr": target_rr,
@@ -494,24 +485,9 @@ class SqueezeMomentumBreakout(StrategyBase):
 
         if is_bearish_expansion and breakdown_trigger:
             # Check 5m(30m) / 15m(1h) / 30m(4h) Multi-Timeframe Alignment
-            anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
-            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
-            if htf_data:
-                df_30m = htf_data.get("30m")
-                df_1h = htf_data.get("1h", htf_data.get("1hr"))
-                df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "SHORT", entry_tf=timeframe, df_30m=df_30m)
-                if not aligned:
-                    return None
-                mtf_summary = {
-                    "aligned": True,
-                    "entry_tf": timeframe,
-                    "anchor_tf": mtf_ctx["anchor_tf"],
-                    "anchor_regime": mtf_ctx["anchor_regime"],
-                    "30m": mtf_ctx["30m"],
-                    "1h": mtf_ctx["1h"],
-                    "4h": mtf_ctx["4h"]
-                }
+            aligned, mtf_summary = _signal_alignment(htf_data, "SHORT", timeframe, decision_time)
+            if not aligned:
+                return None
 
             body = open_p - close
             lower_wick = close - low
@@ -521,7 +497,8 @@ class SqueezeMomentumBreakout(StrategyBase):
                 recent_high = float(df['high'].iloc[max(0, idx-5):idx].max()) if idx >= 5 else high
                 sl_price = max(recent_high * 1.002, close + risk_dist)
                 risk_dist = sl_price - close
-                tp1_price = format_price_precision(close - (1.50 * risk_dist))
+                tp1_rr = 1.0 if target_rr <= 2.0 else 1.5
+                tp1_price = format_price_precision(close - (tp1_rr * risk_dist))
                 tp_price = format_price_precision(close - (target_rr * risk_dist))
                 
                 return {
@@ -531,7 +508,7 @@ class SqueezeMomentumBreakout(StrategyBase):
                     "entry_price": format_price_precision(close),
                     "sl_price": format_price_precision(sl_price),
                     "tp1_price": tp1_price,
-                    "tp1_rr": 1.5,
+                    "tp1_rr": tp1_rr,
                     "tp_price": tp_price,
                     "risk_distance": risk_dist,
                     "target_rr": target_rr,
@@ -567,15 +544,20 @@ class LiquiditySweepReversal(StrategyBase):
         target_rr: float = 3.5,
         params: Optional[Dict[str, Any]] = None,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None,
-        timeframe: str = "15m"
+        timeframe: str = "15m",
+        decision_time: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         # STRICT RULE: Trading entries are allowed on 5m, 15m, and 30m
         if timeframe not in ["5m", "15m", "30m"]:
             return None
-        if idx < 50:
+        decision_time = _signal_decision_time(df, idx, timeframe, decision_time)
+        if decision_time is None:
             return None
+        # Discard future rows before computing any indicators.
+        df = compute_crypto_indicators(df.iloc[:idx + 1])
 
         p = params or {}
+        target_rr = float(p.get("target_rr", target_rr))
         rvol_min = p.get("rvol_min", 1.20)
         min_rejection_wick_ratio = p.get("min_rejection_wick_ratio", 0.50)
         min_risk_dist_pct = p.get("min_risk_dist_pct", 0.012)
@@ -607,29 +589,15 @@ class LiquiditySweepReversal(StrategyBase):
             and lower_wick_ratio >= min_rejection_wick_ratio 
             and rvol >= rvol_min
         ):
-            anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
-            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
-            if htf_data:
-                df_30m = htf_data.get("30m")
-                df_1h = htf_data.get("1h", htf_data.get("1hr"))
-                df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "LONG", entry_tf=timeframe, df_30m=df_30m)
-                if not aligned:
-                    return None
-                mtf_summary = {
-                    "aligned": True,
-                    "entry_tf": timeframe,
-                    "anchor_tf": mtf_ctx["anchor_tf"],
-                    "anchor_regime": mtf_ctx["anchor_regime"],
-                    "30m": mtf_ctx["30m"],
-                    "1h": mtf_ctx["1h"],
-                    "4h": mtf_ctx["4h"]
-                }
+            aligned, mtf_summary = _signal_alignment(htf_data, "LONG", timeframe, decision_time)
+            if not aligned:
+                return None
 
             risk_dist = max(atr * 1.5, (close - low) * 1.20, close * min_risk_dist_pct)
             entry_price = close
             sl_price = entry_price - risk_dist
-            tp1_price = format_price_precision(entry_price + (1.50 * risk_dist))
+            tp1_rr = 1.0 if target_rr <= 2.0 else 1.5
+            tp1_price = format_price_precision(entry_price + (tp1_rr * risk_dist))
             tp_price = format_price_precision(entry_price + (target_rr * risk_dist))
             
             return {
@@ -639,7 +607,7 @@ class LiquiditySweepReversal(StrategyBase):
                 "entry_price": format_price_precision(entry_price),
                 "sl_price": format_price_precision(sl_price),
                 "tp1_price": tp1_price,
-                "tp1_rr": 1.5,
+                "tp1_rr": tp1_rr,
                 "tp_price": tp_price,
                 "risk_distance": risk_dist,
                 "target_rr": target_rr,
@@ -666,29 +634,15 @@ class LiquiditySweepReversal(StrategyBase):
             and upper_wick_ratio >= min_rejection_wick_ratio 
             and rvol >= rvol_min
         ):
-            anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
-            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
-            if htf_data:
-                df_30m = htf_data.get("30m")
-                df_1h = htf_data.get("1h", htf_data.get("1hr"))
-                df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "SHORT", entry_tf=timeframe, df_30m=df_30m)
-                if not aligned:
-                    return None
-                mtf_summary = {
-                    "aligned": True,
-                    "entry_tf": timeframe,
-                    "anchor_tf": mtf_ctx["anchor_tf"],
-                    "anchor_regime": mtf_ctx["anchor_regime"],
-                    "30m": mtf_ctx["30m"],
-                    "1h": mtf_ctx["1h"],
-                    "4h": mtf_ctx["4h"]
-                }
+            aligned, mtf_summary = _signal_alignment(htf_data, "SHORT", timeframe, decision_time)
+            if not aligned:
+                return None
 
             risk_dist = max(atr * 1.5, (high - close) * 1.20, close * min_risk_dist_pct)
             entry_price = close
             sl_price = entry_price + risk_dist
-            tp1_price = format_price_precision(entry_price - (1.50 * risk_dist))
+            tp1_rr = 1.0 if target_rr <= 2.0 else 1.5
+            tp1_price = format_price_precision(entry_price - (tp1_rr * risk_dist))
             tp_price = format_price_precision(entry_price - (target_rr * risk_dist))
             
             return {
@@ -698,7 +652,7 @@ class LiquiditySweepReversal(StrategyBase):
                 "entry_price": format_price_precision(entry_price),
                 "sl_price": format_price_precision(sl_price),
                 "tp1_price": tp1_price,
-                "tp1_rr": 1.5,
+                "tp1_rr": tp1_rr,
                 "tp_price": tp_price,
                 "risk_distance": risk_dist,
                 "target_rr": target_rr,
@@ -718,7 +672,7 @@ class LiquiditySweepReversal(StrategyBase):
 
 class TrendPullbackConfluence(StrategyBase):
     name = "Trend_Pullback_Confluence"
-    description = "Enters on high-probability pullbacks to EMA20/EMA50 value zones within established higher-timeframe trends with 1:3.5+ RR and 2.0x ATR protection."
+    description = "Enters on high-probability pullbacks to EMA20/EMA50 value zones within established higher-timeframe trends with strict 1:2.0 RR and 2.2x ATR protection."
 
     @staticmethod
     def generate_signal(
@@ -727,17 +681,22 @@ class TrendPullbackConfluence(StrategyBase):
         target_rr: float = 3.5,
         params: Optional[Dict[str, Any]] = None,
         htf_data: Optional[Dict[str, pd.DataFrame]] = None,
-        timeframe: str = "15m"
+        timeframe: str = "15m",
+        decision_time: Optional[float] = None,
     ) -> Optional[Dict[str, Any]]:
         # STRICT RULE: Trading entries are allowed on 5m, 15m, and 30m
         if timeframe not in ["5m", "15m", "30m"]:
             return None
-        if idx < 50:
+        decision_time = _signal_decision_time(df, idx, timeframe, decision_time)
+        if decision_time is None:
             return None
+        # Discard future rows before computing any indicators.
+        df = compute_crypto_indicators(df.iloc[:idx + 1])
 
         p = params or {}
+        target_rr = float(p.get("target_rr", target_rr))
         min_risk_dist_pct = p.get("min_risk_dist_pct", 0.012)
-        atr_sl_mult = p.get("atr_sl_mult", 2.0)
+        atr_sl_mult = p.get("atr_sl_mult", 2.20)
         rvol_min = p.get("rvol_min", 1.25)
         buyer_ratio_min_long = p.get("buyer_ratio_min_long", 50.0)
         buyer_ratio_max_short = p.get("buyer_ratio_max_short", 50.0)
@@ -799,30 +758,16 @@ class TrendPullbackConfluence(StrategyBase):
             and (rvol >= rvol_min)
             and (buyer_r >= buyer_ratio_min_long)
         ):
-            anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
-            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
-            if htf_data:
-                df_30m = htf_data.get("30m")
-                df_1h = htf_data.get("1h", htf_data.get("1hr"))
-                df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "LONG", entry_tf=timeframe, df_30m=df_30m)
-                if not aligned:
-                    return None
-                mtf_summary = {
-                    "aligned": True,
-                    "entry_tf": timeframe,
-                    "anchor_tf": mtf_ctx["anchor_tf"],
-                    "anchor_regime": mtf_ctx["anchor_regime"],
-                    "30m": mtf_ctx["30m"],
-                    "1h": mtf_ctx["1h"],
-                    "4h": mtf_ctx["4h"]
-                }
+            aligned, mtf_summary = _signal_alignment(htf_data, "LONG", timeframe, decision_time)
+            if not aligned:
+                return None
 
             sl_price = min(swing_l5, close - (atr_sl_mult * atr))
             raw_risk = close - sl_price
             risk_dist = max(raw_risk, close * min_risk_dist_pct)
             sl_price = close - risk_dist
-            tp1_price = format_price_precision(close + (1.50 * risk_dist))
+            tp1_rr = 1.0 if target_rr <= 2.0 else 1.5
+            tp1_price = format_price_precision(close + (tp1_rr * risk_dist))
             tp_price = format_price_precision(close + (target_rr * risk_dist))
             entry_price = close
             
@@ -833,7 +778,7 @@ class TrendPullbackConfluence(StrategyBase):
                 "entry_price": format_price_precision(entry_price),
                 "sl_price": format_price_precision(sl_price),
                 "tp1_price": tp1_price,
-                "tp1_rr": 1.5,
+                "tp1_rr": tp1_rr,
                 "tp_price": tp_price,
                 "risk_distance": risk_dist,
                 "target_rr": target_rr,
@@ -861,30 +806,16 @@ class TrendPullbackConfluence(StrategyBase):
             and (rvol >= rvol_min)
             and (buyer_r <= buyer_ratio_max_short)
         ):
-            anchor_name = "30m" if timeframe == "5m" else ("1h" if timeframe == "15m" else "4h")
-            mtf_summary = {"aligned": True, "entry_tf": timeframe, "anchor_tf": anchor_name, "30m": "N/A", "1h": "N/A", "4h": "N/A"}
-            if htf_data:
-                df_30m = htf_data.get("30m")
-                df_1h = htf_data.get("1h", htf_data.get("1hr"))
-                df_4h = htf_data.get("4h", htf_data.get("4hr"))
-                aligned, mtf_ctx = evaluate_mtf_alignment(df_1h, df_4h, "SHORT", entry_tf=timeframe, df_30m=df_30m)
-                if not aligned:
-                    return None
-                mtf_summary = {
-                    "aligned": True,
-                    "entry_tf": timeframe,
-                    "anchor_tf": mtf_ctx["anchor_tf"],
-                    "anchor_regime": mtf_ctx["anchor_regime"],
-                    "30m": mtf_ctx["30m"],
-                    "1h": mtf_ctx["1h"],
-                    "4h": mtf_ctx["4h"]
-                }
+            aligned, mtf_summary = _signal_alignment(htf_data, "SHORT", timeframe, decision_time)
+            if not aligned:
+                return None
 
             sl_price = max(swing_h5, close + (atr_sl_mult * atr))
             raw_risk = sl_price - close
             risk_dist = max(raw_risk, close * min_risk_dist_pct)
             sl_price = close + risk_dist
-            tp1_price = format_price_precision(close - (1.50 * risk_dist))
+            tp1_rr = 1.0 if target_rr <= 2.0 else 1.5
+            tp1_price = format_price_precision(close - (tp1_rr * risk_dist))
             tp_price = format_price_precision(close - (target_rr * risk_dist))
             entry_price = close
             
@@ -895,7 +826,7 @@ class TrendPullbackConfluence(StrategyBase):
                 "entry_price": format_price_precision(entry_price),
                 "sl_price": format_price_precision(sl_price),
                 "tp1_price": tp1_price,
-                "tp1_rr": 1.5,
+                "tp1_rr": tp1_rr,
                 "tp_price": tp_price,
                 "risk_distance": risk_dist,
                 "target_rr": target_rr,
@@ -920,4 +851,3 @@ AVAILABLE_STRATEGIES = [
     SqueezeMomentumBreakout,
     LiquiditySweepReversal
 ]
-

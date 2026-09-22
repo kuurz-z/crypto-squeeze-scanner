@@ -6,6 +6,8 @@ import tempfile
 from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
+from unittest.mock import patch
+from data_loader import interval_seconds
 
 from strategies import (
     compute_crypto_indicators, 
@@ -20,6 +22,10 @@ from live_bot import LiveCryptoBot, ph_now
 class TestMultiTimeframeAlignment(unittest.TestCase):
 
     def setUp(self):
+        self.decision_time = int(pd.Timestamp("2026-09-22T12:00:00Z").timestamp())
+        clock = patch("strategies.time.time", return_value=self.decision_time + 1)
+        clock.start()
+        self.addCleanup(clock.stop)
         self.test_dir = tempfile.mkdtemp()
         self.bot = LiveCryptoBot(
             initial_capital=100.0,
@@ -36,15 +42,17 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
         except Exception:
             pass
 
-    def _create_mock_df(self, n=60, close_val=100.0, ema50_val=95.0, rsi_val=55.0, is_bullish=True):
+    def _create_mock_df(self, n=200, close_val=100.0, ema50_val=95.0, rsi_val=55.0, is_bullish=True, timeframe="15m"):
         """Create a mock technical dataframe with customizable trend regime."""
-        dates = pd.date_range("2026-01-01", periods=n, freq="15min")
+        seconds = interval_seconds(timeframe)
+        times = np.arange(self.decision_time - n * seconds, self.decision_time, seconds)
         open_val = close_val - 2.0 if is_bullish else close_val + 2.0
         high_val = max(open_val, close_val) + 0.5
         low_val = min(open_val, close_val) - 0.5
 
         df = pd.DataFrame({
-            "time": [int(d.timestamp()) for d in dates],
+            "time": times,
+            "close_time": times + seconds - 0.001,
             "open": np.linspace(open_val - 10, open_val, n),
             "high": np.linspace(high_val - 10, high_val, n),
             "low": np.linspace(low_val - 10, low_val, n),
@@ -61,7 +69,9 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
             "momentum": [1.5 if is_bullish else -1.5] * n,
             "rvol": [1.8] * n,
             "adx14": [25.0] * n,
-            "hurst": [0.55] * n
+            "hurst": [0.55] * n,
+            "bb_width_percentile": [20.0] * n,
+            "atr_expansion": [1.1] * n,
         })
         return df
 
@@ -81,10 +91,10 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
 
     def test_mtf_long_approved_when_15m_with_1h_and_30m_with_4h_bullish(self):
         """Verify that 15m Long is approved with 1h Bullish, and 30m Long is approved with 4h Bullish."""
-        df_15m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
-        df_30m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
-        df_1h = self._create_mock_df(close_val=100.0, ema50_val=92.0, rsi_val=58.0, is_bullish=True)
-        df_4h = self._create_mock_df(close_val=100.0, ema50_val=85.0, rsi_val=55.0, is_bullish=True)
+        df_15m = self._create_mock_df(timeframe="15m", close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
+        df_30m = self._create_mock_df(timeframe="30m", close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
+        df_1h = self._create_mock_df(timeframe="1h", close_val=100.0, ema50_val=92.0, rsi_val=58.0, is_bullish=True)
+        df_4h = self._create_mock_df(timeframe="4h", close_val=100.0, ema50_val=85.0, rsi_val=55.0, is_bullish=True)
 
         htf_data = {"1h": df_1h, "4h": df_4h}
         
@@ -106,10 +116,10 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
 
     def test_mtf_15m_long_rejected_when_1h_bearish(self):
         """Verify that a 15m Long breakout is REJECTED when 1h anchor trend is Bearish."""
-        df_15m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
+        df_15m = self._create_mock_df(timeframe="15m", close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
         # 1h is Bearish (below EMA50, RSI 40)
-        df_1h = self._create_mock_df(close_val=88.0, ema50_val=95.0, rsi_val=40.0, is_bullish=False)
-        df_4h = self._create_mock_df(close_val=100.0, ema50_val=85.0, rsi_val=55.0, is_bullish=True)
+        df_1h = self._create_mock_df(timeframe="1h", close_val=88.0, ema50_val=95.0, rsi_val=40.0, is_bullish=False)
+        df_4h = self._create_mock_df(timeframe="4h", close_val=100.0, ema50_val=85.0, rsi_val=55.0, is_bullish=True)
 
         htf_data = {"1h": df_1h, "4h": df_4h}
         sig = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="15m")
@@ -119,10 +129,10 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
 
     def test_mtf_30m_long_rejected_when_4h_bearish(self):
         """Verify that a 30m Long breakout is REJECTED when 4h anchor macro trend is Bearish."""
-        df_30m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
-        df_1h = self._create_mock_df(close_val=100.0, ema50_val=92.0, rsi_val=58.0, is_bullish=True)
+        df_30m = self._create_mock_df(timeframe="30m", close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
+        df_1h = self._create_mock_df(timeframe="1h", close_val=100.0, ema50_val=92.0, rsi_val=58.0, is_bullish=True)
         # 4h is in Macro Downtrend (Price 80 < EMA50 100, RSI 35)
-        df_4h = self._create_mock_df(close_val=80.0, ema50_val=100.0, rsi_val=35.0, is_bullish=False)
+        df_4h = self._create_mock_df(timeframe="4h", close_val=80.0, ema50_val=100.0, rsi_val=35.0, is_bullish=False)
 
         htf_data = {"1h": df_1h, "4h": df_4h}
         sig = SqueezeMomentumBreakout.generate_signal(df_30m, len(df_30m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="30m")
@@ -132,10 +142,10 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
 
     def test_mtf_short_approved_for_15m_and_30m(self):
         """Verify that 15m Short is approved with 1h Bearish, and 30m Short is approved with 4h Bearish."""
-        df_15m = self._create_mock_df(close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
-        df_30m = self._create_mock_df(close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
-        df_1h = self._create_mock_df(close_val=80.0, ema50_val=92.0, rsi_val=40.0, is_bullish=False)
-        df_4h = self._create_mock_df(close_val=80.0, ema50_val=95.0, rsi_val=38.0, is_bullish=False)
+        df_15m = self._create_mock_df(timeframe="15m", close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
+        df_30m = self._create_mock_df(timeframe="30m", close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
+        df_1h = self._create_mock_df(timeframe="1h", close_val=80.0, ema50_val=92.0, rsi_val=40.0, is_bullish=False)
+        df_4h = self._create_mock_df(timeframe="4h", close_val=80.0, ema50_val=95.0, rsi_val=38.0, is_bullish=False)
 
         htf_data = {"1h": df_1h, "4h": df_4h}
         
@@ -157,10 +167,10 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
 
     def test_mtf_15m_short_rejected_when_1h_bullish(self):
         """Verify that a 15m Short breakdown is REJECTED when 1h anchor trend is Bullish."""
-        df_15m = self._create_mock_df(close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
+        df_15m = self._create_mock_df(timeframe="15m", close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
         # 1h is Bullish
-        df_1h = self._create_mock_df(close_val=110.0, ema50_val=100.0, rsi_val=58.0, is_bullish=True)
-        df_4h = self._create_mock_df(close_val=80.0, ema50_val=95.0, rsi_val=38.0, is_bullish=False)
+        df_1h = self._create_mock_df(timeframe="1h", close_val=110.0, ema50_val=100.0, rsi_val=58.0, is_bullish=True)
+        df_4h = self._create_mock_df(timeframe="4h", close_val=80.0, ema50_val=95.0, rsi_val=38.0, is_bullish=False)
 
         htf_data = {"1h": df_1h, "4h": df_4h}
         sig = SqueezeMomentumBreakout.generate_signal(df_15m, len(df_15m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="15m")
@@ -169,10 +179,10 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
 
     def test_mtf_30m_short_rejected_when_4h_bullish(self):
         """Verify that a 30m Short breakdown is REJECTED when 4h anchor macro trend is Bullish."""
-        df_30m = self._create_mock_df(close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
-        df_1h = self._create_mock_df(close_val=80.0, ema50_val=92.0, rsi_val=40.0, is_bullish=False)
+        df_30m = self._create_mock_df(timeframe="30m", close_val=80.0, ema50_val=90.0, rsi_val=42.0, is_bullish=False)
+        df_1h = self._create_mock_df(timeframe="1h", close_val=80.0, ema50_val=92.0, rsi_val=40.0, is_bullish=False)
         # 4h Macro is Bullish
-        df_4h = self._create_mock_df(close_val=120.0, ema50_val=100.0, rsi_val=60.0, is_bullish=True)
+        df_4h = self._create_mock_df(timeframe="4h", close_val=120.0, ema50_val=100.0, rsi_val=60.0, is_bullish=True)
 
         htf_data = {"1h": df_1h, "4h": df_4h}
         sig = SqueezeMomentumBreakout.generate_signal(df_30m, len(df_30m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="30m")
@@ -189,8 +199,8 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
 
     def test_mtf_5m_long_approved_when_30m_bullish(self):
         """Verify that 5m Long is approved when 30m anchor is Bullish."""
-        df_5m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
-        df_30m = self._create_mock_df(close_val=100.0, ema50_val=92.0, rsi_val=58.0, is_bullish=True)
+        df_5m = self._create_mock_df(timeframe="5m", close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
+        df_30m = self._create_mock_df(timeframe="30m", close_val=100.0, ema50_val=92.0, rsi_val=58.0, is_bullish=True)
         
         htf_data = {"30m": df_30m}
         sig_5m = SqueezeMomentumBreakout.generate_signal(df_5m, len(df_5m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="5m")
@@ -202,58 +212,41 @@ class TestMultiTimeframeAlignment(unittest.TestCase):
 
     def test_mtf_5m_long_rejected_when_30m_bearish(self):
         """Verify that 5m Long is rejected when 30m anchor is Bearish."""
-        df_5m = self._create_mock_df(close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
-        df_30m = self._create_mock_df(close_val=80.0, ema50_val=95.0, rsi_val=38.0, is_bullish=False)
+        df_5m = self._create_mock_df(timeframe="5m", close_val=100.0, ema50_val=95.0, rsi_val=62.0, is_bullish=True)
+        df_30m = self._create_mock_df(timeframe="30m", close_val=80.0, ema50_val=95.0, rsi_val=38.0, is_bullish=False)
         
         htf_data = {"30m": df_30m}
         sig_5m = SqueezeMomentumBreakout.generate_signal(df_5m, len(df_5m) - 1, target_rr=2.0, htf_data=htf_data, timeframe="5m")
         self.assertIsNone(sig_5m)
 
     def test_entry_permitted_on_5m_15m_30m_and_triple(self):
-        """Verify that trade entries are permitted on 5m, 15m, 30m, and triple concurrent mode."""
-        df_bullish = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=52.0, is_bullish=True)
-        df_30m = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=52.0, is_bullish=True)
-        df_1h = self._create_mock_df(close_val=100.0, ema50_val=90.0, rsi_val=52.0, is_bullish=True)
-        df_4h = self._create_mock_df(close_val=100.0, ema50_val=85.0, rsi_val=52.0, is_bullish=True)
-        
-        # Populate MTF data
-        self.bot.mtf_data["BTCUSDT"] = {"30m": df_30m, "1h": df_1h, "4h": df_4h}
+        """Valid completed entry/anchor histories permit every supported mode."""
+        entries = {tf: self._create_mock_df(timeframe=tf, close_val=100.0,
+                   ema50_val=90.0, rsi_val=52.0) for tf in ("5m", "15m", "30m")}
+        self.bot.mtf_data["BTCUSDT"] = {
+            tf: self._create_mock_df(timeframe=tf, close_val=100.0,
+                                    ema50_val=90.0, rsi_val=52.0)
+            for tf in ("30m", "1h", "4h")
+        }
         self.bot.btc_macro_status = {"gate_status": "ALLOW_ALL", "regime": "BULLISH"}
+        for timeframe in ("5m", "15m", "30m"):
+            with self.subTest(timeframe=timeframe):
+                self.bot.set_timeframe(timeframe)
+                self.bot.open_positions.clear()
+                # These are independent entry scenarios, not repeated re-entry attempts.
+                self.bot.symbol_last_entry_candle.clear()
+                asyncio.run(self.bot._scan_new_entries({"BTCUSDT": entries[timeframe]}))
+                self.assertIn("BTCUSDT", self.bot.open_positions)
+                self.assertEqual(self.bot.open_positions["BTCUSDT"]["timeframe"], timeframe)
+                self.assertTrue(self.bot.open_positions["BTCUSDT"]["pre_trade_context"]["mtf_alignment"]["aligned"])
 
-        # 1. On 5m timeframe -> Allowed to open position
-        self.bot.set_timeframe("5m")
-        self.bot.open_positions.clear()
-        asyncio.run(self.bot._scan_new_entries({"BTCUSDT": df_bullish}))
-        self.assertIn("BTCUSDT", self.bot.open_positions)
-        self.assertEqual(self.bot.open_positions["BTCUSDT"]["timeframe"], "5m")
-
-        # 2. On 15m timeframe -> Allowed to open position
-        self.bot.set_timeframe("15m")
-        self.bot.open_positions.clear()
-        asyncio.run(self.bot._scan_new_entries({"BTCUSDT": df_bullish}))
-        self.assertIn("BTCUSDT", self.bot.open_positions)
-        self.assertEqual(self.bot.open_positions["BTCUSDT"]["timeframe"], "15m")
-
-        # 3. On 30m timeframe -> Allowed to open position
-        self.bot.set_timeframe("30m")
-        self.bot.open_positions.clear()
-        asyncio.run(self.bot._scan_new_entries({"BTCUSDT": df_bullish}))
-        self.assertIn("BTCUSDT", self.bot.open_positions)
-        self.assertEqual(self.bot.open_positions["BTCUSDT"]["timeframe"], "30m")
-
-        # 4. On triple timeframe mode -> Allowed and scans across all three
         self.bot.set_timeframe("triple")
         self.bot.open_positions.clear()
-        multi_data = {
-            "5m": {"BTCUSDT": df_bullish},
-            "15m": {"BTCUSDT": df_bullish},
-            "30m": {"BTCUSDT": df_bullish}
-        }
+        self.bot.symbol_last_entry_candle.clear()
+        multi_data = {tf: {"BTCUSDT": frame} for tf, frame in entries.items()}
         asyncio.run(self.bot._scan_new_entries(multi_data, scan_tfs=["5m", "15m", "30m"]))
         self.assertIn("BTCUSDT", self.bot.open_positions)
-        # Higher timeframe (30m) prioritized on conflict
         self.assertEqual(self.bot.open_positions["BTCUSDT"]["timeframe"], "30m")
 
 if __name__ == '__main__':
     unittest.main()
-

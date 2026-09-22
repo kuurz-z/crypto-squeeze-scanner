@@ -1,3 +1,4 @@
+from test_causal_fixtures import signal_with_history, simulation_fixture
 import unittest
 import asyncio
 import os
@@ -78,7 +79,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "momentum": [0.5] * 60,
             "rvol": [1.3] * 60
         })
-        sig = TrendPullbackConfluence.generate_signal(df_pullback, len(df_pullback) - 1, target_rr=2.5)
+        sig = signal_with_history(TrendPullbackConfluence, df_pullback, len(df_pullback) - 1, target_rr=2.5)
         self.assertIsNotNone(sig)
         self.assertEqual(sig["direction"], "LONG")
         self.assertEqual(sig["target_rr"], 2.5)
@@ -105,7 +106,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "momentum": [0.5] * 60,
             "rvol": [1.3] * 60
         })
-        sig = TrendPullbackConfluence.generate_signal(df_overbought, len(df_overbought) - 1, target_rr=2.5)
+        sig = signal_with_history(TrendPullbackConfluence, df_overbought, len(df_overbought) - 1, target_rr=2.5)
         self.assertIsNone(sig)
 
     def test_phantom_in_candle_stopout_prevention(self):
@@ -167,12 +168,12 @@ class TestStrategyImprovements(unittest.TestCase):
     def test_rsi_safe_corridor_long_overbought_rejection(self):
         """Verify that Squeeze Breakout rejects LONGs when RSI is extreme overbought blow-off (> 76)."""
         df_safe = self._create_mock_dataframe(rsi_val=62.0)
-        sig_safe = SqueezeMomentumBreakout.generate_signal(df_safe, len(df_safe) - 1, target_rr=2.0)
+        sig_safe = signal_with_history(SqueezeMomentumBreakout, df_safe, len(df_safe) - 1, target_rr=2.0)
         self.assertIsNotNone(sig_safe)
         self.assertEqual(sig_safe["direction"], "LONG")
 
         df_overbought = self._create_mock_dataframe(rsi_val=82.5)
-        sig_overbought = SqueezeMomentumBreakout.generate_signal(df_overbought, len(df_overbought) - 1, target_rr=2.0)
+        sig_overbought = signal_with_history(SqueezeMomentumBreakout, df_overbought, len(df_overbought) - 1, target_rr=2.0)
         self.assertIsNone(sig_overbought)
 
     def test_rsi_safe_corridor_short_oversold_rejection(self):
@@ -195,7 +196,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "momentum": [-1.5] * 60,
             "rvol": [2.0] * 60
         })
-        sig = SqueezeMomentumBreakout.generate_signal(df_short, len(df_short) - 1, target_rr=2.0)
+        sig = signal_with_history(SqueezeMomentumBreakout, df_short, len(df_short) - 1, target_rr=2.0)
         self.assertIsNone(sig)
 
     def test_candle_body_filter_rejects_wick_traps(self):
@@ -217,7 +218,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "momentum": [1.0] * 60,
             "rvol": [2.0] * 60
         })
-        sig = SqueezeMomentumBreakout.generate_signal(df_wick, len(df_wick) - 1, target_rr=2.0)
+        sig = signal_with_history(SqueezeMomentumBreakout, df_wick, len(df_wick) - 1, target_rr=2.0)
         self.assertIsNone(sig)
 
     def test_adaptive_atr_noise_buffer(self):
@@ -239,7 +240,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "momentum": [0.001] * 60,
             "rvol": [2.0] * 60
         })
-        sig = SqueezeMomentumBreakout.generate_signal(df_micro, len(df_micro) - 1, target_rr=2.0)
+        sig = signal_with_history(SqueezeMomentumBreakout, df_micro, len(df_micro) - 1, target_rr=2.0)
         self.assertIsNotNone(sig)
         self.assertGreaterEqual(sig["risk_distance"], 0.018 * 0.008)
 
@@ -412,7 +413,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "hurst": [0.55] * 60,
             "adx14": [14.0] * 60  # Dead flat trendless market (< 20)
         })
-        sig = TrendPullbackConfluence.generate_signal(df_dead, len(df_dead) - 1, target_rr=2.5)
+        sig = signal_with_history(TrendPullbackConfluence, df_dead, len(df_dead) - 1, target_rr=2.5)
         self.assertIsNone(sig)
 
     def test_be_and_time_exit_quarantine(self):
@@ -585,7 +586,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "adx14": [28.0] * 60,
             "hurst": [0.56] * 60
         })
-        sig = SqueezeMomentumBreakout.generate_signal(df_tight, len(df_tight) - 1, target_rr=3.0, timeframe="30m")
+        sig = signal_with_history(SqueezeMomentumBreakout, df_tight, len(df_tight) - 1, target_rr=3.0, timeframe="30m")
         self.assertIsNotNone(sig)
         # Should enforce >= 1.2% (0.018 * 0.012 = 0.000216)
         self.assertGreaterEqual(sig["risk_distance"], 0.018 * 0.012)
@@ -624,7 +625,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "rsi14": [56.0] * 60
         })
         htf_data = {"1h": df_1h}
-        sig = TrendPullbackConfluence.generate_signal(df_15m, len(df_15m) - 1, target_rr=3.0, htf_data=htf_data, timeframe="15m")
+        sig = signal_with_history(TrendPullbackConfluence, df_15m, len(df_15m) - 1, target_rr=3.0, htf_data=htf_data, timeframe="15m")
         self.assertIsNotNone(sig)
         self.assertEqual(sig["direction"], "LONG")
         self.assertEqual(sig["target_rr"], 3.0)
@@ -674,7 +675,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "rsi14": [44.0] * 60
         })
         htf_data = {"1h": df_1h}
-        sig = TrendPullbackConfluence.generate_signal(df_15m, len(df_15m) - 1, target_rr=3.0, htf_data=htf_data, timeframe="15m")
+        sig = signal_with_history(TrendPullbackConfluence, df_15m, len(df_15m) - 1, target_rr=3.0, htf_data=htf_data, timeframe="15m")
         self.assertIsNotNone(sig)
         self.assertEqual(sig["direction"], "SHORT")
         self.assertEqual(sig["target_rr"], 3.0)
@@ -710,12 +711,12 @@ class TestStrategyImprovements(unittest.TestCase):
         }
         # 1. Low Hurst (< 0.52), healthy ADX (28.0) -> Rejection
         d_low_hurst = dict(base_dict, hurst=[0.49] * 60, adx14=[28.0] * 60)
-        sig_hurst = TrendPullbackConfluence.generate_signal(pd.DataFrame(d_low_hurst), 59)
+        sig_hurst = signal_with_history(TrendPullbackConfluence, pd.DataFrame(d_low_hurst), 59)
         self.assertIsNone(sig_hurst)
 
         # 2. Healthy Hurst (0.56), low ADX (< 22.0) -> Rejection
         d_low_adx = dict(base_dict, hurst=[0.56] * 60, adx14=[18.0] * 60)
-        sig_adx = TrendPullbackConfluence.generate_signal(pd.DataFrame(d_low_adx), 59)
+        sig_adx = signal_with_history(TrendPullbackConfluence, pd.DataFrame(d_low_adx), 59)
         self.assertIsNone(sig_adx)
 
     def test_trend_pullback_confluence_mtf_anchor_contradiction_rejection(self):
@@ -751,7 +752,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "ema200": [100.0] * 60,
             "rsi14": [38.0] * 60
         })
-        sig_long_blocked = TrendPullbackConfluence.generate_signal(
+        sig_long_blocked = signal_with_history(TrendPullbackConfluence,
             df_long_15m, 59, htf_data={"1h": df_1h_bearish}, timeframe="15m"
         )
         self.assertIsNone(sig_long_blocked)
@@ -785,7 +786,7 @@ class TestStrategyImprovements(unittest.TestCase):
             "ema200": [90.0] * 60,
             "rsi14": [60.0] * 60
         })
-        sig_short_blocked = TrendPullbackConfluence.generate_signal(
+        sig_short_blocked = signal_with_history(TrendPullbackConfluence,
             df_short_15m, 59, htf_data={"1h": df_1h_bullish}, timeframe="15m"
         )
         self.assertIsNone(sig_short_blocked)

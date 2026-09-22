@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Trend Pullback Confluence & Pattern Scanner | 1:3.0+ RR High-Expectancy System</title>
+  <title>Trend Pullback Confluence & Pattern Scanner | 1:2.0+ RR High-Expectancy System</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://unpkg.com/lightweight-charts@4.2.1/dist/lightweight-charts.standalone.production.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -45,7 +45,7 @@
       <div>
         <h1 class="text-base font-bold tracking-wide text-slate-900 dark:text-white flex items-center gap-2">
           TREND PULLBACK CONFLUENCE & SCANNER
-          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold">1:3.0+ RR (Target)</span>
+          <span class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-semibold">1:2.0+ RR (Target)</span>
         </h1>
         <p class="text-xs text-slate-500 dark:text-gray-400">High-Expectancy Trend Pullback & Volatility Breakout System</p>
       </div>
@@ -293,8 +293,8 @@
               <span class="text-slate-600 dark:text-gray-400">Target RR:</span>
               <select id="bt-target-rr" class="bg-slate-50 dark:bg-[#1e293b] border border-slate-300 dark:border-gray-700 rounded px-2 py-1 text-slate-800 dark:text-white text-xs focus:outline-none focus:border-indigo-500">
                 <option value="1.0">1:1 RR (TP1)</option>
-                <option value="2.0">1:2 RR (TP2)</option>
-                <option value="3.0" selected>1:3.0 RR (Target)</option>
+                <option value="2.0" selected>1:2.0 RR (Target)</option>
+                <option value="3.0">1:3.0 RR (TP3)</option>
                 <option value="4.0">1:4 RR (TP4)</option>
               </select>
             </div>
@@ -458,13 +458,13 @@
       <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
         <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Total PnL ($ / R)</span>
         <p id="bot-total-pnl-usd" class="text-xl font-bold text-emerald-600 dark:text-emerald-300 font-mono mt-1">+$0.00</p>
-        <span id="bot-total-r" class="text-[10px] text-slate-400 font-mono">+0.00 R (0.0%)</span>
+        <span id="bot-total-r" class="text-[10px] text-slate-400 font-mono">All recorded trades</span>
       </div>
 
       <!-- 3. WIN RATE -->
       <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
-        <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Win Rate (&ge; 1:3.0 RR)</span>
-        <p id="bot-win-rate" class="text-xl font-bold text-slate-900 dark:text-white font-mono mt-1">0.0%</p>
+        <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Recorded Win Rate</span>
+        <p id="bot-win-rate" class="text-xl font-bold text-slate-900 dark:text-white font-mono mt-1">Not validated</p>
         <span id="bot-win-loss-count" class="text-[10px] text-slate-400">0W - 0L (0 Trades)</span>
       </div>
 
@@ -478,15 +478,15 @@
       <!-- 5. PROFIT FACTOR -->
       <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
         <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Profit Factor</span>
-        <p id="bot-profit-factor" class="text-xl font-bold text-purple-600 dark:text-purple-400 font-mono mt-1">0.00</p>
-        <span class="text-[10px] text-slate-400">&ge; 1.4 Target</span>
+        <p id="bot-profit-factor" class="text-xl font-bold text-purple-600 dark:text-purple-400 font-mono mt-1">Not validated</p>
+        <span class="text-[10px] text-slate-400">Includes unverified history</span>
       </div>
 
       <!-- 6. ACTIVE STRATEGY -->
       <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 p-4 rounded-xl shadow-sm dark:shadow-md text-center">
         <span class="text-[11px] uppercase text-slate-500 dark:text-gray-400 font-semibold">Active Strategy</span>
         <p id="bot-active-strategy" class="text-sm font-bold text-indigo-600 dark:text-indigo-400 truncate mt-1">Trend Pullback Confluence</p>
-        <span class="text-[10px] text-slate-400">High-Expectancy &ge; 1:3.0 RR</span>
+        <span class="text-[10px] text-slate-400">Fixed paper strategy</span>
       </div>
     </div>
 
@@ -504,7 +504,7 @@
               <button id="tab-btn-active-pos" class="px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-2 bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/40 cursor-pointer">
                 <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                 <span>Active Live Positions</span>
-                <span id="tab-badge-active-count" class="px-1.5 py-0.2 rounded bg-indigo-200/60 dark:bg-indigo-900/60 text-[10px]">0 / 10</span>
+                <span id="tab-badge-active-count" class="px-1.5 py-0.2 rounded bg-indigo-200/60 dark:bg-indigo-900/60 text-[10px]">0 / 5</span>
               </button>
 
               <button id="tab-btn-closed-history" class="px-3.5 py-1.5 rounded-lg text-xs font-semibold transition flex items-center gap-2 bg-slate-100 dark:bg-gray-800 text-slate-600 dark:text-gray-400 hover:bg-slate-200 dark:hover:bg-gray-700 cursor-pointer">
@@ -514,7 +514,7 @@
               </button>
             </div>
 
-            <span class="text-[10px] text-slate-400 font-mono">Max 10 Trades | &ge; 1:3.0 RR Target | Triple MTF Matrix</span>
+            <span class="text-[10px] text-slate-400 font-mono">Max 10 Trades | &ge; 1:2.0 RR Target | Triple MTF Matrix</span>
           </div>
 
           <!-- TAB 1: ACTIVE LIVE POSITIONS -->
@@ -537,7 +537,7 @@
                 <tr>
                   <td colspan="9" class="py-6 text-center text-slate-400 dark:text-gray-500">
                     <i class="fa-solid fa-radar text-lg mb-1 block text-indigo-500"></i>
-                    No open positions right now. The bot is actively scanning 100 pairs across 5m/30m, 15m/1h, and 30m/4h for valid &ge; 1:3.0 RR setups (Max 10 Concurrent Trades).
+                    No open positions right now. The bot is actively scanning 100 pairs across 5m/30m, 15m/1h, and 30m/4h for valid &ge; 1:2.0 RR setups (Max 10 Concurrent Trades).
                   </td>
                 </tr>
               </tbody>
@@ -585,6 +585,20 @@
           </div>
 
         </div>
+
+        <section class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 mb-4">
+          <h3 class="text-sm font-bold text-slate-900 dark:text-white">Current forward paper test</h3>
+          <p id="forward-run" class="text-xs text-slate-500 mt-1">Not validated</p>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-3 text-xs">
+            <div>Net realized PnL<div id="forward-pnl" class="font-mono font-bold mt-1">$0.00</div></div>
+            <div>Modeled costs<div id="forward-costs" class="font-mono font-bold mt-1">$0.00</div></div>
+            <div>Expectancy / closed trade<div id="forward-expectancy" class="font-mono font-bold mt-1">Not validated</div></div>
+            <div>Realized drawdown<div id="forward-drawdown" class="font-mono font-bold mt-1">$0.00</div></div>
+          </div>
+          <p id="forward-cost-assumptions" class="text-[11px] text-slate-500 mt-3"></p>
+          <p id="forward-rejections" class="text-[11px] text-slate-500 mt-2"></p>
+          <p id="forward-legacy" class="text-[11px] text-slate-500 mt-2"></p>
+        </section>
 
         <!-- LIVE TRADE DIAGNOSTIC JOURNAL STREAM -->
         <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl flex flex-col transition-colors">
@@ -634,7 +648,7 @@
             <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
               <i class="fa-solid fa-sliders text-emerald-500"></i> Active Strategy Parameters
             </h3>
-            <span id="champion-wr-badge" class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">Champion (WR &ge; 40%)</span>
+            <span id="champion-wr-badge" class="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded border border-emerald-500/20">Not validated</span>
           </div>
           
           <div class="space-y-2 text-xs" id="bot-params-container">
@@ -645,7 +659,7 @@
             <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
               <span class="text-slate-500 dark:text-gray-400">Target Risk-to-Reward:</span>
               <span id="param-target-rr" class="font-mono font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                &ge; 1:3.0 RR <span class="text-[10px] px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-500 font-semibold">Unlimited Runner 🚀</span>
+                &ge; 1:2.0 RR <span class="text-[10px] px-1 py-0.2 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-500 font-semibold">Unlimited Runner 🚀</span>
               </span>
             </div>
             <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
@@ -658,7 +672,7 @@
             </div>
             <div class="flex justify-between items-center py-1.5 border-b border-slate-100 dark:border-gray-800/60">
               <span class="text-slate-500 dark:text-gray-400">Take Profit Distance:</span>
-              <span id="param-atr-tp" class="font-mono font-bold text-emerald-600 dark:text-emerald-400">Dynamic &ge; 3.90 &times; ATR14</span>
+              <span id="param-atr-tp" class="font-mono font-bold text-emerald-600 dark:text-emerald-400">Dynamic &ge; 2.60 &times; ATR14</span>
             </div>
             <div class="flex justify-between items-center py-1.5">
               <span class="text-slate-500 dark:text-gray-400">RSI Filter Bound:</span>
@@ -671,7 +685,7 @@
         <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl flex flex-col transition-colors">
           <div class="flex items-center justify-between mb-3 border-b border-slate-200 dark:border-gray-800 pb-2.5">
             <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <i class="fa-solid fa-dna text-purple-500"></i> AI Strategy Evolution Log
+              <i class="fa-solid fa-dna text-purple-500"></i> Strategy Research Reports
             </h3>
             <span class="text-[10px] text-slate-400">Walk-Forward</span>
           </div>
@@ -679,7 +693,7 @@
           <div id="bot-evolution-timeline" class="space-y-3 text-xs">
             <div class="text-center py-6 text-slate-400 dark:text-gray-500">
               <i class="fa-solid fa-microchip text-xl mb-1.5 block text-slate-300 dark:text-gray-600"></i>
-              The AI evaluates trade cycles and refines parameters every 5 closed trades.
+              Research evaluates candidates without changing the fixed paper strategy.
             </div>
           </div>
 
@@ -699,9 +713,9 @@
         <div class="bg-white dark:bg-[#111827] border border-slate-200 dark:border-gray-800 rounded-xl p-5 shadow-sm dark:shadow-xl transition-colors">
           <div class="flex items-center justify-between mb-3 border-b border-slate-200 dark:border-gray-800 pb-2.5">
             <h3 class="text-sm font-bold text-slate-900 dark:text-white flex items-center gap-2">
-              <i class="fa-solid fa-trophy text-amber-500"></i> Champions Hall of Fame & Audits
+              <i class="fa-solid fa-trophy text-amber-500"></i> Historical Comparisons & Research
             </h3>
-            <span class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">Evolution Engine</span>
+            <span class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">Report-only</span>
           </div>
 
           <div class="space-y-2.5 text-xs">
@@ -710,7 +724,7 @@
               <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 text-center">
                 <div class="text-[9px] text-slate-400 font-medium">Daily Snapshot</div>
                 <div id="macro-daily-status" class="font-semibold text-slate-700 dark:text-gray-300 mt-0.5 text-[10px]">Active (24h)</div>
-                <div id="macro-daily-last" class="text-[8px] font-mono text-slate-400 mt-0.5">Last: Today</div>
+                <div id="macro-daily-last" class="text-[8px] font-mono text-slate-400 mt-0.5">Last: Awaiting</div>
               </div>
 
               <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 text-center">
@@ -720,7 +734,7 @@
               </div>
 
               <div class="p-2 rounded-lg bg-slate-50 dark:bg-[#1e293b]/60 border border-slate-200 dark:border-gray-800 text-center">
-                <div class="text-[9px] text-slate-400 font-medium">Monthly Champ</div>
+                <div class="text-[9px] text-slate-400 font-medium">Monthly Research</div>
                 <div id="macro-monthly-status" class="font-semibold text-slate-700 dark:text-gray-300 mt-0.5 text-[10px]">Active (30d)</div>
                 <div id="macro-monthly-last" class="text-[8px] font-mono text-slate-400 mt-0.5">Last: Awaiting</div>
               </div>
@@ -738,15 +752,15 @@
                 <i class="fa-solid fa-trophy text-purple-500 text-[10px]"></i> Monthly Tournament
               </button>
               <button id="btn-trigger-champions-gauntlet" class="py-1.5 px-2 bg-slate-100 dark:bg-gray-800 hover:bg-slate-200 dark:hover:bg-gray-700 text-slate-700 dark:text-gray-300 rounded text-[10px] font-semibold transition border border-slate-200 dark:border-gray-700 cursor-pointer flex items-center justify-center gap-1">
-                <i class="fa-solid fa-crown text-amber-500 text-[10px]"></i> All-Time Gauntlet
+                <i class="fa-solid fa-crown text-amber-500 text-[10px]"></i> Historical Comparison
               </button>
             </div>
 
             <!-- Hall of Fame Quick Feed -->
             <div id="hall-of-fame-container" class="space-y-1.5 pt-1">
               <div class="p-2 rounded bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-800/30 text-[10px] text-slate-600 dark:text-gray-300 flex items-center justify-between">
-                <span><i class="fa-solid fa-crown text-amber-500 mr-1"></i> <b id="hof-goat-title">All-Time GOAT:</b> <span id="hof-goat-strat">Squeeze Momentum</span></span>
-                <span id="hof-goat-wr" class="font-mono font-bold text-amber-600 dark:text-amber-400">42.5% WR | 85 Rep</span>
+                <span><i class="fa-solid fa-crown text-amber-500 mr-1"></i> <b id="hof-goat-title">Historical record:</b> <span id="hof-goat-strat">Awaiting history</span></span>
+                <span id="hof-goat-wr" class="font-mono font-bold text-amber-600 dark:text-amber-400">Not validated</span>
               </div>
             </div>
 
@@ -847,7 +861,7 @@
         <!-- Explainer Box -->
         <div class="p-3 bg-slate-100 dark:bg-black/30 rounded-lg border border-slate-200 dark:border-gray-800 text-[11px] text-slate-600 dark:text-gray-400 leading-relaxed">
           <i class="fa-solid fa-shield-halved text-emerald-500 mr-1"></i>
-          With target <b>1:3.0 RR</b>, winning trades target <b id="fund-calc-win" class="text-emerald-600 dark:text-emerald-400">+$3.00 USD</b> with 3-stage milestone exit protection (Breakeven, +1.0R Lock, Unlimited Runner), and losses capped at <b id="fund-calc-loss" class="text-rose-500">-$1.00 USD</b>. If capital is depleted, the bot will auto-stop and generate a summary report.
+          With target <b>1:2.0 RR</b>, winning trades target <b id="fund-calc-win" class="text-emerald-600 dark:text-emerald-400">+$2.00 USD</b> with 3-stage milestone exit protection (Breakeven, +1.0R Lock, Unlimited Runner), and losses capped at <b id="fund-calc-loss" class="text-rose-500">-$1.00 USD</b>. If capital is depleted, the bot will auto-stop and generate a summary report.
         </div>
       </div>
 

@@ -147,15 +147,59 @@ KLINE_TTL_MAP = {
     "1d": 600.0,
 }
 
+ANCHOR_TIMEFRAMES = {"5m": "30m", "15m": "1h", "30m": "4h"}
+INDICATOR_WARMUP = 200
+
+
+def interval_seconds(interval: str) -> int:
+    """Return Binance interval duration for the fixed-duration intervals we use."""
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+    if not interval or interval[-1] not in units:
+        raise ValueError(f"Unsupported fixed-duration interval: {interval}")
+    return int(interval[:-1]) * units[interval[-1]]
+
+
+def completed_candles(df: Optional[pd.DataFrame], timeframe: str,
+                      decision_time: Optional[float] = None) -> pd.DataFrame:
+    """Return only candles known complete at a UTC epoch-second decision time.
+
+    Binance's close time is inclusive. Legacy frames without it use the same
+    convention, inferred from their open time and fixed interval duration.
+    """
+    if df is None or df.empty or "time" not in df:
+        return pd.DataFrame() if df is None else df.iloc[:0].copy()
+    result = df.copy()
+    result["time"] = pd.to_numeric(result["time"], errors="coerce")
+    if "close_time" not in result:
+        result["close_time"] = result["time"] + interval_seconds(timeframe) - 0.001
+    else:
+        result["close_time"] = pd.to_numeric(result["close_time"], errors="coerce")
+    cutoff = time.time() if decision_time is None else float(decision_time)
+    valid = (result["time"].notna() & result["close_time"].notna()
+             & (result["close_time"] >= result["time"])
+             & (result["close_time"] < cutoff))
+    return result.loc[valid].sort_values("time").drop_duplicates("time", keep="last").reset_index(drop=True)
+
 async def fetch_symbol_klines(
     session: aiohttp.ClientSession, 
     symbol: str, 
     interval: str = "15m", 
     limit: int = 500,
-    force_refresh: bool = False
+    force_refresh: bool = False,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
 ) -> Optional[pd.DataFrame]:
-    """Fetch OHLCV candlestick data with global in-memory TTL caching, rate-limit header tracking, adaptive pacing, and backoff."""
+    """Fetch up to limit candles, paging Binance's 1,000-row endpoint.
+
+    Range boundaries use UTC epoch seconds; end_time is exclusive. Cached
+    bounded ranges never collide with the rolling latest-candle cache.
+    """
+    limit = int(limit)
+    if limit <= 0:
+        return None
     cache_key = f"{symbol}_{interval}_{limit}"
+    if start_time is not None or end_time is not None:
+        cache_key += f"_{start_time}_{end_time}"
     now = time.time()
     ttl = KLINE_TTL_MAP.get(interval, 25.0)
 
@@ -164,41 +208,53 @@ async def fetch_symbol_klines(
         if (now - cached["ts"]) < ttl:
             return cached["df"].copy()
 
-    await rate_limit_manager.pace()
-    params = {"symbol": symbol, "interval": interval, "limit": limit}
     try:
-        t0 = time.perf_counter()
-        async with session.get(BINANCE_KLINES_URL, params=params, timeout=aiohttp.ClientTimeout(total=8)) as resp:
-            latency_ms = (time.perf_counter() - t0) * 1000
-            rate_limit_manager.update_from_headers(resp.headers, latency_ms)
-
-            if resp.status == 429:
-                retry_after = int(resp.headers.get('Retry-After', 30))
-                rate_limit_manager.trigger_backoff(retry_after)
-                return None
-
-            if resp.status == 200:
-                raw = await resp.json()
-                if not raw or len(raw) < 50:
+        cursor_start = int(start_time * 1000) if start_time is not None else None
+        cursor_end = int((end_time if end_time is not None else now) * 1000) - 1
+        rows = {}
+        while len(rows) < limit:
+            page_limit = min(1000, limit - len(rows))
+            params = {"symbol": symbol, "interval": interval, "limit": page_limit,
+                      "endTime": cursor_end}
+            if cursor_start is not None:
+                params["startTime"] = cursor_start
+                if cursor_start > cursor_end:
+                    break
+            await rate_limit_manager.pace()
+            t0 = time.perf_counter()
+            async with session.get(BINANCE_KLINES_URL, params=params, timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                rate_limit_manager.update_from_headers(resp.headers, (time.perf_counter() - t0) * 1000)
+                if resp.status == 429:
+                    rate_limit_manager.trigger_backoff(int(resp.headers.get("Retry-After", 30)))
                     return None
-                
-                df = pd.DataFrame(raw, columns=[
-                    'open_time', 'open', 'high', 'low', 'close', 'volume',
-                    'close_time', 'quote_volume', 'trades', 'taker_buy_base',
-                    'taker_buy_quote', 'ignore'
-                ])
-                
-                df['time'] = (df['open_time'] // 1000).astype(int)
-                for col in ['open', 'high', 'low', 'close', 'volume', 'taker_buy_base']:
-                    df[col] = df[col].astype(float)
-                
-                df['symbol'] = symbol
-                res_df = df[['time', 'open', 'high', 'low', 'close', 'volume', 'taker_buy_base', 'symbol']]
-                _shared_kline_cache[cache_key] = {"ts": now, "df": res_df}
-                return res_df
-    except Exception as e:
-        print(f"[DataLoader] Warning fetching {symbol}: {e}")
-        return None
+                if resp.status != 200:
+                    return None
+                raw = await resp.json()
+            if not raw:
+                break
+            previous_count = len(rows)
+            rows.update({int(row[0]): row for row in raw})
+            if len(rows) == previous_count or len(raw) < page_limit:
+                break
+            if cursor_start is not None:
+                cursor_start = max(int(row[0]) for row in raw) + interval_seconds(interval) * 1000
+            else:
+                cursor_end = min(int(row[0]) for row in raw) - 1
+        if not rows:
+            return None
+        df = pd.DataFrame([rows[key] for key in sorted(rows)], columns=[
+            "open_time", "open", "high", "low", "close", "volume",
+            "close_time", "quote_volume", "trades", "taker_buy_base",
+            "taker_buy_quote", "ignore"
+        ])
+        df["time"] = (pd.to_numeric(df["open_time"]) // 1000).astype(int)
+        df["close_time"] = pd.to_numeric(df["close_time"]) / 1000.0
+        for col in ["open", "high", "low", "close", "volume", "taker_buy_base"]:
+            df[col] = pd.to_numeric(df[col], errors="raise")
+        df["symbol"] = symbol
+        res_df = df[["time", "close_time", "open", "high", "low", "close", "volume", "taker_buy_base", "symbol"]]
+        _shared_kline_cache[cache_key] = {"ts": now, "df": res_df}
+        return res_df.copy()
     except Exception as e:
         print(f"[DataLoader] Warning fetching {symbol}: {e}")
         return None
@@ -207,7 +263,7 @@ async def fetch_symbol_mtf_klines(
     session: aiohttp.ClientSession,
     symbol: str,
     intervals: List[str] = ["1h", "4h"],
-    limit: int = 100
+    limit: int = 250
 ) -> Dict[str, pd.DataFrame]:
     """Fetch multi-timeframe candle datasets (e.g. 1h, 4h) for a symbol concurrently."""
     tasks = [fetch_symbol_klines(session, symbol, interval=tf, limit=limit) for tf in intervals]
@@ -221,13 +277,15 @@ async def fetch_symbol_mtf_klines(
 async def fetch_market_dataset(
     symbols: List[str], 
     interval: str = "15m", 
-    limit: int = 500
+    limit: int = 500,
+    start_time: Optional[float] = None,
+    end_time: Optional[float] = None,
 ) -> Dict[str, pd.DataFrame]:
     """Fetch OHLCV market dataset for multiple crypto symbols concurrently."""
     dataset: Dict[str, pd.DataFrame] = {}
     connector = aiohttp.TCPConnector(limit=10)
     async with aiohttp.ClientSession(connector=connector) as session:
-        tasks = [fetch_symbol_klines(session, sym, interval, limit) for sym in symbols]
+        tasks = [fetch_symbol_klines(session, sym, interval, limit, start_time=start_time, end_time=end_time) for sym in symbols]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         for sym, res in zip(symbols, results):
             if isinstance(res, pd.DataFrame) and len(res) >= 60:

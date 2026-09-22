@@ -12,6 +12,18 @@ def diagnose_trade_outcome(
     """
     Perform deep algorithmic post-trade root-cause analysis on why a trade succeeded or failed.
     """
+    if trade.get("schema_version") == 2:
+        reason = trade.get("exit_reason", "UNKNOWN")
+        return {
+            "summary": f"Modeled {reason.lower().replace('_', ' ')} exit; net {trade.get('net_r', 0):+.4f}R after recorded fill costs.",
+            "catalyst_type": reason,
+            "key_factors": [
+                f"Recorded favorable excursion: {trade.get('mfe_r', 0):.3f}R",
+                f"Recorded adverse excursion: {trade.get('mae_r', 0):.3f}R",
+                f"Fees: ${trade.get('fees_usd', 0):.6f}; slippage is included in fill prices",
+            ],
+            "risk_management_quality": "Measured execution; market cause not inferred",
+        }
     outcome = trade['outcome']
     direction = trade['direction']
     bars_held = trade['bars_held']
@@ -96,7 +108,10 @@ def diagnose_trade_outcome(
             analysis["key_factors"].append("Lack of sustained volume follow-through")
 
     if trade.get('tp1_hit'):
-        analysis["key_factors"].append("Dual-Stage Scale-Out executed: Banked +0.75R guaranteed profit at TP1 (+1.50R target) with risk-free runner.")
+        target_rr_val = float(trade.get('target_rr', 2.0))
+        tp1_r_val = float(trade.get('tp1_rr', 1.0 if target_rr_val <= 2.0 else 1.5))
+        banked_val = round(0.5 * tp1_r_val, 2)
+        analysis["key_factors"].append(f"Dual-Stage Scale-Out executed: Banked +{banked_val:.2f}R guaranteed profit at TP1 (+{tp1_r_val:.2f}R target) with risk-free runner.")
 
     return analysis
 
@@ -113,7 +128,7 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
         "name": "15m Intraday",
         "expected_hold_str": "1.5h - 8h",
         "max_holding_bars": 64,       # ~16 hours
-        "stagnation_bars": 10,        # ~2.5 hours fast capital recycling
+        "stagnation_bars": 16,        # ~4 hours smart stagnation
         "cooldown_minutes": 45,       # 3 bars
         "scan_interval_sec": 20,
     },
@@ -121,7 +136,7 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
         "name": "30m Intraday",
         "expected_hold_str": "3h - 16h",
         "max_holding_bars": 64,       # ~32 hours
-        "stagnation_bars": 10,        # ~5 hours fast capital recycling
+        "stagnation_bars": 16,        # ~8 hours smart stagnation
         "cooldown_minutes": 90,       # 3 bars
         "scan_interval_sec": 30,
     },
@@ -151,314 +166,159 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
     },
 }
 
+from execution import EXIT_TIMEFRAME_PROFILES
+for _timeframe, _exit_profile in EXIT_TIMEFRAME_PROFILES.items():
+    TIMEFRAME_PROFILES[_timeframe].update(_exit_profile)
+
+
 def simulate_strategy_on_dataframe(
-    df: pd.DataFrame, 
+    df: pd.DataFrame,
     strategy_cls: type[StrategyBase],
-    target_rr: float = 3.5,
+    target_rr: float = 2.0,
     fee_pct: float = 0.05,
     slippage_pct: float = 0.02,
     max_holding_bars: Optional[int] = None,
     timeframe: str = "30m",
     stagnation_bars: Optional[int] = None,
-    params: Optional[Dict[str, Any]] = None
+    params: Optional[Dict[str, Any]] = None,
+    htf_data: Optional[Dict[str, pd.DataFrame]] = None,
+    window_start: Optional[int] = None,
+    window_end: Optional[int] = None,
 ) -> Dict[str, Any]:
+    """Replay completed signals at the next open using conservative fill accounting.
+
+    Window bounds are UTC seconds and constrain entries to [start, end). Earlier
+    candles warm indicators only. Any surviving position is marked out at the
+    last completed price in the window, explicitly tagged WINDOW_END.
     """
-    Simulate a strategy over historical crypto candles with strict >= 1:3 RR, timeframe-aware holding horizons, and comprehensive diagnostics.
-    """
+    from execution import create_position, process_bar, close_position, summarize_position
+    from data_loader import completed_candles
+
     assert target_rr >= 2.0, f"Target Risk-to-Reward must be at least 1:2 (got {target_rr})"
-    
-    tf_profile = TIMEFRAME_PROFILES.get(timeframe, TIMEFRAME_PROFILES["30m"])
-    if max_holding_bars is None:
-        max_holding_bars = tf_profile.get("max_holding_bars", 64)
-    if stagnation_bars is None:
-        stagnation_bars = tf_profile.get("stagnation_bars", 10)
-
-    df = compute_crypto_indicators(df)
+    seconds = {"5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400, "1d": 86400}
+    if timeframe not in seconds:
+        raise ValueError(f"Unsupported timeframe: {timeframe}")
+    duration = seconds[timeframe]
+    profile = TIMEFRAME_PROFILES[timeframe]
+    max_hold = max_holding_bars if max_holding_bars is not None else profile["max_holding_bars"]
+    stagnation = stagnation_bars if stagnation_bars is not None else profile["stagnation_bars"]
     trades: List[Dict[str, Any]] = []
-    
-    n = len(df)
-    i = 50
-    symbol = df['symbol'].iloc[0] if 'symbol' in df.columns else 'CRYPTO'
-
-    while i < n - 2:
-        signal = strategy_cls.generate_signal(df, i, target_rr=target_rr, params=params, timeframe=timeframe)
+    diagnostics = {"insufficient_primary_history": 0, "missing_anchor_history": 0}
+    if df is None or len(df) < 201:
+        diagnostics["insufficient_primary_history"] = 1
+        result = compile_simulation_metrics(trades, strategy_cls.name, target_rr)
+        result.update({"simulation_version": "execution_v2", "execution_model": "conservative_ohlc",
+                       "data_diagnostics": diagnostics,
+                       "validation_window": {"start": window_start, "end": window_end},
+                       "cost_model": {"version": "fills_v1", "fee_pct": fee_pct, "slippage_pct": slippage_pct}})
+        return result
+    df = df.sort_values("time", kind="stable").drop_duplicates("time", keep="last").reset_index(drop=True)
+    df = completed_candles(df, timeframe, decision_time=window_end).reset_index(drop=True)
+    df = compute_crypto_indicators(df)
+    symbol = str(df.iloc[0].get("symbol", "CRYPTO")) if len(df) else "CRYPTO"
+    anchor = {"5m": "30m", "15m": "1h", "30m": "4h"}.get(timeframe)
+    i = 199
+    while i < len(df) - 1:
+        next_idx = i + 1
+        decision_time = int(df.iloc[next_idx]["time"])
+        if window_start is not None and decision_time < window_start:
+            i += 1
+            continue
+        if window_end is not None and decision_time >= window_end:
+            break
+        # Only completed primary/anchor information may influence this decision.
+        prefix = completed_candles(df.iloc[:i + 1], timeframe, decision_time=decision_time)
+        if len(prefix) < 200:
+            diagnostics["insufficient_primary_history"] += 1
+            i += 1
+            continue
+        anchor_df = (htf_data or {}).get(anchor) if anchor else None
+        if anchor_df is None or len(completed_candles(anchor_df, anchor, decision_time=decision_time)) < 200:
+            diagnostics["missing_anchor_history"] += 1
+            i += 1
+            continue
+        signal = strategy_cls.generate_signal(
+            prefix, len(prefix) - 1, target_rr=target_rr, params=params,
+            htf_data=htf_data, timeframe=timeframe, decision_time=decision_time,
+        )
         if not signal:
             i += 1
             continue
-
-        direction = signal['direction']
-        entry_price = signal['entry_price']
-        curr_sl = signal['sl_price']
-        tp_price = signal['tp_price']
-        risk_dist = signal['risk_distance']
-        entry_time = int(df.iloc[i]['time'])
-        
-        is_long = (direction == 'LONG')
-        tp1_price = signal.get('tp1_price')
-        if tp1_price is None:
-            tp1_price = (entry_price + (1.50 * risk_dist)) if is_long else (entry_price - (1.50 * risk_dist))
-        else:
-            tp1_price = float(tp1_price)
-        tp1_hit = False
-
-        bars_held = 0
-        outcome = "OPEN"
-        exit_price = entry_price
-        exit_time = entry_time
-        exit_idx = i
-        
-        max_favorable_price = entry_price
-        max_adverse_price = entry_price
-        is_trailing = False
-        is_unlimited_runner = False
-
-        # Forward simulate subsequent candles
-        for j in range(i + 1, min(i + max_holding_bars + 1, n)):
-            bars_held += 1
+        try:
+            pos = create_position(
+                signal["direction"], float(df.iloc[next_idx]["open"]), float(signal["risk_distance"]),
+                1.0, float(signal.get("target_rr", target_rr)), decision_time, fee_pct, slippage_pct,
+            )
+        except (ValueError, KeyError, TypeError):
+            i += 1
+            continue
+        pos.update({"strategy": strategy_cls.name, "symbol": symbol, "timeframe": timeframe,
+                    "pre_trade_context": signal.get("pre_trade_context", {}),
+                    "signal_time": int(prefix.iloc[-1]["time"]) + duration})
+        exit_idx = next_idx
+        for j in range(next_idx, len(df)):
             bar = df.iloc[j]
-            bar_high = float(bar['high'])
-            bar_low = float(bar['low'])
-            bar_close = float(bar['close'])
-            bar_time = int(bar['time'])
-            atr = float(bar.get('atr14', risk_dist))
+            bar_end = int(bar["time"]) + duration
+            if window_end is not None and bar_end > window_end:
+                break
+            process_bar(pos, bar, timestamp=bar_end, completed_bars=j - next_idx + 1,
+                        stagnation_bars=stagnation, max_holding_bars=max_hold)
+            exit_idx = j
+            if pos["closed"]:
+                break
+        if not pos["closed"]:
+            last_bar = df.iloc[exit_idx]
+            close_position(pos, float(last_bar["close"]), int(last_bar["time"]) + duration, "WINDOW_END")
+        record = summarize_position(pos)
+        record["trade_id"] = len(trades) + 1
+        record["diagnostic"] = diagnose_trade_outcome(record, df, i, exit_idx)
+        trades.append(record)
+        # The exit bar may supply the next completed signal, never an earlier one.
+        i = max(i + 1, exit_idx)
+    result = compile_simulation_metrics(trades, strategy_cls.name, target_rr)
+    result.update({"simulation_version": "execution_v2", "execution_model": "conservative_ohlc",
+                   "validation_window": {"start": window_start, "end": window_end},
+                   "data_diagnostics": diagnostics,
+                   "cost_model": {"version": "fills_v1", "fee_pct": fee_pct, "slippage_pct": slippage_pct},
+                   "window_end_closes": sum(t.get("exit_reason") == "WINDOW_END" for t in trades)})
+    return result
 
-            if is_long:
-                max_favorable_price = max(max_favorable_price, bar_high)
-                max_adverse_price = min(max_adverse_price, bar_low)
-                current_mfe = max(0.0, (max_favorable_price - entry_price) / risk_dist)
-
-                # Check TP1 hit
-                if bar_high >= tp1_price and not tp1_hit:
-                    tp1_hit = True
-                    curr_sl = max(curr_sl, entry_price + (0.15 * risk_dist))  # Risk-Free Breakeven + fee buffer
-
-                # At current_mfe >= 1.8 and tp1_hit: lock +0.5R
-                if current_mfe >= 1.8 and tp1_hit:
-                    curr_sl = max(curr_sl, entry_price + (0.50 * risk_dist))  # Lock +0.5R on remaining runner
-
-                # At current_mfe >= 2.2: dynamic trailing stop
-                if current_mfe >= 2.2:
-                    is_trailing = True
-                    trail_sl = bar_close - (1.0 * atr)
-                    curr_sl = max(curr_sl, entry_price + (1.5 * risk_dist), trail_sl)
-
-                # At current_mfe >= 3.5: unlimited profit runner
-                if current_mfe >= 3.5:
-                    is_unlimited_runner = True
-                    trail_sl = bar_close - (0.8 * atr)
-                    curr_sl = max(curr_sl, entry_price + (2.5 * risk_dist), trail_sl)
-
-                # Check SL hit
-                if bar_low <= curr_sl:
-                    if is_trailing or curr_sl >= entry_price + (0.45 * risk_dist):
-                        outcome = "TRAILING_STOP_WIN"
-                    elif tp1_hit or curr_sl > entry_price:
-                        outcome = "BE_EXIT"
-                    else:
-                        outcome = "LOSS"
-                    exit_price = curr_sl
-                    exit_time = bar_time
-                    exit_idx = j
-                    break
-
-                # Check TP hit (only if not running as unlimited runner)
-                elif bar_high >= tp_price and not is_unlimited_runner:
-                    outcome = "WIN"
-                    exit_price = tp_price
-                    exit_time = bar_time
-                    exit_idx = j
-                    break
-
-                # Check Fast Stagnation Exit at stagnation_bars
-                elif bars_held >= stagnation_bars and abs((bar_close - entry_price) / risk_dist) < 0.25 and not (current_mfe >= 0.8 or is_trailing or tp1_hit):
-                    outcome = "TIME_EXIT"
-                    exit_price = bar_close
-                    exit_time = bar_time
-                    exit_idx = j
-                    break
-
-            else:  # SHORT
-                max_favorable_price = min(max_favorable_price, bar_low)
-                max_adverse_price = max(max_adverse_price, bar_high)
-                current_mfe = max(0.0, (entry_price - max_favorable_price) / risk_dist)
-
-                # Check TP1 hit
-                if bar_low <= tp1_price and not tp1_hit:
-                    tp1_hit = True
-                    curr_sl = min(curr_sl, entry_price - (0.15 * risk_dist))  # Risk-Free Breakeven + fee buffer
-
-                # At current_mfe >= 1.8 and tp1_hit: lock +0.5R
-                if current_mfe >= 1.8 and tp1_hit:
-                    curr_sl = min(curr_sl, entry_price - (0.50 * risk_dist))  # Lock +0.5R on remaining runner
-
-                # At current_mfe >= 2.2: dynamic trailing stop
-                if current_mfe >= 2.2:
-                    is_trailing = True
-                    trail_sl = bar_close + (1.0 * atr)
-                    curr_sl = min(curr_sl, entry_price - (1.5 * risk_dist), trail_sl)
-
-                # At current_mfe >= 3.5: unlimited profit runner
-                if current_mfe >= 3.5:
-                    is_unlimited_runner = True
-                    trail_sl = bar_close + (0.8 * atr)
-                    curr_sl = min(curr_sl, entry_price - (2.5 * risk_dist), trail_sl)
-
-                # Check SL hit
-                if bar_high >= curr_sl:
-                    if is_trailing or curr_sl <= entry_price - (0.45 * risk_dist):
-                        outcome = "TRAILING_STOP_WIN"
-                    elif tp1_hit or curr_sl < entry_price:
-                        outcome = "BE_EXIT"
-                    else:
-                        outcome = "LOSS"
-                    exit_price = curr_sl
-                    exit_time = bar_time
-                    exit_idx = j
-                    break
-
-                # Check TP hit (only if not running as unlimited runner)
-                elif bar_low <= tp_price and not is_unlimited_runner:
-                    outcome = "WIN"
-                    exit_price = tp_price
-                    exit_time = bar_time
-                    exit_idx = j
-                    break
-
-                # Check Fast Stagnation Exit at stagnation_bars
-                elif bars_held >= stagnation_bars and abs((entry_price - bar_close) / risk_dist) < 0.25 and not (current_mfe >= 0.8 or is_trailing or tp1_hit):
-                    outcome = "TIME_EXIT"
-                    exit_price = bar_close
-                    exit_time = bar_time
-                    exit_idx = j
-                    break
-
-        if outcome == "OPEN":
-            # Timeout at max holding period: close at market close price
-            last_bar = df.iloc[min(i + max_holding_bars, n - 1)]
-            exit_price = float(last_bar['close'])
-            exit_time = int(last_bar['time'])
-            exit_idx = min(i + max_holding_bars, n - 1)
-            outcome = "TIME_EXIT"
-
-        runner_raw_r = (exit_price - entry_price) / risk_dist if is_long else (entry_price - exit_price) / risk_dist
-
-        if tp1_hit:
-            raw_r = round((0.5 * 1.50) + (0.5 * runner_raw_r), 2)
-            if outcome in ["LOSS", "TIME_EXIT", "BE_EXIT"]:
-                outcome = "WIN" if raw_r > 0.1 else ("BE_EXIT" if raw_r >= -0.05 else "LOSS")
-        else:
-            raw_r = round(runner_raw_r, 2)
-            if outcome in ["TIME_EXIT"]:
-                outcome = "WIN" if raw_r > 0.1 else ("BE_EXIT" if raw_r >= -0.05 else "LOSS")
-
-        # Calculate MAE and MFE in terms of R-multiples
-        if is_long:
-            mfe_r = round(max(0.0, (max_favorable_price - entry_price) / risk_dist), 2)
-            mae_r = round(max(0.0, (entry_price - max_adverse_price) / risk_dist), 2)
-        else:
-            mfe_r = round(max(0.0, (entry_price - max_favorable_price) / risk_dist), 2)
-            mae_r = round(max(0.0, (max_adverse_price - entry_price) / risk_dist), 2)
-
-        # Friction calculation (Roundtrip fee + slippage)
-        friction_cost_pct = (fee_pct + slippage_pct) * 2.0
-        risk_pct = (risk_dist / entry_price) * 100.0
-        friction_r = friction_cost_pct / risk_pct if risk_pct > 0 else 0.05
-        net_r = round(raw_r - friction_r, 2)
-
-        trade_record = {
-            "trade_id": len(trades) + 1,
-            "symbol": symbol,
-            "strategy": strategy_cls.name,
-            "direction": direction,
-            "entry_time": entry_time,
-            "exit_time": exit_time,
-            "entry_price": round(entry_price, 6 if entry_price < 1 else 2),
-            "exit_price": round(exit_price, 6 if exit_price < 1 else 2),
-            "sl_price": round(signal['sl_price'], 6 if signal['sl_price'] < 1 else 2),
-            "tp_price": round(tp_price, 6 if tp_price < 1 else 2),
-            "tp1_price": round(tp1_price, 6 if tp1_price < 1 else 2),
-            "tp1_hit": tp1_hit,
-            "target_rr": target_rr,
-            "outcome": outcome,
-            "raw_r": raw_r,
-            "net_r": net_r,
-            "mfe_r": mfe_r,
-            "mae_r": mae_r,
-            "bars_held": bars_held,
-            "pre_trade_context": signal['pre_trade_context']
-        }
-
-        # Perform deep algorithmic diagnosis
-        diagnostic = diagnose_trade_outcome(trade_record, df, i, exit_idx)
-        trade_record['diagnostic'] = diagnostic
-
-        trades.append(trade_record)
-
-        # Advance index to avoid taking simultaneous overlapping signals on the same candle sequence
-        i += max(1, bars_held)
-
-    return compile_simulation_metrics(trades, strategy_cls.name, target_rr)
 
 def compile_simulation_metrics(trades: List[Dict[str, Any]], strategy_name: str, target_rr: float) -> Dict[str, Any]:
-    """Calculate statistical performance metrics for a batch of trades."""
-    total_trades = len(trades)
-    if total_trades == 0:
-        return {
-            "strategy": strategy_name,
-            "target_rr": target_rr,
-            "total_trades": 0,
-            "win_rate_pct": 0.0,
-            "total_net_r": 0.0,
-            "profit_factor": 0.0,
-            "expectancy_r": 0.0,
-            "max_drawdown_r": 0.0,
-            "avg_bars_held": 0.0,
-            "trades": []
-        }
-
-    wins = [t for t in trades if t['net_r'] > 0]
-    losses = [t for t in trades if t['net_r'] <= 0]
-    
-    win_count = len(wins)
-    loss_count = len(losses)
-    win_rate_pct = round((win_count / total_trades) * 100.0, 2)
-    
-    total_win_r = sum(t['net_r'] for t in wins)
-    total_loss_r = abs(sum(t['net_r'] for t in losses))
-    profit_factor = round(total_win_r / total_loss_r, 2) if total_loss_r > 0 else 999.0
-    
-    total_net_r = round(sum(t['net_r'] for t in trades), 2)
-    expectancy_r = round(total_net_r / total_trades, 3)
-    
-    # Calculate Max Drawdown in R
-    cumulative_r = []
-    curr = 0.0
-    for t in trades:
-        curr += t['net_r']
-        cumulative_r.append(curr)
-        
-    peak = cumulative_r[0]
-    max_dd = 0.0
-    for val in cumulative_r:
-        if val > peak:
-            peak = val
-        dd = peak - val
-        if dd > max_dd:
-            max_dd = dd
-
-    avg_bars_held = round(float(np.mean([t['bars_held'] for t in trades])), 1)
-
+    """Metrics from net fills, with chronological equity and its initial zero peak."""
+    ordered = sorted(trades, key=lambda t: (float(t.get("exit_time", 0)),
+                                            float(t.get("entry_time", 0)), str(t.get("symbol", ""))))
+    wins = [t for t in ordered if float(t["net_r"]) > 0]
+    losses = [t for t in ordered if float(t["net_r"]) <= 0]
+    total = len(ordered)
+    win_r = sum(float(t["net_r"]) for t in wins)
+    loss_r = -sum(float(t["net_r"]) for t in losses)
+    net_r = sum(float(t["net_r"]) for t in ordered)
+    cash_flows = []
+    for index, trade in enumerate(ordered):
+        fills = trade.get("fills")
+        risk = float(trade.get("risk_amount_usd", 1.0))
+        if fills and risk > 0:
+            cash_flows.extend((float(f["timestamp"]), index, int(f.get("fill_id", 0)),
+                               float(f["cash_delta_usd"]) / risk) for f in fills)
+        else:
+            cash_flows.append((float(trade.get("exit_time", index)), index, 0, float(trade["net_r"])))
+    cash_flows.sort(key=lambda item: item[:3])
+    equity = peak = max_dd = 0.0
+    for _, _, _, change in cash_flows:
+        equity += change
+        peak = max(peak, equity)
+        max_dd = max(max_dd, peak - equity)
     return {
-        "strategy": strategy_name,
-        "target_rr": target_rr,
-        "total_trades": total_trades,
-        "win_count": win_count,
-        "loss_count": loss_count,
-        "win_rate_pct": win_rate_pct,
-        "total_net_r": total_net_r,
-        "profit_factor": profit_factor,
-        "expectancy_r": expectancy_r,
-        "max_drawdown_r": round(max_dd, 2),
-        "avg_bars_held": avg_bars_held,
-        "trades": trades
+        "strategy": strategy_name, "target_rr": target_rr, "total_trades": total,
+        "win_count": len(wins), "loss_count": len(losses),
+        "validation_status": "MEASURED_SAMPLE" if total else "NOT_VALIDATED",
+        "win_rate_pct": round(100.0 * len(wins) / total, 2) if total else None,
+        "total_net_r": round(net_r, 6),
+        "profit_factor": round(win_r / loss_r, 4) if loss_r > 0 else None,
+        "profit_factor_unbounded": loss_r == 0 and win_r > 0,
+        "expectancy_r": round(net_r / total, 6) if total else None,
+        "max_drawdown_r": round(max_dd, 6),
+        "avg_bars_held": round(float(np.mean([t.get("bars_held", 0) for t in ordered])), 1) if total else 0.0,
+        "trades": ordered,
     }

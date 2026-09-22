@@ -2,6 +2,9 @@ import asyncio
 import os
 import json
 import time
+import copy
+import hashlib
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Optional
 import aiohttp
@@ -19,7 +22,7 @@ def ph_fromtimestamp(ts: float) -> datetime:
     """Convert Unix epoch timestamp (seconds) to Philippine Standard Time (PHT, UTC+8)."""
     return datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(PHT).replace(tzinfo=None)
 
-from data_loader import fetch_top_crypto_pairs, fetch_symbol_klines, fetch_symbol_mtf_klines, split_train_test, rate_limit_manager
+from data_loader import fetch_top_crypto_pairs, fetch_symbol_klines, fetch_symbol_mtf_klines, split_train_test, rate_limit_manager, completed_candles, interval_seconds, ANCHOR_TIMEFRAMES
 from strategies import (
     compute_crypto_indicators, 
     evaluate_tf_trend,
@@ -30,10 +33,12 @@ from strategies import (
     TrendPullbackConfluence,
     AVAILABLE_STRATEGIES
 )
-from sim_engine import diagnose_trade_outcome, compile_simulation_metrics
+from sim_engine import diagnose_trade_outcome, compile_simulation_metrics, simulate_strategy_on_dataframe
 from strategy_memory import evaluate_reproducibility, save_strategy_to_catalog, load_saved_strategies
 from db import DatabaseManager
-from trade_journal import archive_and_reset_ledger
+from trade_journal import archive_and_reset_ledger, create_trade_journal_md
+from persistence import atomic_write_json, load_portfolio_snapshot
+from execution import create_position, process_price, process_bar, close_position, summarize_position, EXIT_TIMEFRAME_PROFILES
 
 
 LIVE_TRADES_FILE = "live_trades.json"
@@ -110,11 +115,15 @@ TIMEFRAME_PROFILES: Dict[str, Dict[str, Any]] = {
     }
 }
 
+for _timeframe, _exit_profile in EXIT_TIMEFRAME_PROFILES.items():
+    TIMEFRAME_PROFILES[_timeframe].update(_exit_profile)
+
+
 class LiveCryptoBot:
     """
     Continuous automated paper-trading bot with fixed $1.00 USD risk per trade,
     dynamic >= 1:2.0 RR unlimited profit runners, real-time trade diagnosis, BTC Macro Gatekeeper, Sector Correlation Limits,
-    Strict >= 40% Win Rate Champion Evolution, Daily Strategy Archiving, and Monthly/All-Time Hall of Fame Championship.
+    Persistent forward cohorts, fill accounting, and report-only research.
     
     RULE: Trade entries are permitted across 5m (anchored to 30m), 15m (anchored to 1h), and 30m (anchored to 4h).
     """
@@ -124,12 +133,14 @@ class LiveCryptoBot:
         fixed_risk_usd: float = 1.0,
         timeframe: str = "15m",
         max_open_positions: int = 5,
-        target_rr: float = 3.5,
+        target_rr: float = 2.0,
         scan_interval_sec: Optional[int] = None,
         optimize_every_n_trades: int = 5,
         max_positions_per_sector: int = 2,
         active_strategy_name: str = "Trend_Pullback_Confluence",
-        data_dir: Optional[str] = None
+        data_dir: Optional[str] = None,
+        fee_pct: float = 0.05,
+        slippage_pct: float = 0.02
     ):
         self.data_dir = data_dir
         self.trades_file = os.path.join(data_dir, "live_trades.json") if data_dir else LIVE_TRADES_FILE
@@ -138,6 +149,17 @@ class LiveCryptoBot:
         self.reports_dir = os.path.join(data_dir, "reports") if data_dir else REPORTS_DIR
         self.archive_file = os.path.join(self.reports_dir, "historical_archive.json")
         self.hall_of_fame_file = os.path.join(self.reports_dir, "monthly_champions_hall_of_fame.json")
+        self.snapshot_file = os.path.join(data_dir or ".", "portfolio_snapshot.json")
+        self.snapshot_revision = 0
+        self.forward_run_id = None
+        self.forward_run_config = None
+        self.fee_pct = float(fee_pct)
+        self.slippage_pct = float(slippage_pct)
+        if not (np.isfinite(self.fee_pct) and np.isfinite(self.slippage_pct)) or min(self.fee_pct, self.slippage_pct) < 0:
+            raise ValueError("Fee and slippage percentages must be finite and nonnegative")
+        self.optimizer_mode = "report_only"
+        self.rejected_entries = {}
+        self._evaluation_lock = asyncio.Lock()
 
         self.db = DatabaseManager(db_url=os.environ.get("DATABASE_URL") if not data_dir else None, data_dir=data_dir)
 
@@ -178,31 +200,32 @@ class LiveCryptoBot:
         self.champion_stats: Dict[str, Any] = {
             "name": "Trend_Pullback_Confluence",
             "timeframe": self.timeframe,
-            "win_rate": 53.8,
-            "expectancy_r": 1.34,
-            "score": 3.69,
+            "win_rate": None,
+            "expectancy_r": None,
+            "score": None,
+            "validation_status": "NOT_VALIDATED",
             "upgrades_count": 0,
             "crowned_at": ph_now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
         self.mtf_data: Dict[str, Dict[str, pd.DataFrame]] = {}
         self.btc_macro_status: Dict[str, Any] = {
-            "regime": "BULLISH",
-            "trend": "Bullish Trend Alignment",
-            "rsi": 52.0,
+            "regime": "UNKNOWN",
+            "trend": "Awaiting completed BTC candles",
+            "rsi": None,
             "flash_drop": False,
             "gate_status": "ALLOW_ALL",
             "btc_price": 0.0,
-            "alignment_1h": "BULLISH",
-            "alignment_4h": "BULLISH"
+            "alignment_1h": "UNKNOWN",
+            "alignment_4h": "UNKNOWN"
         }
         
         self.circuit_breaker_until: Optional[datetime] = None
         self.active_strategy_name = active_strategy_name
         self.active_params = {
-            "rvol_min": 1.15,
+            "rvol_min": 1.45,
             "atr_sl_mult": 2.20,
-            "target_rr": 3.5,
+            "target_rr": self.target_rr,
             "adx_min": 22.0,
             "rsi_min_long": 38.0,
             "rsi_max_long": 58.0,
@@ -219,9 +242,11 @@ class LiveCryptoBot:
         self.last_monthly_optimization_time: Optional[datetime] = None
         
         self.load_state()
+        if not self.forward_run_id:
+            self._new_forward_run()
         self.save_state()
 
-    def reset_account(self, initial_capital: float = 100.0, fixed_risk_usd: float = 1.0, target_rr: float = 3.5):
+    def reset_account(self, initial_capital: float = 100.0, fixed_risk_usd: float = 1.0, target_rr: float = 2.0):
         """Reset paper wallet balance to specified USD capital and clear depletion flags without wiping trade history."""
         self.initial_capital = initial_capital
         self.current_balance = initial_capital
@@ -236,6 +261,7 @@ class LiveCryptoBot:
         self.symbol_consecutive_losses = {}
         self.symbol_last_entry_candle = {}
         self.circuit_breaker_until = None
+        self._new_forward_run()
         self.save_state()
         print(f"[LiveBot] Account balance reset to ${initial_capital:.2f} USD starting capital (Trade history preserved: {len(self.closed_trades)} trades).")
 
@@ -243,7 +269,11 @@ class LiveCryptoBot:
         """Safely archive historical trade ledger and reset bot state to clean benchmark."""
         data_dir = self.data_dir or "."
         res = archive_and_reset_ledger(data_dir=data_dir)
+        self.db.clear_all()
         self.load_state()
+        self.snapshot_revision = 0
+        self._new_forward_run()
+        self.save_state()
         print(f"[LiveBot] Ledger archived to '{res}' and bot state reset to clean benchmark.")
         return res
 
@@ -259,7 +289,7 @@ class LiveCryptoBot:
         self.cooldown_minutes = self.timeframe_profile["cooldown_minutes"]
         self.scan_interval_sec = self.timeframe_profile["scan_interval_sec"]
         self.champion_stats["timeframe"] = tf_clean
-        self.symbol_last_entry_candle.clear()
+        self._new_forward_run()
         self.save_state()
         print(f"[LiveBot] Timeframe updated to {tf_clean} ({self.timeframe_profile['name']}). Cooldown: {self.cooldown_minutes}m.")
         return True
@@ -271,7 +301,7 @@ class LiveCryptoBot:
         await self.start()
         print(f"[LiveBot] Bot re-funded with ${capital:.2f} USD and resumed scanning.")
 
-    def load_state(self):
+    def _load_legacy_state(self):
         """Load persisted trades, balances, open positions, and audit archives from Database and disk."""
         # 1. Load Closed Trades (Database + Multi-File Redundancy)
         loaded_trades = []
@@ -395,58 +425,114 @@ class LiveCryptoBot:
             except Exception:
                 self.hall_of_fame = []
 
-    def save_state(self):
-        """Persist state and wallet balances to Database and disk."""
-        try:
-            state_data = {
-                "initial_capital": self.initial_capital,
-                "current_balance": self.current_balance,
-                "fixed_risk_usd": self.fixed_risk_usd,
-                "timeframe": self.timeframe,
-                "auto_trading_enabled": self.auto_trading_enabled,
-                "is_depleted": self.is_depleted,
-                "depletion_report_file": self.depletion_report_file,
-                "active_strategy_name": self.active_strategy_name,
-                "active_params": self.active_params,
-                "champion_stats": self.champion_stats,
-                "all_time_grand_champion": self.all_time_grand_champion,
-                "symbol_loss_cooldowns": {
-                    sym: dt.strftime("%Y-%m-%d %H:%M:%S")
-                    for sym, dt in self.symbol_loss_cooldowns.items()
-                    if dt > ph_now()
-                },
-                "symbol_consecutive_losses": {
-                    sym: count for sym, count in self.symbol_consecutive_losses.items() if count > 0
-                },
-                "circuit_breaker_until": self.circuit_breaker_until.strftime("%Y-%m-%d %H:%M:%S") if self.circuit_breaker_until and self.circuit_breaker_until > ph_now() else None,
-                "optimization_logs": self.optimization_logs[-20:],
-                "macro_audits": self.macro_audits[-10:],
-                "last_daily_snapshot": self.last_daily_snapshot_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_daily_snapshot_time else None,
-                "last_weekly_opt": self.last_weekly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_weekly_optimization_time else None,
-                "last_monthly_opt": self.last_monthly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_monthly_optimization_time else None,
-                "updated_at": ph_now().strftime("%Y-%m-%d %H:%M:%S")
-            }
+    def _new_forward_run(self):
+        self.forward_run_id = uuid.uuid4().hex
+        self.forward_run_config = {
+            "strategy": self.active_strategy_name, "timeframe": self.timeframe,
+            "params": copy.deepcopy(self.active_params), "risk_amount_usd": self.fixed_risk_usd,
+            "max_open_positions": self.max_open_positions,
+            "max_positions_per_sector": self.max_positions_per_sector,
+            "fee_pct": self.fee_pct, "slippage_pct": self.slippage_pct,
+            "engine_version": "paper_v2", "started_at": int(time.time()),
+        }
+        self.rejected_entries = {}
 
-            # 1. Save to Database
+    def _state_payload(self):
+        fields = ("initial_capital", "current_balance", "fixed_risk_usd", "timeframe",
+                  "auto_trading_enabled", "is_depleted", "depletion_report_file",
+                  "active_strategy_name", "active_params", "target_rr", "champion_stats",
+                  "all_time_grand_champion", "symbol_consecutive_losses", "symbol_last_entry_candle",
+                  "forward_run_id", "forward_run_config", "fee_pct", "slippage_pct",
+                  "rejected_entries", "max_open_positions", "max_positions_per_sector")
+        state = {key: copy.deepcopy(getattr(self, key)) for key in fields}
+        state.update({
+            "optimizer_mode": "report_only",
+            "optimization_logs": self.optimization_logs[-20:], "macro_audits": self.macro_audits[-10:],
+            "symbol_loss_cooldowns": {key: value.isoformat() for key, value in self.symbol_loss_cooldowns.items()},
+            "circuit_breaker_until": self.circuit_breaker_until.isoformat() if self.circuit_breaker_until else None,
+            "last_daily_snapshot": self.last_daily_snapshot_time.isoformat() if self.last_daily_snapshot_time else None,
+            "last_weekly_opt": self.last_weekly_optimization_time.isoformat() if self.last_weekly_optimization_time else None,
+            "last_monthly_opt": self.last_monthly_optimization_time.isoformat() if self.last_monthly_optimization_time else None,
+            "updated_at": ph_now().isoformat(),
+        })
+        return state
+
+    def load_state(self):
+        candidates, errors = [], []
+        for load in (self.db.get_portfolio_snapshot, lambda: load_portfolio_snapshot(self.snapshot_file)):
             try:
-                for t in self.closed_trades:
-                    self.db.save_trade(t)
-                self.db.save_positions(self.open_positions)
-                self.db.save_state("bot_state", state_data)
-            except Exception as e:
-                print(f"[LiveBot] Notice: DB save_state fallback: {e}")
+                snapshot = load()
+                if snapshot is not None:
+                    candidates.append(snapshot)
+            except Exception as exc:
+                errors.append(str(exc))
+        if candidates:
+            snapshot = max(candidates, key=lambda value: value["revision"])
+            self.snapshot_revision = snapshot["revision"]
+            self.open_positions = copy.deepcopy(snapshot["open_positions"])
+            self.closed_trades = copy.deepcopy(snapshot["closed_trades"])
+            state = snapshot["state"]
+            for key in ("initial_capital", "current_balance", "fixed_risk_usd", "timeframe",
+                        "auto_trading_enabled", "is_depleted", "depletion_report_file",
+                        "active_strategy_name", "active_params", "target_rr", "champion_stats",
+                        "all_time_grand_champion", "symbol_consecutive_losses", "symbol_last_entry_candle",
+                        "forward_run_id", "forward_run_config", "fee_pct", "slippage_pct",
+                        "rejected_entries", "max_open_positions", "max_positions_per_sector",
+                        "optimization_logs", "macro_audits"):
+                if key in state:
+                    setattr(self, key, copy.deepcopy(state[key]))
+            self.symbol_loss_cooldowns = {key: datetime.fromisoformat(value) for key, value in state.get("symbol_loss_cooldowns", {}).items()}
+            for key, attr in (("circuit_breaker_until", "circuit_breaker_until"),
+                              ("last_daily_snapshot", "last_daily_snapshot_time"),
+                              ("last_weekly_opt", "last_weekly_optimization_time"),
+                              ("last_monthly_opt", "last_monthly_optimization_time")):
+                setattr(self, attr, datetime.fromisoformat(state[key]) if state.get(key) else None)
+            self.timeframe_profile = TIMEFRAME_PROFILES.get(self.timeframe, TIMEFRAME_PROFILES["15m"])
+            self.cooldown_minutes = self.timeframe_profile["cooldown_minutes"]
+            if os.path.exists(self.hall_of_fame_file):
+                with open(self.hall_of_fame_file, encoding="utf-8") as stream:
+                    self.hall_of_fame = json.load(stream)
+        else:
+            if errors:
+                raise RuntimeError("No valid portfolio snapshot: " + "; ".join(errors))
+            self._load_legacy_state()
+            for position in self.open_positions.values():
+                position.setdefault("accounting_mode", "legacy")
+        # Old generated statistics never qualify as measured forward-test results.
+        if self.champion_stats.get("validation_status") != "MEASURED":
+            self.champion_stats = {"name": self.active_strategy_name, "timeframe": self.timeframe,
+                                   "validation_status": "NOT_VALIDATED", "win_rate": None,
+                                   "expectancy_r": None, "score": None, "upgrades_count": 0}
+        if self.all_time_grand_champion and not self.all_time_grand_champion.get("evaluation_id"):
+            self.all_time_grand_champion = dict(self.all_time_grand_champion, validation_status="LEGACY_UNVERIFIED")
+        self.optimizer_mode = "report_only"
 
-            # 2. Save to JSON files for multi-file local redundancy
-            if self.data_dir:
-                os.makedirs(self.data_dir, exist_ok=True)
-            with open(self.trades_file, "w", encoding="utf-8") as f:
-                json.dump(self.closed_trades, f, indent=2)
-            with open(self.positions_file, "w", encoding="utf-8") as f:
-                json.dump(self.open_positions, f, indent=2)
-            with open(self.state_file, "w", encoding="utf-8") as f:
-                json.dump(state_data, f, indent=2)
-        except Exception as e:
-            print(f"[LiveBot] Error saving state: {e}")
+    def save_state(self):
+        state = self._state_payload()
+        snapshot = {"schema_version": 2, "revision": self.snapshot_revision + 1,
+                    "state": state, "open_positions": copy.deepcopy(self.open_positions),
+                    "closed_trades": copy.deepcopy(self.closed_trades)}
+        persisted, errors = False, []
+        try:
+            self.db.save_portfolio_snapshot(snapshot)
+            persisted = True
+        except Exception as exc:
+            errors.append(str(exc))
+        try:
+            atomic_write_json(self.snapshot_file, snapshot)
+            persisted = True
+        except Exception as exc:
+            errors.append(str(exc))
+        if not persisted:
+            self.auto_trading_enabled = False
+            raise RuntimeError("Portfolio could not be persisted: " + "; ".join(errors))
+        self.snapshot_revision = snapshot["revision"]
+        # Compatibility exports are not recovery sources once a snapshot exists.
+        for path, value in ((self.trades_file, self.closed_trades), (self.positions_file, self.open_positions), (self.state_file, state)):
+            try:
+                atomic_write_json(path, value)
+            except OSError as exc:
+                print(f"[LiveBot] Compatibility export failed: {exc}")
 
     def toggle_auto_trading(self) -> bool:
         """Toggle auto-trading execution between active auto-trading and signals-only mode."""
@@ -513,19 +599,27 @@ class LiveCryptoBot:
 
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=30)) as session:
             # 1. Fetch latest candles across all scan timeframes and MTF anchors with set-based deduplication
-            mtf_syms = ["BTCUSDT"] + [s for s in self.symbols if s != "BTCUSDT"][:25]
+            mtf_syms = sorted(set(self.symbols) | set(self.open_positions) | {"BTCUSDT"})
             
             # Build unique set of (sym, tf) requests to eliminate cross-timeframe duplicate calls
             unique_requests = set()
             for tf in scan_tfs:
                 for sym in self.symbols:
                     unique_requests.add((sym, tf))
-            for mtf_tf in mtf_intervals:
-                for sym in mtf_syms:
-                    unique_requests.add((sym, mtf_tf))
+            for sym in mtf_syms:
+                for tf in scan_tfs:
+                    unique_requests.add((sym, ANCHOR_TIMEFRAMES[tf]))
+            for sym, position in self.open_positions.items():
+                unique_requests.add((sym, position.get("timeframe", "15m")))
+            for tf in ("15m", "30m", "1h", "4h"):
+                unique_requests.add(("BTCUSDT", tf))
 
             req_list = list(unique_requests)
-            fetch_tasks = [fetch_symbol_klines(session, sym, interval=tf, limit=120) for (sym, tf) in req_list]
+            fetch_tasks = []
+            fetch_now = time.time()
+            for sym, tf in req_list:
+                options = self._position_history_request(sym, tf, fetch_now)
+                fetch_tasks.append(fetch_symbol_klines(session, sym, interval=tf, **options))
             results = await asyncio.gather(*fetch_tasks, return_exceptions=True)
 
             # Map raw klines and pre-compute indicators only once per unique (sym, tf)
@@ -535,9 +629,9 @@ class LiveCryptoBot:
                     computed_cache[(sym, tf)] = compute_crypto_indicators(res)
 
             # Distribute pre-computed indicator DataFrames to data_maps and self.mtf_data
-            data_maps: Dict[str, Dict[str, pd.DataFrame]] = {tf: {} for tf in scan_tfs}
-            for tf in scan_tfs:
-                for sym in self.symbols:
+            data_maps: Dict[str, Dict[str, pd.DataFrame]] = {tf: {} for tf in set(scan_tfs) | {p.get("timeframe", "15m") for p in self.open_positions.values()}}
+            for tf in data_maps:
+                for sym in mtf_syms:
                     df = computed_cache.get((sym, tf))
                     if df is not None and len(df) >= 50:
                         data_maps[tf][sym] = df
@@ -561,6 +655,13 @@ class LiveCryptoBot:
                 btc_30m = data_maps.get("30m", {}).get("BTCUSDT")
             btc_1h = self.mtf_data.get("BTCUSDT", {}).get("1h")
             btc_4h = self.mtf_data.get("BTCUSDT", {}).get("4h")
+            now_ts = time.time()
+            btc_df = computed_cache.get(("BTCUSDT", "15m"))
+            if btc_df is not None:
+                btc_df = completed_candles(btc_df, "15m", now_ts)
+            btc_30m = completed_candles(btc_30m, "30m", now_ts) if btc_30m is not None else None
+            btc_1h = completed_candles(btc_1h, "1h", now_ts) if btc_1h is not None else None
+            btc_4h = completed_candles(btc_4h, "4h", now_ts) if btc_4h is not None else None
             self._evaluate_btc_macro(btc_df, btc_30m=btc_30m, btc_1h=btc_1h, btc_4h=btc_4h)
 
             # 3. Update and check existing open positions
@@ -578,6 +679,20 @@ class LiveCryptoBot:
                 asyncio.create_task(self.run_macro_optimization("WEEKLY"))
             if self.last_monthly_optimization_time is None or (now - self.last_monthly_optimization_time).total_seconds() >= 30 * 86400:
                 asyncio.create_task(self.run_monthly_strategy_tournament())
+
+    def _position_history_request(self, symbol: str, timeframe: str, now_ts: float) -> dict:
+        """Include every unprocessed bar after downtime plus indicator warmup."""
+        position = self.open_positions.get(symbol)
+        if not position or position.get("schema_version") != 2 or position.get("timeframe", "15m") != timeframe:
+            return {"limit": 300}
+        duration = interval_seconds(timeframe)
+        last_completed = position.get("last_completed_candle_time", position["entry_candle_time"] - duration)
+        rolling_start = int(now_ts // duration) * duration - 299 * duration
+        start = int(last_completed) - 199 * duration
+        if start >= rolling_start:
+            return {"limit": 300}
+        return {"limit": int((now_ts - start) // duration) + 1,
+                "start_time": start, "end_time": now_ts}
 
     def _evaluate_btc_macro(
         self, 
@@ -656,6 +771,67 @@ class LiveCryptoBot:
         }
 
     async def _update_open_positions(self, data_map: Any):
+        now_ts = time.time()
+        for symbol, pos in list(self.open_positions.items()):
+            if pos.get("schema_version") != 2:
+                continue
+            tf = pos.get("timeframe", "15m")
+            nested = any(isinstance(value, dict) for value in data_map.values())
+            df = data_map.get(tf, {}).get(symbol) if nested else data_map.get(symbol)
+            if df is None or len(df) == 0:
+                continue
+            profile = TIMEFRAME_PROFILES[tf]
+            closed_df = completed_candles(df, tf, now_ts)
+            last_completed = pos.get("last_completed_candle_time", pos["entry_candle_time"] - interval_seconds(tf))
+            for _, row in closed_df[closed_df["time"] > last_completed].sort_values("time").iterrows():
+                bar_time = int(row["time"])
+                if bar_time < pos["entry_candle_time"]:
+                    continue
+                bars_held = pos.get("bars_held", 0) + 1
+                close_ts = float(row.get("close_time", bar_time + interval_seconds(tf) - 0.001))
+                options = {"completed_bars": bars_held, "stagnation_bars": profile["stagnation_bars"],
+                           "max_holding_bars": profile["max_holding_bars"]}
+                if bar_time >= pos.get("last_observation_time", pos["entry_time"]):
+                    event = process_bar(pos, row, timestamp=close_ts, **options)
+                else:
+                    event = process_price(pos, float(row["close"]), close_ts,
+                                          atr=row.get("atr14"), momentum=row.get("momentum", 0),
+                                          rsi=row.get("rsi14", 50), **options)
+                pos["bars_held"] = bars_held
+                pos["last_completed_candle_time"] = bar_time
+                self.current_balance += event["cash_delta_usd"]
+                if event["closed"]:
+                    await self._close_position(symbol, pos["exit_price"], pos["exit_time"], event["exit_reason"])
+                    break
+            if symbol not in self.open_positions:
+                continue
+            row = df.sort_values("time").iloc[-1]
+            observation_open = float(row["time"])
+            # A delayed or out-of-order feed is not a new executable price.
+            if (observation_open > now_ts
+                    or observation_open + interval_seconds(tf) <= now_ts
+                    or observation_open < pos.get("last_price_candle_time", pos["entry_candle_time"])):
+                continue
+            pos["last_price_candle_time"] = observation_open
+            # Indicators for protective decisions come from the last completed candle.
+            indicators = closed_df.iloc[-1] if len(closed_df) else row
+            event = process_price(pos, float(row["close"]), now_ts,
+                                  atr=indicators.get("atr14"), momentum=indicators.get("momentum", 0),
+                                  rsi=indicators.get("rsi14", 50), completed_bars=pos["bars_held"],
+                                  stagnation_bars=profile["stagnation_bars"], max_holding_bars=profile["max_holding_bars"])
+            self.current_balance += event["cash_delta_usd"]
+            if event["closed"]:
+                await self._close_position(symbol, pos["exit_price"], pos["exit_time"], event["exit_reason"])
+            else:
+                sign = 1 if pos["direction"] == "LONG" else -1
+                dist = sign * (pos["current_price"] - pos["entry_price"])
+                pos["unrealized_r"] = dist / pos["risk_distance"]
+                pos["unrealized_pnl_usd"] = dist * pos["position_qty"]
+                pos["exit_status"] = "Partial profit taken" if pos["tp1_hit"] else ("Protected stop" if pos["is_breakeven_protected"] else "Active")
+        await self._update_legacy_positions(data_map)
+        self.save_state()
+
+    async def _update_legacy_positions(self, data_map: Any):
         """
         Dual-Stage Position Management & Smart Stagnation Ladder:
         - Stage 1: Breakeven Defense at +1.00R MFE (SL moves to entry +- 0.15R fee shield).
@@ -666,6 +842,8 @@ class LiveCryptoBot:
         """
         closed_symbols = []
         for sym, pos in list(self.open_positions.items()):
+            if pos.get("schema_version") == 2:
+                continue
             pos_tf = pos.get('timeframe', '15m')
             if isinstance(data_map, dict) and any(isinstance(v, dict) for v in data_map.values()):
                 # Multi-timeframe map
@@ -751,8 +929,9 @@ class LiveCryptoBot:
                 closed_symbols.append(sym)
                 continue
 
-            # STAGE 1 (Breakeven Defense at +1.00R MFE)
-            if mfe >= 1.0 and not pos.get('is_breakeven_protected'):
+            # STAGE 1 (Breakeven Defense at +0.80R to +1.00R MFE)
+            be_trigger = 0.80 if target_rr <= 2.0 else 1.00
+            if mfe >= be_trigger and not pos.get('is_breakeven_protected'):
                 be_price = entry_price + (0.15 * risk_dist) if is_long else entry_price - (0.15 * risk_dist)
                 curr_sl = float(pos['sl_price'])
                 if (is_long and be_price > curr_sl) or (not is_long and be_price < curr_sl):
@@ -760,22 +939,24 @@ class LiveCryptoBot:
                 pos['is_breakeven'] = True
                 pos['is_breakeven_protected'] = True
                 pos['exit_status'] = "Breakeven Protected 🛡️ (+0.15R fee shield)"
-                print(f"[LiveBot:ExitEngine] {sym} reached +1.0R MFE! Activated Breakeven Defense. SL adjusted to ${pos['sl_price']} (+0.15R fee shield).")
+                print(f"[LiveBot:ExitEngine] {sym} reached +{be_trigger}R MFE! Activated Breakeven Defense. SL adjusted to ${pos['sl_price']} (+0.15R fee shield).")
 
-            # STAGE 2 (Partial Profit Harvest at +1.50R MFE)
-            if mfe >= 1.50 and not pos.get('tp1_hit'):
+            # STAGE 2 (Partial Profit Harvest at +1.00R MFE for 1:2.0 or +1.50R MFE for >=1:3.0)
+            tp1_trigger = 1.00 if target_rr <= 2.0 else 1.50
+            tp1_gain_mult = 0.50 if target_rr <= 2.0 else 0.75
+            if mfe >= tp1_trigger and not pos.get('tp1_hit'):
                 pos['tp1_hit'] = True
-                partial_gain_usd = round(0.75 * risk_usd, 2)
+                partial_gain_usd = round(tp1_gain_mult * risk_usd, 2)
                 self.current_balance = round(self.current_balance + partial_gain_usd, 2)
-                pos['realized_partial_r'] = 0.75
+                pos['realized_partial_r'] = tp1_gain_mult
                 pos['position_qty'] = round(pos.get('position_qty', 1.0) / 2.0, 6)
                 lock_price = entry_price + (0.50 * risk_dist) if is_long else entry_price - (0.50 * risk_dist)
                 curr_sl = float(pos['sl_price'])
                 if (is_long and lock_price > curr_sl) or (not is_long and lock_price < curr_sl):
                     pos['sl_price'] = format_price_precision(lock_price)
                 pos['is_profit_locked'] = True
-                pos['exit_status'] = "TP1 Booked 🎯 (+0.75R Banked, SL @ +0.50R)"
-                print(f"[LiveBot:ExitEngine] {sym} reached +1.50R MFE! TP1 Booked (+0.75R banked). Remaining half runner SL moved to ${pos['sl_price']} (+0.50R).")
+                pos['exit_status'] = f"TP1 Booked 🎯 (+{tp1_gain_mult:.2f}R Banked, SL @ +0.50R)"
+                print(f"[LiveBot:ExitEngine] {sym} reached +{tp1_trigger:.2f}R MFE! TP1 Booked (+{tp1_gain_mult:.2f}R banked). Remaining half runner SL moved to ${pos['sl_price']} (+0.50R).")
 
             # STAGE 3 (Dynamic Trailing Stop at +2.20R MFE)
             if mfe >= 2.20 and mfe < 3.50:
@@ -870,6 +1051,7 @@ class LiveCryptoBot:
         # Portfolio-level circuit breaker active
         if self.circuit_breaker_until:
             if ph_now() < self.circuit_breaker_until:
+                self._reject_entry("CIRCUIT_BREAKER")
                 return
             else:
                 self.circuit_breaker_until = None
@@ -888,30 +1070,44 @@ class LiveCryptoBot:
         for tf in tfs_to_scan:
             sym_map = tf_dict.get(tf, {})
             for sym, df in sym_map.items():
-                if len(df) < 50:
+                now_ts = time.time()
+                closed_df = completed_candles(df, tf, now_ts)
+                if len(closed_df) < 200:
+                    self._reject_entry("ENTRY_WARMUP")
                     continue
-
-                candle_time = int(df.iloc[-1]['time']) if 'time' in df.iloc[-1] else int(time.time())
-                # Prevent same-candle repeat entries on the same symbol
-                if candle_time > 0 and self.symbol_last_entry_candle.get(sym) == candle_time:
+                candle_time = int(closed_df.iloc[-1]["time"])
+                if now_ts - (candle_time + interval_seconds(tf)) >= interval_seconds(tf):
+                    self._reject_entry("STALE_ENTRY_CANDLE")
                     continue
-
+                guard_key = f"{sym}:{tf}"
+                if self.symbol_last_entry_candle.get(guard_key, self.symbol_last_entry_candle.get(sym, -1)) >= candle_time:
+                    continue
                 sym_htf = self.mtf_data.get(sym)
-                # Prioritize signals evaluated on confirmed/closed bar (len(df) - 2) before live bar (len(df) - 1)
-                signal = self._evaluate_active_strategy(df, len(df) - 2, htf_data=sym_htf, timeframe=tf) if len(df) >= 52 else None
+                anchor_tf = ANCHOR_TIMEFRAMES[tf]
+                anchor = (sym_htf or {}).get(anchor_tf)
+                decision_time = candle_time + interval_seconds(tf)
+                anchor = completed_candles(anchor, anchor_tf, decision_time) if anchor is not None else None
+                if anchor is None or len(anchor) < 200:
+                    self._reject_entry("MISSING_ANCHOR")
+                    continue
+                if decision_time - (int(anchor.iloc[-1]["time"]) + interval_seconds(anchor_tf)) >= interval_seconds(anchor_tf):
+                    self._reject_entry("STALE_ANCHOR")
+                    continue
+                signal = self._evaluate_active_strategy(closed_df, len(closed_df) - 1, htf_data=sym_htf, timeframe=tf)
                 if not signal:
-                    signal = self._evaluate_active_strategy(df, len(df) - 1, htf_data=sym_htf, timeframe=tf)
+                    self._reject_entry("STRATEGY_OR_ANCHOR_FILTER")
 
                 if signal:
                     signal_tf = tf
                     direction = signal['direction']
                     entry_price = float(df.iloc[-1]['close'])
                     risk_dist = signal['risk_distance']
-                    target_rr = signal.get('target_rr', 3.5)
+                    target_rr = signal.get('target_rr', self.target_rr)
                     sector = get_crypto_sector(sym)
 
                     sl_price = entry_price - risk_dist if direction == "LONG" else entry_price + risk_dist
-                    tp1_price = format_price_precision(entry_price + (1.50 * risk_dist)) if direction == "LONG" else format_price_precision(entry_price - (1.50 * risk_dist))
+                    tp1_rr = float(signal.get('tp1_rr', 1.0 if target_rr <= 2.0 else 1.5))
+                    tp1_price = signal.get('tp1_price') or format_price_precision(entry_price + (tp1_rr * risk_dist) if direction == "LONG" else entry_price - (tp1_rr * risk_dist))
                     tp_price = entry_price + (target_rr * risk_dist) if direction == "LONG" else entry_price - (target_rr * risk_dist)
 
                     # Record discovered market signal for 24/7 Live Radar Feed
@@ -939,10 +1135,12 @@ class LiveCryptoBot:
                         "entry_price": entry_price,
                         "sl_price": sl_price,
                         "tp1_price": tp1_price,
+                        "tp1_rr": tp1_rr,
                         "tp_price": tp_price,
                         "risk_dist": risk_dist,
                         "target_rr": target_rr,
                         "candle_time": candle_time,
+                        "entry_candle_time": int(df.iloc[-1]["time"]),
                         "signal": signal
                     }
                     if sym not in candidate_signals or TF_PRIORITY.get(signal_tf, 1) > TF_PRIORITY.get(candidate_signals[sym]["timeframe"], 1):
@@ -976,6 +1174,7 @@ class LiveCryptoBot:
             # 0. Check Symbol Anti-Churn Loss Cooldown (Prevents rapid re-entry churn on same candle)
             if sym in self.symbol_loss_cooldowns:
                 if ph_now() < self.symbol_loss_cooldowns[sym]:
+                    self._reject_entry("SYMBOL_COOLDOWN")
                     continue
                 else:
                     del self.symbol_loss_cooldowns[sym]
@@ -984,65 +1183,60 @@ class LiveCryptoBot:
             if sym != "BTCUSDT":
                 gate_status = self.btc_macro_status.get("gate_status", "ALLOW_ALL")
                 if direction == "LONG" and gate_status == "BLOCK_LONGS":
+                    self._reject_entry("BTC_MACRO_GATE")
                     continue
                 elif direction == "SHORT" and gate_status == "BLOCK_SHORTS":
+                    self._reject_entry("BTC_MACRO_GATE")
                     continue
 
             # 2. Check Sector Correlation Limits (Max positions per sector)
             active_in_sector = [p for p in self.open_positions.values() if p.get('sector') == sector]
             if len(active_in_sector) >= self.max_positions_per_sector:
+                self._reject_entry("SECTOR_LIMIT")
                 continue
 
-            # Fixed $1.00 USD risk per trade
-            risk_amount_usd = self.fixed_risk_usd
-            position_qty = round(risk_amount_usd / risk_dist, 4) if risk_dist > 0 else 1.0
-            position_value_usd = round(position_qty * entry_price, 2)
-
-            max_closed_id = max([t.get('trade_id', 0) for t in self.closed_trades] + [0])
-            max_open_id = max([p.get('trade_id', 0) for p in self.open_positions.values()] + [0])
-            next_trade_id = max(max_closed_id, max_open_id) + 1
-
-            pos_record = {
-                "trade_id": next_trade_id,
-                "symbol": sym,
-                "sector": sector,
-                "strategy": self.active_strategy_name,
-                "timeframe": signal_tf,
-                "direction": direction,
-                "entry_time": int(time.time()),
-                "entry_time_str": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
-                "entry_candle_time": candle_time,
-                "last_evaluated_candle_time": candle_time,
-                "entry_price": format_price_precision(entry_price),
-                "current_price": format_price_precision(entry_price),
-                "highest_since_entry": format_price_precision(entry_price),
-                "lowest_since_entry": format_price_precision(entry_price),
-                "sl_price": format_price_precision(sl_price),
-                "tp1_price": tp1_price,
-                "tp_price": format_price_precision(tp_price),
-                "tp1_hit": False,
-                "realized_partial_r": 0.0,
-                "risk_distance": risk_dist,
-                "risk_amount_usd": risk_amount_usd,
-                "position_qty": position_qty,
-                "initial_qty": position_qty,
-                "position_value_usd": position_value_usd,
-                "target_rr": target_rr,
-                "unrealized_r": 0.0,
-                "unrealized_pnl_usd": 0.0,
-                "mfe_r": 0.0,
-                "mae_r": 0.0,
-                "is_breakeven_protected": False,
-                "is_profit_locked": False,
-                "is_unlimited_runner": False,
-                "bars_held": 0,
-                "pre_trade_context": signal['pre_trade_context']
-            }
-
+            self._ensure_forward_configuration()
+            entry_time = time.time()
+            try:
+                pos_record = create_position(direction, entry_price, risk_dist, self.fixed_risk_usd,
+                                             target_rr, entry_time, self.fee_pct, self.slippage_pct)
+            except ValueError:
+                self._reject_entry("INVALID_EXECUTION_LEVELS")
+                continue
+            next_trade_id = max([t.get("trade_id", 0) for t in self.closed_trades]
+                                + [p.get("trade_id", 0) for p in self.open_positions.values()] + [0]) + 1
+            pos_record.update({
+                "trade_id": next_trade_id, "symbol": sym, "sector": sector,
+                "strategy": self.active_strategy_name, "timeframe": signal_tf,
+                "entry_time_str": ph_fromtimestamp(entry_time).strftime("%Y-%m-%d %H:%M:%S"),
+                "entry_candle_time": cand["entry_candle_time"],
+                "signal_candle_time": candle_time,
+                "last_completed_candle_time": cand["entry_candle_time"] - interval_seconds(signal_tf),
+                "position_value_usd": pos_record["initial_qty"] * pos_record["entry_price"],
+                "unrealized_r": 0.0, "unrealized_pnl_usd": 0.0,
+                "pre_trade_context": signal.get("pre_trade_context", {}),
+                "forward_run_id": self.forward_run_id,
+                "configuration": copy.deepcopy(self.forward_run_config),
+                "strategy_version": "paper_v2",
+                "execution_model": "observed_prices_with_conservative_gap_replay",
+            })
+            self.current_balance += pos_record["entry_cash_delta_usd"]
             self.open_positions[sym] = pos_record
-            self.symbol_last_entry_candle[sym] = candle_time
-            print(f"[LiveBot] OPENED {direction} on {sym} [{sector} | {signal_tf}] @ ${pos_record['entry_price']} (Fixed Risk: ${risk_amount_usd:.2f} USD, SL: ${pos_record['sl_price']}, TP1: ${pos_record['tp1_price']}, TP: ${pos_record['tp_price']} [1:{target_rr} RR])")
+            self.symbol_last_entry_candle[f"{sym}:{signal_tf}"] = candle_time
             self.save_state()
+
+    def _reject_entry(self, reason):
+        self.rejected_entries[reason] = self.rejected_entries.get(reason, 0) + 1
+
+    def _ensure_forward_configuration(self):
+        config = self.forward_run_config or {}
+        values = {"strategy": self.active_strategy_name, "timeframe": self.timeframe,
+                  "params": self.active_params, "risk_amount_usd": self.fixed_risk_usd,
+                  "fee_pct": self.fee_pct, "slippage_pct": self.slippage_pct,
+                  "max_open_positions": self.max_open_positions,
+                  "max_positions_per_sector": self.max_positions_per_sector}
+        if not self.forward_run_id or any(config.get(key) != value for key, value in values.items()):
+            self._new_forward_run()
 
     def _evaluate_active_strategy(
         self, 
@@ -1092,7 +1286,71 @@ class LiveCryptoBot:
 
         return None
 
-    async def _close_position(
+    async def _close_position(self, symbol, exit_price, exit_time, outcome, df=None):
+        pos = self.open_positions.get(symbol)
+        if pos is None:
+            return None
+        if pos.get("schema_version") != 2:
+            return await self._close_legacy_position(symbol, exit_price, exit_time, outcome, df)
+        event = close_position(pos, exit_price, exit_time, reason=outcome)
+        self.current_balance += event["cash_delta_usd"]
+        record = summarize_position(pos)
+        record["exit_time_str"] = ph_fromtimestamp(record["exit_time"]).strftime("%Y-%m-%d %H:%M:%S")
+        record["account_balance"] = self.current_balance
+        record["diagnostic"] = {
+            "catalyst_type": record["exit_reason"],
+            "summary": "Modeled paper fills closed the position; PnL includes fill-level fees and adverse slippage.",
+            "key_factors": [f"Exit reason: {record['exit_reason']}", f"Net result: {record['net_r']:+.4f}R"],
+        }
+        report_path = os.path.join(self.reports_dir, f"trade_{record['forward_run_id']}_{record['trade_id']}_{symbol}.md")
+        record["report_file"] = report_path
+        self._record_closed_trade(symbol, record)
+        try:
+            os.makedirs(self.reports_dir, exist_ok=True)
+            with open(report_path, "w", encoding="utf-8") as stream:
+                stream.write(create_trade_journal_md(record))
+        except OSError as exc:
+            print(f"[LiveBot] Journal export failed: {exc}")
+        return record
+
+    def _record_closed_trade(self, symbol, record):
+        self.closed_trades.append(record)
+        self.open_positions.pop(symbol, None)
+        self._apply_trade_guards(symbol, record)
+        self.save_state()
+        self._archive_entry("trades", record)
+        cohort_count = sum(t.get("forward_run_id") == self.forward_run_id for t in self.closed_trades)
+        if (self.is_running and self.optimize_every_n_trades > 0
+                and record.get("forward_run_id") == self.forward_run_id
+                and cohort_count % self.optimize_every_n_trades == 0):
+            asyncio.create_task(self.run_self_optimization())
+
+    def _apply_trade_guards(self, symbol, record):
+        net_r = record.get("net_r", 0.0)
+        reason = record.get("exit_reason", record.get("outcome"))
+        stagnant_reasons = ("TIME_EXIT", "MAX_HOLD", "BE_EXIT", "BREAKEVEN_DEFENSE", "MOMENTUM_EXIT")
+        # Loss accounting takes precedence over a descriptive exit label.
+        if net_r < 0:
+            count = self.symbol_consecutive_losses.get(symbol, 0) + 1
+            self.symbol_consecutive_losses[symbol] = count
+            self.symbol_loss_cooldowns[symbol] = ph_now() + timedelta(hours=24 if count >= 2 else 4)
+            losses = 0
+            for trade in reversed(self.closed_trades[-6:]):
+                if trade.get("net_r", 0) < 0:
+                    losses += 1
+                else:
+                    break
+            if losses >= 2:
+                self.circuit_breaker_until = ph_now() + timedelta(minutes=120 if losses >= 3 else 30)
+        elif reason in stagnant_reasons:
+            self.symbol_loss_cooldowns[symbol] = ph_now() + timedelta(hours=2)
+            stagnant = sum(t.get("exit_reason", t.get("outcome")) in stagnant_reasons for t in self.closed_trades[-6:])
+            if stagnant >= 2:
+                self.circuit_breaker_until = ph_now() + timedelta(minutes=60)
+        elif net_r > 0:
+            self.symbol_consecutive_losses[symbol] = 0
+
+    async def _close_legacy_position(
         self, 
         symbol: str, 
         exit_price: float, 
@@ -1112,16 +1370,18 @@ class LiveCryptoBot:
         
         if pos.get('tp1_hit'):
             # Dual-stage exit calculation for remaining half runner
+            pos_target_rr = float(pos.get('target_rr', self.target_rr))
+            tp1_banked_r = float(pos.get('realized_partial_r', 0.50 if pos_target_rr <= 2.0 else 0.75))
             runner_raw_r = ((exit_price - float(pos['entry_price'])) if is_long else (float(pos['entry_price']) - exit_price)) / risk_dist if risk_dist > 0 else 0.0
-            total_net_r = round(0.75 + (0.5 * (runner_raw_r - friction_r)), 2)
+            total_net_r = round(tp1_banked_r + (0.5 * (runner_raw_r - friction_r)), 2)
             runner_pnl_usd = round(0.5 * (runner_raw_r - friction_r) * risk_usd, 2)
             self.current_balance = round(self.current_balance + runner_pnl_usd, 2)
-            raw_r = round(0.75 + 0.5 * runner_raw_r, 2)
+            raw_r = round(tp1_banked_r + 0.5 * runner_raw_r, 2)
             net_r = total_net_r
             pnl_usd = round(total_net_r * risk_usd, 2)
 
             if outcome == "LOSS" or outcome == "TRAILING_STOP_WIN" or outcome == "WIN":
-                outcome = "WIN" if total_net_r > 0.1 else "BE_EXIT"
+                outcome = "WIN" if total_net_r > 0.05 else "BE_EXIT"
         else:
             if outcome == "WIN":
                 raw_r = float(pos.get('target_rr', self.target_rr))
@@ -1186,8 +1446,8 @@ class LiveCryptoBot:
         closed_record['diagnostic'] = diagnostic
 
         # Write detailed individual trade markdown journal to reports/
-        os.makedirs(REPORTS_DIR, exist_ok=True)
-        trade_report_path = os.path.join(REPORTS_DIR, f"trade_journal_#{pos['trade_id']}_{symbol}_{outcome}.md")
+        os.makedirs(self.reports_dir, exist_ok=True)
+        trade_report_path = os.path.join(self.reports_dir, f"trade_journal_#{pos['trade_id']}_{symbol}_{outcome}.md")
         try:
             with open(trade_report_path, "w", encoding="utf-8") as f:
                 f.write(f"# Trade Record & Post-Mortem Diagnostic #{pos['trade_id']}: {symbol} ({pos['direction']})\n")
@@ -1221,63 +1481,8 @@ class LiveCryptoBot:
         except Exception as e:
             print(f"[LiveBot] Notice: Could not write trade journal markdown: {e}")
 
-        self.closed_trades.append(closed_record)
-        self._archive_entry("trades", closed_record)
-
-        if symbol in self.open_positions:
-            del self.open_positions[symbol]
-
-        # Enforce Anti-Churn Quarantine and Circuit Breakers
-        if outcome in ["BE_EXIT", "BREAKEVEN_DEFENSE", "TIME_EXIT", "MOMENTUM_EXIT"]:
-            # Stagnation & Breakeven Quarantine: Protect against re-entering choppy/stagnant assets
-            self.symbol_loss_cooldowns[symbol] = ph_now() + timedelta(hours=2)
-            print(f"[LiveBot:SymbolCooldown] {outcome} on {symbol}. Enforcing 2-hour consolidation cooldown.")
-
-            # Global Stagnation Circuit Breaker (2+ Time/BE exits in last 6 trades -> 60 min pause)
-            stagnant_count = sum(1 for t in self.closed_trades[-6:] if t.get('outcome') in ["TIME_EXIT", "BE_EXIT", "BREAKEVEN_DEFENSE", "MOMENTUM_EXIT"])
-            if stagnant_count >= 2:
-                self.circuit_breaker_until = ph_now() + timedelta(minutes=60)
-                print(f"[LiveBot:CircuitBreaker] [!] Widespread market stagnation detected ({stagnant_count} recent Time/BE exits). Activating 60-minute cooling pause.")
-        elif outcome == "LOSS" or net_r < 0:
-            loss_count = self.symbol_consecutive_losses.get(symbol, 0) + 1
-            self.symbol_consecutive_losses[symbol] = loss_count
-
-            if loss_count >= 2:
-                # 2+ Consecutive Losses on this symbol -> 24-hour quarantine lockout
-                self.symbol_loss_cooldowns[symbol] = ph_now() + timedelta(hours=24)
-                print(f"[LiveBot:SymbolLockout] [!] {loss_count} consecutive losses on {symbol}. Enforcing 24-hour lockout quarantine.")
-            else:
-                # 1st Loss on this symbol -> 4-hour cooldown
-                self.symbol_loss_cooldowns[symbol] = ph_now() + timedelta(hours=4)
-                print(f"[LiveBot:SymbolCooldown] Loss on {symbol}. Enforcing 4-hour cooldown.")
-
-            # Portfolio-level circuit breaker (3 consecutive losses -> 2-hour cooling pause; 2 losses -> 30 min)
-            recent_losses = 0
-            for t in reversed(self.closed_trades[-6:]):
-                if t.get('outcome') == 'LOSS' or t.get('net_r', 0) < 0:
-                    recent_losses += 1
-                else:
-                    break
-            if recent_losses >= 3:
-                self.circuit_breaker_until = ph_now() + timedelta(hours=2)
-                print(f"[LiveBot:CircuitBreaker] [!] {recent_losses} consecutive losses detected across portfolio. Activating 2-hour cooling pause.")
-            elif recent_losses == 2:
-                self.circuit_breaker_until = ph_now() + timedelta(minutes=30)
-                print(f"[LiveBot:CircuitBreaker] [!] 2 consecutive losses detected across portfolio. Activating 30-minute cooling pause.")
-        elif outcome in ["WIN", "TRAILING_STOP_WIN"] or net_r > 0:
-            # Reset symbol consecutive loss counter upon profitable exit
-            self.symbol_consecutive_losses[symbol] = 0
-
-        try:
-            self.db.save_trade(closed_record)
-        except Exception as e:
-            print(f"[LiveBot] Notice: DB save_trade fallback: {e}")
-        self.save_state()
-        print(f"[LiveBot] CLOSED {pos['direction']} on {symbol}: {outcome} ({net_r}R | ${pnl_usd:+.2f} USD) | Balance: ${self.current_balance:.2f} USD")
-
-        # Trigger Continuous Self-Evolution loop if threshold reached
-        if len(self.closed_trades) % self.optimize_every_n_trades == 0:
-            asyncio.create_task(self.run_self_optimization())
+        closed_record["accounting_mode"] = "legacy"
+        self._record_closed_trade(symbol, closed_record)
 
         return closed_record
 
@@ -1292,17 +1497,18 @@ class LiveCryptoBot:
         if not pos:
             return None
 
-        # Determine exit price: provided price -> pos['current_price'] -> pos['entry_price']
+        explicit_price = exit_price is not None and np.isfinite(exit_price) and exit_price > 0
+        # An explicit valid reference price must not be replaced by a later fetch.
         if exit_price is None or exit_price <= 0:
             exit_price = pos.get('current_price', pos.get('entry_price', 0.0))
 
         df = None
         try:
-            async with aiohttp.ClientSession() as session:
-                df = await fetch_symbol_klines(session, clean_sym, interval=self.timeframe, limit=20)
-                if df is not None and len(df) > 0:
-                    df = compute_crypto_indicators(df)
-                    if exit_price == pos.get('entry_price') or exit_price == pos.get('current_price'):
+            if not explicit_price:
+                async with aiohttp.ClientSession() as session:
+                    df = await fetch_symbol_klines(session, clean_sym, interval=pos.get("timeframe", "15m"), limit=20)
+                    if df is not None and len(df) > 0:
+                        df = compute_crypto_indicators(df)
                         last_close = float(df.iloc[-1]['close'])
                         if last_close > 0:
                             exit_price = last_close
@@ -1357,212 +1563,8 @@ class LiveCryptoBot:
             print(f"[LiveBot:Archive] Notice: Error archiving data: {e}")
 
     async def run_macro_optimization(self, period: str = "WEEKLY") -> Dict[str, Any]:
-        """
-        Extended Multi-Week / Multi-Month Macro Strategy Optimization & Portfolio Audit.
-        Pulls deep historical data (500-1000 bars on 1h and 4h), tests parameter durability,
-        computes sector-by-sector metrics, and records audit reports.
-        """
-        period_upper = period.upper()
-        now = ph_now()
-        print(f"[LiveBot:Macro Audit] Initiating {period_upper} Macro Strategy Optimization & Portfolio Audit...")
+        return await self._run_report_only_evaluation(period.upper())
 
-        if period_upper == "MONTHLY":
-            self.last_monthly_optimization_time = now
-            lookback_bars = 1000
-            target_timeframes = ["5m", "15m", "30m"]
-            report_code = now.strftime("%Y_%m")
-            report_filename = os.path.join(REPORTS_DIR, f"monthly_optimization_report_{report_code}.md")
-        else:
-            self.last_weekly_optimization_time = now
-            lookback_bars = 500
-            target_timeframes = ["5m", "15m", "30m"]
-            report_code = f"{now.strftime('%Y')}_W{now.isocalendar()[1]:02d}_{now.strftime('%m%d_%H%M%S')}"
-            report_filename = os.path.join(REPORTS_DIR, f"weekly_optimization_report_{report_code}.md")
-
-        param_candidates = [
-            {"rvol_min": 1.15, "atr_sl_mult": 1.40, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_long": 68.0, "rsi_min_short": 32.0, "rsi_max_short": 50.0, "min_body_ratio": 0.35, "max_wick_ratio": 0.40},
-            {"rvol_min": 1.20, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 52.0, "rsi_max_long": 68.0, "rsi_min_short": 32.0, "rsi_max_short": 48.0, "min_body_ratio": 0.35, "max_wick_ratio": 0.40},
-            {"rvol_min": 1.25, "atr_sl_mult": 1.40, "target_rr": 2.5, "rsi_min_long": 50.0, "rsi_max_long": 68.0, "rsi_min_short": 32.0, "rsi_max_short": 50.0, "min_body_ratio": 0.35, "max_wick_ratio": 0.40},
-            {"rvol_min": 1.15, "atr_sl_mult": 1.50, "target_rr": 2.0, "rsi_min_long": 48.0, "rsi_max_long": 68.0, "rsi_min_short": 32.0, "rsi_max_short": 52.0, "min_body_ratio": 0.35, "max_wick_ratio": 0.40},
-            {"rvol_min": 1.30, "atr_sl_mult": 1.35, "target_rr": 3.0, "rsi_min_long": 52.0, "rsi_max_long": 68.0, "rsi_min_short": 32.0, "rsi_max_short": 48.0, "min_body_ratio": 0.35, "max_wick_ratio": 0.40}
-        ]
-
-        best_score = -999.0
-        best_params = self.active_params
-        best_tf = self.timeframe
-        best_summary: Dict[str, Any] = {
-            "timeframe": best_tf,
-            "tested_trades": 0,
-            "win_rate_pct": 0.0,
-            "total_net_r": 0.0,
-            "expectancy_r": 0.0,
-            "profit_factor": 0.0,
-            "params": best_params
-        }
-        sector_results: Dict[str, Dict[str, Any]] = {}
-
-        symbols_to_test = self.symbols[:25] if self.symbols else ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT", "NEARUSDT", "FETUSDT", "PEPEUSDT", "LINKUSDT", "AVAXUSDT", "SUIUSDT"]
-
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=16)) as session:
-            for tf in target_timeframes:
-                dataset: Dict[str, pd.DataFrame] = {}
-                tasks = [fetch_symbol_klines(session, sym, interval=tf, limit=lookback_bars) for sym in symbols_to_test]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                for sym, res in zip(symbols_to_test, results):
-                    if isinstance(res, pd.DataFrame) and len(res) >= 60:
-                        dataset[sym] = res
-
-                for params in param_candidates:
-                    tf_trades = []
-                    sec_trades: Dict[str, List[float]] = {}
-
-                    for sym, df in dataset.items():
-                        sec = get_crypto_sector(sym)
-                        if sec not in sec_trades:
-                            sec_trades[sec] = []
-
-                        _, test_df = split_train_test(df, train_ratio=0.5)
-                        test_df = compute_crypto_indicators(test_df)
-                        n = len(test_df)
-
-                        for i in range(50, n - 2):
-                            curr = test_df.iloc[i]
-                            recent_sq = test_df['squeeze_on'].iloc[max(0, i-5):i].sum()
-                            if recent_sq >= 2 and (not curr['squeeze_on']):
-                                close = float(curr['close'])
-                                atr = float(curr['atr14'])
-                                rvol = float(curr['rvol'])
-                                rsi = float(curr['rsi14'])
-                                mom = float(curr['momentum'])
-                                ema50 = float(curr['ema50'])
-
-                                # Long Setup with RSI corridor protection
-                                if close > curr['bb_upper'] and mom > 0 and rvol >= params['rvol_min'] and close > ema50 and (params.get('rsi_min_long', 50.0) <= rsi <= params.get('rsi_max_long', 68.0)):
-                                    risk = params['atr_sl_mult'] * atr
-                                    sl = close - risk
-                                    tp = close + (params['target_rr'] * risk)
-                                    outcome = "LOSS"
-                                    for j in range(i+1, min(i+50, n)):
-                                        bar = test_df.iloc[j]
-                                        if bar['low'] <= sl: outcome = "LOSS"; break
-                                        elif bar['high'] >= tp: outcome = "WIN"; break
-                                    trade_net_r = params['target_rr'] - 0.08 if outcome == "WIN" else -1.08
-                                    tf_trades.append(trade_net_r)
-                                    sec_trades[sec].append(trade_net_r)
-                                # Short Setup with RSI corridor protection
-                                elif close < curr['bb_lower'] and mom < 0 and rvol >= params['rvol_min'] and close < ema50 and (params.get('rsi_min_short', 32.0) <= rsi <= params.get('rsi_max_short', 50.0)):
-                                    risk = params['atr_sl_mult'] * atr
-                                    sl = close + risk
-                                    tp = close - (params['target_rr'] * risk)
-                                    outcome = "LOSS"
-                                    for j in range(i+1, min(i+50, n)):
-                                        bar = test_df.iloc[j]
-                                        if bar['high'] >= sl: outcome = "LOSS"; break
-                                        elif bar['low'] <= tp: outcome = "WIN"; break
-                                    trade_net_r = params['target_rr'] - 0.08 if outcome == "WIN" else -1.08
-                                    tf_trades.append(trade_net_r)
-                                    sec_trades[sec].append(trade_net_r)
-
-                    total_t = len(tf_trades)
-                    if total_t >= 8:
-                        wins = [r for r in tf_trades if r > 0]
-                        win_rate = (len(wins) / total_t) * 100.0
-                        total_net_r = sum(tf_trades)
-                        exp_r = total_net_r / total_t
-                        score = exp_r * np.sqrt(total_t)
-
-                        if score > best_score and win_rate >= 33.0 and exp_r > 0.05:
-                            best_score = score
-                            best_params = params
-                            best_tf = tf
-                            loss_sum = abs(sum(r for r in tf_trades if r <= 0))
-                            best_summary = {
-                                "timeframe": tf,
-                                "tested_trades": total_t,
-                                "win_rate_pct": round(win_rate, 2),
-                                "total_net_r": round(total_net_r, 2),
-                                "expectancy_r": round(exp_r, 3),
-                                "profit_factor": round(sum(wins) / loss_sum, 2) if loss_sum > 0 else 999.0,
-                                "params": params
-                            }
-                            # Record sector performance breakdown
-                            for sec, s_trades in sec_trades.items():
-                                if s_trades:
-                                    s_wins = [r for r in s_trades if r > 0]
-                                    s_wr = round((len(s_wins) / len(s_trades)) * 100.0, 1)
-                                    s_net = round(sum(s_trades), 2)
-                                    sector_results[sec] = {"trades": len(s_trades), "win_rate_pct": s_wr, "net_r": s_net}
-
-        audit_entry = {
-            "period": period_upper,
-            "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
-            "lookback_bars": lookback_bars,
-            "timeframes_tested": target_timeframes,
-            "optimal_timeframe": best_tf,
-            "optimal_params": best_params,
-            "metrics": best_summary,
-            "sector_breakdown": sector_results,
-            "report_file": report_filename
-        }
-
-        # Generate Rich Markdown Audit Report
-        try:
-            os.makedirs(REPORTS_DIR, exist_ok=True)
-            lines = [
-                f"# 🏛️ {period_upper} Macro Strategy Optimization & Portfolio Audit Report",
-                f"*Generated on: {now.strftime('%Y-%m-%d %H:%M:%S')} (Lookback Horizon: {lookback_bars} bars on 1h/4h)*",
-                "",
-                "## 1. Executive Performance Summary",
-                f"- **Audit Period**: `{period_upper}`",
-                f"- **Optimal Macro Timeframe**: `{best_tf}`",
-                f"- **Macro Win Rate**: `{best_summary.get('win_rate_pct', 'N/A')}%`",
-                f"- **Net Mathematical Expectancy**: `+{best_summary.get('expectancy_r', 'N/A')} R / trade`",
-                f"- **Cumulative Out-of-Sample Net Return**: `+{best_summary.get('total_net_r', 'N/A')} R`",
-                f"- **Profit Factor**: `{best_summary.get('profit_factor', 'N/A')}`",
-                f"- **Sample Size Tested**: `{best_summary.get('tested_trades', 'N/A')} simulated macro trades`",
-                "",
-                "## 2. Calibrated Optimal Parameter Suite",
-                "| Parameter | Calibrated Value | Quantitative Rationale |",
-                "| :--- | :--- | :--- |",
-                f"| **Target Risk-to-Reward (RR)** | `1:{best_params.get('target_rr', 2.0):.1f} RR` | Asymmetric reward floor ensures net positive expectancy |",
-                f"| **Relative Volume (RVOL)** | `≥ {best_params.get('rvol_min', 1.1):.2f}x` | Eliminates false breakouts during low institutional participation |",
-                f"| **ATR Stop Loss Distance** | `{best_params.get('atr_sl_mult', 1.3):.2f} × ATR14` | Volatility-scaled breathing room avoiding market noise wicks |",
-                f"| **ATR Take Profit Distance** | `{(best_params.get('atr_sl_mult', 1.3) * best_params.get('target_rr', 2.0)):.2f} × ATR14` | Volatility-scaled mathematical profit objective |",
-                f"| **RSI Momentum Filter** | `Long ≥ {best_params.get('rsi_min_long', 50):.0f} \\| Short ≤ {best_params.get('rsi_max_short', 50):.0f}` | Directional momentum confluence filter |",
-                "",
-                "## 3. Sector Correlation & Performance Breakdown",
-                "| Sector | Tested Trades | Win Rate % | Total Net R | Cluster Risk Status |",
-                "| :--- | :--- | :--- | :--- | :--- |"
-            ]
-
-            if sector_results:
-                for sec, s_data in sector_results.items():
-                    lines.append(
-                        f"| **{sec.replace('_', ' ')}** | {s_data.get('trades', 0)} | {s_data.get('win_rate_pct', 0)}% | {s_data.get('net_r', 0):+.2f}R | Strict 1-Position Cap Enforced |"
-                    )
-            else:
-                lines.append("| **GENERAL ALT** | - | - | - | Strict 1-Position Cap Enforced |")
-
-            lines.extend([
-                "",
-                "## 4. Archival & Historical Logging",
-                f"- **Permanent JSON Archive**: Stored in `reports/historical_archive.json`",
-                f"- **Next Scheduled {period_upper} Audit**: in {'7' if period_upper == 'WEEKLY' else '30'} days."
-            ])
-
-            with open(report_filename, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as e:
-            print(f"[LiveBot:Macro Audit] Notice: Could not write markdown report: {e}")
-
-        # Archive to JSON historical database
-        archive_category = "weekly_macro_optimizations" if period_upper == "WEEKLY" else "monthly_macro_audits"
-        self._archive_entry(archive_category, audit_entry)
-
-        self.macro_audits.append(audit_entry)
-        self.save_state()
-        print(f"[LiveBot:Macro Audit] {period_upper} Optimization completed and saved to {report_filename}")
-        return audit_entry
 
     async def _handle_capital_depleted(self):
         """
@@ -1591,22 +1593,22 @@ class LiveCryptoBot:
 
     def _generate_depletion_summary_report(self) -> str:
         """Generate formatted Markdown summary report on capital depletion."""
-        os.makedirs(REPORTS_DIR, exist_ok=True)
+        os.makedirs(self.reports_dir, exist_ok=True)
         timestamp_str = ph_now().strftime("%Y%m%d_%H%M%S")
-        report_filename = os.path.join(REPORTS_DIR, f"capital_depleted_summary_{timestamp_str}.md")
+        report_filename = os.path.join(self.reports_dir, f"capital_depleted_summary_{timestamp_str}.md")
 
         total_trades = len(self.closed_trades)
         wins = [t for t in self.closed_trades if t.get('net_r', 0) > 0]
         losses = [t for t in self.closed_trades if t.get('net_r', 0) <= 0]
         
-        win_rate = round((len(wins) / total_trades * 100.0), 2) if total_trades > 0 else 0.0
+        win_rate = round((len(wins) / total_trades * 100.0), 2) if total_trades > 0 else None
         total_net_r = round(sum(t.get('net_r', 0) for t in self.closed_trades), 2)
         total_pnl_usd = round(self.current_balance - self.initial_capital, 2)
         
         total_win_r = sum(t.get('net_r', 0) for t in wins)
         total_loss_r = abs(sum(t.get('net_r', 0) for t in losses))
-        profit_factor = round(total_win_r / total_loss_r, 2) if total_loss_r > 0 else 0.0
-        expectancy_r = round(total_net_r / total_trades, 3) if total_trades > 0 else 0.0
+        profit_factor = round(total_win_r / total_loss_r, 2) if total_loss_r > 0 else None
+        expectancy_r = round(total_net_r / total_trades, 3) if total_trades > 0 else None
 
         lines = [
             "# Automated Trading Bot - Capital Depletion Summary Report",
@@ -1619,9 +1621,9 @@ class LiveCryptoBot:
             f"- **Risk Per Trade**: `${self.fixed_risk_usd:.2f} USD` (Fixed 1R)",
             f"- **Target Risk-to-Reward**: `1:{self.target_rr} RR` (Minimum)",
             f"- **Total Trades Taken**: `{total_trades}` ({len(wins)} Wins / {len(losses)} Losses)",
-            f"- **Win Rate**: `{win_rate}%` (Breakeven required: 25.0%)",
-            f"- **Profit Factor**: `{profit_factor}`",
-            f"- **Expectancy per Trade**: `{expectancy_r:+.3f} R`",
+            f"- **Recorded Win Rate**: `{str(win_rate) + '%' if win_rate is not None else 'Not validated'}` (includes unverified legacy history)",
+            f"- **Profit Factor**: `{profit_factor if profit_factor is not None else 'Not validated / no recorded losses'}`",
+            f"- **Expectancy per Trade**: `{format(expectancy_r, '+.3f') + ' R' if expectancy_r is not None else 'Not validated'}`",
             f"- **Scanner Status**: **AUTOMATICALLY HALTED (Capital Depleted)**",
             "",
             "## 2. Root-Cause Diagnostic Analysis & Lessons Learned"
@@ -1695,8 +1697,8 @@ class LiveCryptoBot:
         
         return {
             "wick_defense_active": wick_defense_active,
-            "min_atr_mult": 1.60 if wick_defense_active else 1.30,
-            "min_rvol": 1.30 if wick_defense_active else 1.10,
+            "min_atr_mult": 2.40 if wick_defense_active else 2.20,
+            "min_rvol": 1.60 if wick_defense_active else 1.45,
             "quarantined_symbols": quarantined,
             "failure_rate": round(failure_rate * 100.0, 1),
             "wick_trap_rate": round(wick_trap_rate * 100.0, 1)
@@ -1704,15 +1706,14 @@ class LiveCryptoBot:
 
     def _generate_candidate_parameters(self, failure_diag: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Generate a diverse grid of parameter suites dynamically shaped by live failure feedback."""
-        base_atr = 2.40 if failure_diag.get("wick_defense_active") else 2.00
-        base_rvol = failure_diag.get("min_rvol", 1.15)
+        base_atr = 2.40 if failure_diag.get("wick_defense_active") else 2.20
+        base_rvol = max(1.45, failure_diag.get("min_rvol", 1.45))
         
-        atr_steps = [base_atr, round(base_atr + 0.20, 2), round(base_atr + 0.50, 2)]
+        atr_steps = [base_atr, round(base_atr + 0.20, 2), round(base_atr + 0.40, 2)]
         rvol_steps = [base_rvol, round(base_rvol + 0.15, 2)]
-        rr_steps = [2.5, 3.0, 3.5]
+        rr_steps = [2.0]
         rsi_presets = [
-            {"rsi_min_long": 48.0, "rsi_max_short": 52.0},
-            {"rsi_min_long": 50.0, "rsi_max_short": 50.0}
+            {"rsi_min_long": 38.0, "rsi_max_long": 58.0, "rsi_min_short": 42.0, "rsi_max_short": 62.0}
         ]
         
         candidates = []
@@ -1725,8 +1726,8 @@ class LiveCryptoBot:
                             "atr_sl_mult": atr,
                             "target_rr": rr,
                             "rsi_min_long": rsi["rsi_min_long"],
-                            "rsi_max_long": 68.0,
-                            "rsi_min_short": 32.0,
+                            "rsi_max_long": rsi["rsi_max_long"],
+                            "rsi_min_short": rsi["rsi_min_short"],
                             "rsi_max_short": rsi["rsi_max_short"],
                             "min_body_ratio": 0.35,
                             "max_wick_ratio": 0.40,
@@ -1736,612 +1737,107 @@ class LiveCryptoBot:
         return candidates
 
     async def run_self_optimization(self) -> Dict[str, Any]:
-        """
-        Self-Evolving Walk-Forward Multi-Timeframe & Parameter Optimization Loop.
-        Integrates Out-of-Sample Walk-Forward Validation, Composite Scoring (PF * Exp * sqrt(N)),
-        Live Diagnostic Failure Feedback, and Transparent Adaptive Logging.
-        """
-        print("[LiveBot:AI Optimizer] Initiating dynamic multi-timeframe self-perfection cycle...")
-        self.last_optimization_time = ph_now()
-        
-        # 1. Analyze live execution diagnostics for adaptive defense biasing
-        failure_diag = self._analyze_recent_trade_failures()
-        if failure_diag["quarantined_symbols"]:
-            for q_sym in failure_diag["quarantined_symbols"]:
-                self.symbol_loss_cooldowns[q_sym] = ph_now() + timedelta(minutes=self.cooldown_minutes * 2)
-            print(f"[LiveBot:AI Optimizer] 🛡️ Quarantined toxic losing symbols: {failure_diag['quarantined_symbols']}")
+        return await self._run_report_only_evaluation("MICRO")
 
-        candidate_timeframes = ["5m", "15m", "30m"]  # Multi-Timeframe Matrix: 5m, 15m, and 30m entries
-        param_candidates = self._generate_candidate_parameters(failure_diag)
-
-        current_champ_score = float(self.champion_stats.get("score", 1.5))
-        current_champ_exp = float(self.champion_stats.get("expectancy_r", 0.25))
-        current_champ_wr = float(self.champion_stats.get("win_rate", 42.0))
-        
-        best_challenger_score = -999.0
-        best_challenger_params = None
-        best_challenger_tf = None
-        best_challenger_summary = {}
-
-        # 2. Benchmark across candidate timeframes with 500-candle depth
-        for tf in candidate_timeframes:
-            dataset = {}
-            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=12)) as session:
-                target_syms = self.symbols[:15] if self.symbols else ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "DOGEUSDT"]
-                tasks = [fetch_symbol_klines(session, sym, interval=tf, limit=500) for sym in target_syms]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                for sym, res in zip(target_syms, results):
-                    if isinstance(res, pd.DataFrame) and len(res) >= 80:
-                        dataset[sym] = res
-
-            for params in param_candidates:
-                all_trades = []
-                for sym, df in dataset.items():
-                    # 60% Train / 40% Out-of-Sample Test Split
-                    _, test_df = split_train_test(df, train_ratio=0.6)
-                    test_df = compute_crypto_indicators(test_df)
-                    
-                    n = len(test_df)
-                    for i in range(50, n - 2):
-                        curr = test_df.iloc[i]
-                        recent_sq = test_df['squeeze_on'].iloc[max(0, i-5):i].sum()
-                        if recent_sq >= 2 and (not curr['squeeze_on']):
-                            close = float(curr['close'])
-                            atr = float(curr['atr14'])
-                            rvol = float(curr['rvol'])
-                            rsi = float(curr['rsi14'])
-                            mom = float(curr['momentum'])
-                            ema50 = float(curr['ema50'])
-                            
-                            min_risk_dist = close * 0.005
-                            risk = max(params['atr_sl_mult'] * atr, min_risk_dist)
-
-                            # Long Setup with RSI corridor protection
-                            if close > curr['bb_upper'] and mom > 0 and rvol >= params['rvol_min'] and close > ema50 and (params.get('rsi_min_long', 50.0) <= rsi <= params.get('rsi_max_long', 68.0)):
-                                sl = close - risk
-                                tp = close + (params['target_rr'] * risk)
-                                outcome = "LOSS"
-                                for j in range(i+1, min(i+50, n)):
-                                    bar = test_df.iloc[j]
-                                    if bar['low'] <= sl: outcome = "LOSS"; break
-                                    elif bar['high'] >= tp: outcome = "WIN"; break
-                                all_trades.append(params['target_rr'] - 0.08 if outcome == "WIN" else -1.08)
-
-                            # Short Setup with RSI corridor protection
-                            elif close < curr['bb_lower'] and mom < 0 and rvol >= params['rvol_min'] and close < ema50 and (params.get('rsi_min_short', 32.0) <= rsi <= params.get('rsi_max_short', 50.0)):
-                                sl = close + risk
-                                tp = close - (params['target_rr'] * risk)
-                                outcome = "LOSS"
-                                for j in range(i+1, min(i+50, n)):
-                                    bar = test_df.iloc[j]
-                                    if bar['high'] >= sl: outcome = "LOSS"; break
-                                    elif bar['low'] <= tp: outcome = "WIN"; break
-                                all_trades.append(params['target_rr'] - 0.08 if outcome == "WIN" else -1.08)
-
-                total_t = len(all_trades)
-                if total_t >= 10:
-                    wins = [r for r in all_trades if r > 0]
-                    losses = [r for r in all_trades if r <= 0]
-                    win_rate = (len(wins) / total_t) * 100.0
-                    gross_gain = sum(wins) if wins else 0.0
-                    gross_loss = abs(sum(losses)) if losses else 0.08
-                    profit_factor = round(gross_gain / gross_loss, 2) if gross_loss > 0 else round(gross_gain, 2)
-                    total_net_r = sum(all_trades)
-                    exp_r = total_net_r / total_t
-
-                    # Calculate Max Drawdown
-                    cum_r = np.cumsum(all_trades)
-                    peak = np.maximum.accumulate(cum_r)
-                    dd = peak - cum_r
-                    max_dd_r = float(np.max(dd)) if len(dd) > 0 else 0.0
-                    dd_penalty = max(0.5, 1.0 - (max_dd_r / max(1.0, total_t * 0.4)))
-
-                    # Composite Multi-Factor Score
-                    score = profit_factor * exp_r * np.sqrt(total_t) * dd_penalty
-
-                    # Robust Realistic Walk-Forward Acceptance Gate
-                    if win_rate >= 35.0 and profit_factor >= 1.15 and exp_r > 0.04:
-                        if score > best_challenger_score:
-                            best_challenger_score = score
-                            best_challenger_params = params
-                            best_challenger_tf = tf
-                            best_challenger_summary = {
-                                "timeframe": tf,
-                                "tested_trades": total_t,
-                                "win_rate_pct": round(win_rate, 2),
-                                "profit_factor": profit_factor,
-                                "total_net_r": round(total_net_r, 2),
-                                "expectancy_r": round(exp_r, 3),
-                                "max_drawdown_r": round(max_dd_r, 2),
-                                "score": round(score, 3),
-                                "params": params
-                            }
-
-        # 3. Dynamic Champion vs Challenger Comparison
-        promoted = False
-        if best_challenger_params and best_challenger_summary:
-            challenger_score = best_challenger_summary["score"]
-            challenger_exp = best_challenger_summary["expectancy_r"]
-            challenger_wr = best_challenger_summary["win_rate_pct"]
-
-            # Promote if composite score beats champion benchmark by at least 3% or if current champion is decaying
-            if challenger_score > (current_champ_score * 0.95) and challenger_exp >= 0.08:
-                promoted = True
-                print(f"[LiveBot:AI Optimizer] NEW CHAMPION PROMOTED! Challenger ({best_challenger_tf} | WR: {challenger_wr}% | PF: {best_challenger_summary['profit_factor']} | Exp: +{challenger_exp}R | Score: {challenger_score}) crowned over Champion (Score: {current_champ_score}).")
-                
-                self.set_timeframe(best_challenger_tf)
-                self.active_params = best_challenger_params
-                self.champion_stats = {
-                    "name": self.active_strategy_name,
-                    "timeframe": best_challenger_tf,
-                    "win_rate": challenger_wr,
-                    "profit_factor": best_challenger_summary["profit_factor"],
-                    "expectancy_r": challenger_exp,
-                    "score": challenger_score,
-                    "upgrades_count": self.champion_stats.get("upgrades_count", 0) + 1,
-                    "crowned_at": ph_now().strftime("%Y-%m-%d %H:%M:%S")
-                }
-            else:
-                print(f"[LiveBot:AI Optimizer] Reigning Champion Retained (Score: {current_champ_score}). Challenger (Score: {challenger_score}) did not surpass threshold.")
-
-        status_type = "PROMOTED" if promoted else ("DEFENSIVE_ADJUSTED" if failure_diag["wick_defense_active"] else "RETAINED")
-        
-        opt_entry = {
-            "timestamp": ph_now().strftime("%Y-%m-%d %H:%M:%S"),
-            "status": status_type,
-            "improved": promoted,
-            "best_timeframe": self.timeframe,
-            "best_params": self.active_params,
-            "champion_stats": self.champion_stats,
-            "challenger_summary": best_challenger_summary,
-            "failure_diagnostic": failure_diag,
-            "summary": {
-                "status": status_type,
-                "timeframe": best_challenger_tf or self.timeframe,
-                "tested_trades": best_challenger_summary.get("tested_trades", 0),
-                "win_rate_pct": best_challenger_summary.get("win_rate_pct", self.champion_stats.get("win_rate", 42.0)),
-                "profit_factor": best_challenger_summary.get("profit_factor", self.champion_stats.get("profit_factor", 1.4)),
-                "expectancy_r": best_challenger_summary.get("expectancy_r", self.champion_stats.get("expectancy_r", 0.25)),
-                "total_net_r": best_challenger_summary.get("total_net_r", 0.0),
-                "params": best_challenger_params or self.active_params,
-                "defensive_bias": failure_diag["wick_defense_active"],
-                "reason": (
-                    f"🏆 New Champion Promoted: Score {best_challenger_summary.get('score', 0)} > {current_champ_score}"
-                    if promoted else
-                    (f"⚡ Defensive Adjustment: Widen ATR buffer & quarantine losers" if failure_diag["wick_defense_active"] else f"🛡️ Reigning Champion Retained (Score: {current_champ_score})")
-                )
-            }
-        }
-
-        # Persist full evolution report to reports/
-        os.makedirs(REPORTS_DIR, exist_ok=True)
-        ts_str = ph_now().strftime("%Y%m%d_%H%M%S")
-        evo_report_path = os.path.join(REPORTS_DIR, f"ai_evolution_report_{ts_str}.md")
-        try:
-            with open(evo_report_path, "w", encoding="utf-8") as f:
-                f.write(f"# Dynamic Multi-Timeframe Strategy Evolution Report\n")
-                f.write(f"*Generated on: {opt_entry['timestamp']}*\n\n")
-                f.write(f"## 1. Executive Summary\n")
-                f.write(f"- **Cycle Outcome**: `{status_type}`\n")
-                f.write(f"- **Active Strategy**: `{self.active_strategy_name}`\n")
-                f.write(f"- **Active Timeframe**: `{self.timeframe}`\n")
-                f.write(f"- **Active Target RR**: `1:{self.active_params.get('target_rr', 2.0)} RR`\n")
-                f.write(f"- **Active ATR SL Multiplier**: `{self.active_params.get('atr_sl_mult', 1.3)}x`\n")
-                f.write(f"- **Live Defensive Filter Active**: `{failure_diag['wick_defense_active']}`\n\n")
-                f.write(f"## 2. Active Parameter Suite\n")
-                f.write(f"```json\n{json.dumps(self.active_params, indent=2)}\n```\n\n")
-                f.write(f"## 3. Walk-Forward Diagnostic Comparison\n")
-                if isinstance(best_challenger_summary, dict) and best_challenger_summary:
-                    f.write(f"- **Challenger Timeframe**: `{best_challenger_summary.get('timeframe')}`\n")
-                    f.write(f"- **Challenger Out-of-Sample Trades**: `{best_challenger_summary.get('tested_trades')}`\n")
-                    f.write(f"- **Challenger Win Rate**: `{best_challenger_summary.get('win_rate_pct')}%`\n")
-                    f.write(f"- **Challenger Profit Factor**: `{best_challenger_summary.get('profit_factor')}`\n")
-                    f.write(f"- **Challenger Net Expectancy**: `+{best_challenger_summary.get('expectancy_r')} R`\n")
-                    f.write(f"- **Challenger Composite Score**: `{best_challenger_summary.get('score')}`\n")
-                else:
-                    f.write(f"No challenger met the walk-forward threshold during this cycle.\n")
-            opt_entry["report_file"] = evo_report_path
-        except Exception as e:
-            print(f"[LiveBot] Notice: Could not write evolution report: {e}")
-
-        self.optimization_logs.append(opt_entry)
-        self._archive_entry("micro_optimizations", opt_entry)
-        self.save_state()
-        return opt_entry
 
     async def run_daily_strategy_snapshot(self) -> Dict[str, Any]:
-        """
-        Automated Daily Strategy Snapshot ("Save Every Day").
-        Captures full 24h P&L, win rate, open positions, drawdown, benchmarks current champion,
-        and saves reports/daily_strategy_snapshot_YYYY_MM_DD.md.
-        """
-        now = ph_now()
-        self.last_daily_snapshot_time = now
-        date_str = now.strftime("%Y_%m_%d")
-        print(f"[LiveBot:Daily Snapshot] Generating daily snapshot for {date_str}...")
-
-        total_trades = len(self.closed_trades)
-        wins = [t for t in self.closed_trades if t.get('net_r', 0) > 0]
-        losses = [t for t in self.closed_trades if t.get('net_r', 0) <= 0]
-        win_rate = round((len(wins) / total_trades * 100.0), 2) if total_trades > 0 else 0.0
-        total_net_r = round(sum(t.get('net_r', 0) for t in self.closed_trades), 2)
-        total_pnl_usd = round(self.current_balance - self.initial_capital, 2)
-        total_pnl_pct = round(((self.current_balance - self.initial_capital) / self.initial_capital) * 100.0, 2)
-
-        snapshot_record = {
-            "date": date_str,
-            "timestamp": now.strftime("%Y-%m-%d %H:%M:%S"),
-            "account_balance": self.current_balance,
-            "equity_usd": round(self.current_balance + sum(p.get('unrealized_pnl_usd', 0.0) for p in self.open_positions.values()), 2),
-            "total_pnl_usd": total_pnl_usd,
-            "total_pnl_pct": total_pnl_pct,
-            "total_trades": total_trades,
-            "win_rate_pct": win_rate,
-            "total_net_r": total_net_r,
-            "champion_strategy": self.champion_stats,
-            "active_params": self.active_params,
-            "active_timeframe": self.timeframe,
-            "open_positions_count": len(self.open_positions)
-        }
-
-        os.makedirs(REPORTS_DIR, exist_ok=True)
-        report_file = os.path.join(REPORTS_DIR, f"daily_strategy_snapshot_{date_str}.md")
-        try:
-            lines = [
-                f"# 📅 Daily Strategy Snapshot & Quantitative Audit ({date_str.replace('_', '-')})",
-                f"*Generated on: {now.strftime('%Y-%m-%d %H:%M:%S')} (24-Hour Continuous Cloud Trading Log)*",
-                "",
-                "## 1. Daily Account Performance",
-                f"- **Wallet Balance**: `${self.current_balance:.2f} USD`",
-                f"- **Total Net PnL**: `${total_pnl_usd:+.2f} USD` ({total_pnl_pct:+.2f}%)",
-                f"- **Total Realized Trades**: `{total_trades}`",
-                f"- **Win Rate**: `{win_rate}%` ({len(wins)}W / {len(losses)}L)",
-                f"- **Net Expectancy**: `{total_net_r:+.2f} R`",
-                f"- **Open Positions**: `{len(self.open_positions)} active`",
-                "",
-                "## 2. Reigning Champion Strategy Suite",
-                f"- **Strategy Name**: `{self.active_strategy_name}`",
-                f"- **Active Timeframe**: `{self.timeframe}`",
-                f"- **Champion Win Rate**: `{self.champion_stats.get('win_rate', 40.0)}%` (Floor: \u2265 40.0%)",
-                f"- **Target Risk-to-Reward**: `1:{self.active_params.get('target_rr', 2.0)} RR` (Dynamic Unlimited Runner)",
-                f"- **Stop Loss**: `{self.active_params.get('atr_sl_mult', 1.3)} \u00d7 ATR14`",
-                f"- **Relative Volume Filter**: `\u2265 {self.active_params.get('rvol_min', 1.1)}x`",
-                "",
-                "## 3. Active Positions Snapshot",
-                "| Coin | Sector | Direction | Entry | Live Price | Unrealized PnL | Status |",
-                "| :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
-            ]
-
-            if self.open_positions:
-                for sym, p in self.open_positions.items():
-                    lines.append(
-                        f"| **{sym}** | {p.get('sector', 'ALT')} | {p.get('direction')} | ${p.get('entry_price')} | ${p.get('current_price')} | {p.get('unrealized_r', 0):+.2f}R (${p.get('unrealized_pnl_usd', 0):+.2f}) | {p.get('exit_status', 'Active')} |"
-                    )
-            else:
-                lines.append("| - | - | - | - | - | - | No open positions |")
-
-            lines.extend([
-                "",
-                "## 4. Permanent Archive Status",
-                f"- **JSON Archive Path**: `reports/historical_archive.json`",
-                f"- **Daily Snapshots Recorded**: Stored permanently for machine-learning backtests."
-            ])
-
-            with open(report_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-            snapshot_record["report_file"] = report_file
-        except Exception as e:
-            print(f"[LiveBot:Daily Snapshot] Notice: Could not write markdown report: {e}")
-
-        self._archive_entry("daily_snapshots", snapshot_record)
+        self.last_daily_snapshot_time = ph_now()
+        telemetry = self.get_telemetry()
+        record = {"date": self.last_daily_snapshot_time.strftime("%Y_%m_%d"),
+                  "account_balance": self.current_balance,
+                  "forward_test": telemetry["forward_test"], "legacy_history": telemetry["legacy_history"],
+                  "strategy": self.active_strategy_name, "timeframe": self.timeframe,
+                  "optimizer_mode": "report_only", "validation_status": "NOT_VALIDATED"}
+        os.makedirs(self.reports_dir, exist_ok=True)
+        path = os.path.join(self.reports_dir, f"forward_snapshot_{self.forward_run_id}_{int(time.time())}.json")
+        atomic_write_json(path, record)
+        record["report_file"] = path
         self.save_state()
-        print(f"[LiveBot:Daily Snapshot] Saved daily audit to {report_file}")
-        return snapshot_record
+        return record
 
     async def run_monthly_strategy_tournament(self) -> Dict[str, Any]:
-        """
-        End-of-Month Multi-Strategy Championship Tournament.
-        Simulates all core strategy families head-to-head on 1,000 candles across top liquid pairs.
-        Ranks by Win Rate (>= 40% floor) and Statistical Reproducibility Index (0-100).
-        Crowns the Monthly Champion and enters the Champions of Champions Gauntlet.
-        """
-        now = ph_now()
-        self.last_monthly_optimization_time = now
-        month_str = now.strftime("%Y_%m")
-        print(f"[LiveBot:Monthly Tournament] Initiating End-of-Month Strategy Championship for {month_str}...")
+        return await self._run_report_only_evaluation("MONTHLY")
 
-        tournament_competitors = [
-            {"name": "Trend_Pullback_Confluence", "timeframe": "15m", "params": {"rvol_min": 1.0, "atr_sl_mult": 1.80, "target_rr": 2.5, "rsi_min_long": 38.0, "rsi_max_long": 56.0, "rsi_min_short": 44.0, "rsi_max_short": 62.0}},
-            {"name": "Trend_Pullback_Confluence", "timeframe": "30m", "params": {"rvol_min": 1.0, "atr_sl_mult": 1.80, "target_rr": 2.5, "rsi_min_long": 38.0, "rsi_max_long": 56.0, "rsi_min_short": 44.0, "rsi_max_short": 62.0}},
-            {"name": "Trend_Pullback_Confluence", "timeframe": "5m", "params": {"rvol_min": 1.10, "atr_sl_mult": 1.60, "target_rr": 2.0, "rsi_min_long": 38.0, "rsi_max_long": 56.0, "rsi_min_short": 44.0, "rsi_max_short": 62.0}},
-            {"name": "Squeeze_Momentum_Breakout", "timeframe": "15m", "params": {"rvol_min": 1.20, "atr_sl_mult": 1.40, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_short": 50.0}},
-            {"name": "Squeeze_Momentum_Breakout", "timeframe": "5m", "params": {"rvol_min": 1.25, "atr_sl_mult": 1.35, "target_rr": 2.0, "rsi_min_long": 50.0, "rsi_max_short": 50.0}},
-            {"name": "Liquidity_Sweep_Reversal", "timeframe": "15m", "params": {"rvol_min": 1.10, "atr_sl_mult": 1.40, "target_rr": 2.0, "rsi_min_long": 52.0, "rsi_max_short": 48.0}},
-        ]
 
-        leaderboard = []
-        symbols_to_test = self.symbols[:20] if self.symbols else ["BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT", "ADAUSDT", "DOGEUSDT", "NEARUSDT", "FETUSDT", "PEPEUSDT", "LINKUSDT"]
+    async def run_champions_of_champions_gauntlet(self, current_champ=None) -> Dict[str, Any]:
+        """Historical comparison only; this endpoint does not execute a new simulation."""
+        return {"status": "HISTORICAL_COMPARISON", "label": "Historical comparison (not a fresh simulation)",
+                "optimizer_mode": "report_only", "rankings": [dict(item, validation_status=("MEASURED" if item.get("evaluation_id") else "LEGACY_UNVERIFIED")) for item in self.hall_of_fame],
+                "strategy_name": self.active_strategy_name, "win_rate_pct": None,
+                "reproducibility_score": None, "net_expectancy_r": None}
 
-        async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(limit=16)) as session:
-            for strat in tournament_competitors:
-                tf = strat["timeframe"]
-                params = strat["params"]
-                strat_name = strat["name"]
+    async def _run_report_only_evaluation(self, mode):
+        from validation import run_report_only_evaluation
+        if self._evaluation_lock.locked():
+            return {"status": "EVALUATION_RUNNING", "optimizer_mode": "report_only", "improved": False}
+        async with self._evaluation_lock:
+            now = ph_now()
+            self.last_optimization_time = now
+            if mode == "WEEKLY":
+                self.last_weekly_optimization_time = now
+            if mode == "MONTHLY":
+                self.last_monthly_optimization_time = now
+            incumbent = {"strategy": self.active_strategy_name, "timeframe": self.timeframe,
+                         "params": copy.deepcopy(self.active_params), "target_rr": self.target_rr,
+                         "fee_pct": self.fee_pct, "slippage_pct": self.slippage_pct}
+            research_mode = {"MICRO": "micro", "WEEKLY": "macro", "MONTHLY": "monthly"}.get(mode, "macro")
+            result = await run_report_only_evaluation(mode=research_mode, report_dir=self.reports_dir,
+                                                     incumbent=incumbent, symbols=self.symbols or None)
+            result = dict(result, optimizer_mode="report_only", improved=False, promoted=False,
+                          timestamp=now.strftime("%Y-%m-%d %H:%M:%S"))
+            self.optimization_logs.append(result)
+            if mode != "MICRO":
+                self.macro_audits.append(result)
+            self.save_state()
+            return result
 
-                tasks = [fetch_symbol_klines(session, sym, interval=tf, limit=1000) for sym in symbols_to_test]
-                results = await asyncio.gather(*tasks, return_exceptions=True)
-                
-                dataset = {}
-                for sym, res in zip(symbols_to_test, results):
-                    if isinstance(res, pd.DataFrame) and len(res) >= 60:
-                        dataset[sym] = res
 
-                train_trades = []
-                test_trades = []
-
-                for sym, df in dataset.items():
-                    train_df, test_df = split_train_test(df, train_ratio=0.5)
-                    train_df = compute_crypto_indicators(train_df)
-                    test_df = compute_crypto_indicators(test_df)
-
-                    for subset, trade_list in [(train_df, train_trades), (test_df, test_trades)]:
-                        n = len(subset)
-                        for i in range(50, n - 2):
-                            curr = subset.iloc[i]
-                            recent_sq = subset['squeeze_on'].iloc[max(0, i-5):i].sum()
-                            if recent_sq >= 2 and (not curr['squeeze_on']):
-                                close = float(curr['close'])
-                                atr = float(curr['atr14'])
-                                rvol = float(curr['rvol'])
-                                rsi = float(curr['rsi14'])
-                                mom = float(curr['momentum'])
-                                ema50 = float(curr['ema50'])
-
-                                if close > curr['bb_upper'] and mom > 0 and rvol >= params['rvol_min'] and close > ema50 and rsi >= params['rsi_min_long']:
-                                    risk = params['atr_sl_mult'] * atr
-                                    sl = close - risk
-                                    tp = close + (params['target_rr'] * risk)
-                                    outcome = "LOSS"
-                                    for j in range(i+1, min(i+50, n)):
-                                        bar = subset.iloc[j]
-                                        if bar['low'] <= sl: outcome = "LOSS"; break
-                                        elif bar['high'] >= tp: outcome = "WIN"; break
-                                    trade_list.append(params['target_rr'] - 0.08 if outcome == "WIN" else -1.08)
-
-                all_trades = test_trades
-                total_t = len(all_trades)
-                if total_t >= 6:
-                    wins = [r for r in all_trades if r > 0]
-                    win_rate = round((len(wins) / total_t) * 100.0, 2)
-                    total_net_r = round(sum(all_trades), 2)
-                    exp_r = round(total_net_r / total_t, 3)
-                    loss_sum = abs(sum(r for r in all_trades if r <= 0))
-                    pf = round(sum(wins) / loss_sum, 2) if loss_sum > 0 else 999.0
-
-                    train_wr = (len([r for r in train_trades if r > 0]) / len(train_trades) * 100.0) if train_trades else 50.0
-                    stability_ratio = min(1.0, win_rate / max(1.0, train_wr)) if train_wr > 0 else 0.5
-                    sample_score = min(1.0, total_t / 30.0)
-                    pf_score = min(1.0, pf / 2.0)
-                    reproducibility_index = round((stability_ratio * 40.0) + (sample_score * 30.0) + (pf_score * 30.0), 1)
-
-                    leaderboard.append({
-                        "name": strat_name,
-                        "timeframe": tf,
-                        "params": params,
-                        "tested_trades": total_t,
-                        "win_rate_pct": win_rate,
-                        "net_expectancy_r": exp_r,
-                        "profit_factor": pf,
-                        "total_net_r": total_net_r,
-                        "reproducibility_score": reproducibility_index,
-                        "passed_40_pct_floor": win_rate >= 40.0
-                    })
-
-        eligible = [s for s in leaderboard if s["passed_40_pct_floor"]]
-        if eligible:
-            eligible.sort(key=lambda s: (s["win_rate_pct"] * (s["reproducibility_score"] / 100.0)), reverse=True)
-            monthly_champ = eligible[0]
-        elif leaderboard:
-            leaderboard.sort(key=lambda s: s["win_rate_pct"], reverse=True)
-            monthly_champ = leaderboard[0]
-        else:
-            monthly_champ = {
-                "name": self.active_strategy_name,
-                "timeframe": self.timeframe,
-                "params": self.active_params,
-                "tested_trades": 0,
-                "win_rate_pct": self.champion_stats.get("win_rate", 42.0),
-                "net_expectancy_r": self.champion_stats.get("expectancy_r", 0.25),
-                "profit_factor": 2.0,
-                "total_net_r": 0.0,
-                "reproducibility_score": 85.0,
-                "passed_40_pct_floor": True
-            }
-
-        champion_entry = {
-            "month": month_str,
-            "crowned_at": now.strftime("%Y-%m-%d %H:%M:%S"),
-            "strategy_name": monthly_champ["name"],
-            "timeframe": monthly_champ["timeframe"],
-            "params": monthly_champ["params"],
-            "win_rate_pct": monthly_champ["win_rate_pct"],
-            "reproducibility_score": monthly_champ["reproducibility_score"],
-            "net_expectancy_r": monthly_champ["net_expectancy_r"],
-            "profit_factor": monthly_champ["profit_factor"],
-            "tested_trades": monthly_champ["tested_trades"]
-        }
-
-        # Save to Monthly Champions Hall of Fame registry
-        self.hall_of_fame.append(champion_entry)
-        try:
-            with open(HALL_OF_FAME_FILE, "w", encoding="utf-8") as f:
-                json.dump(self.hall_of_fame, f, indent=2)
-        except Exception as e:
-            print(f"[LiveBot:Monthly Tournament] Notice: Could not save Hall of Fame: {e}")
-
-        # Write Monthly Tournament Markdown Report
-        os.makedirs(REPORTS_DIR, exist_ok=True)
-        report_file = os.path.join(REPORTS_DIR, f"monthly_strategy_tournament_{month_str}.md")
-        try:
-            lines = [
-                f"# 🏆 End-of-Month Strategy Championship Tournament ({month_str.replace('_', '-')})",
-                f"*Generated on: {now.strftime('%Y-%m-%d %H:%M:%S')} (Lookback: 1,000 candles on Top 20 Binance Pairs)*",
-                "",
-                "## 1. 👑 Crowned Monthly Grand Champion",
-                f"- **Champion Strategy**: `{monthly_champ['name']}`",
-                f"- **Timeframe**: `{monthly_champ['timeframe']}`",
-                f"- **Win Rate**: `{monthly_champ['win_rate_pct']}%` (Strict Floor: \u2265 40.0%)",
-                f"- **Reproducibility Index**: `{monthly_champ['reproducibility_score']} / 100`",
-                f"- **Net Expectancy**: `+{monthly_champ['net_expectancy_r']} R / trade`",
-                f"- **Profit Factor**: `{monthly_champ['profit_factor']}`",
-                "",
-                "## 2. Multi-Strategy Tournament Leaderboard",
-                "| Rank | Strategy Name | Timeframe | Win Rate % | Reproducibility | Net Expectancy | PF | Status |",
-                "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
-            ]
-
-            sorted_board = sorted(leaderboard, key=lambda s: s["win_rate_pct"], reverse=True)
-            for idx, s in enumerate(sorted_board, 1):
-                status_tag = "👑 **MONTHLY CHAMPION**" if s["name"] == monthly_champ["name"] and s["timeframe"] == monthly_champ["timeframe"] else ("✅ Qualified" if s["passed_40_pct_floor"] else "❌ Rejected (<40% WR)")
-                lines.append(
-                    f"| #{idx} | **{s['name']}** | `{s['timeframe']}` | **{s['win_rate_pct']}%** | `{s['reproducibility_score']}/100` | `+{s['net_expectancy_r']}R` | `{s['profit_factor']}` | {status_tag} |"
-                )
-
-            lines.extend([
-                "",
-                "## 3. Champion Parameters",
-                f"```json\n{json.dumps(monthly_champ['params'], indent=2)}\n```\n",
-                "## 4. Hall of Fame Integration",
-                f"- Added to `reports/monthly_champions_hall_of_fame.json`.",
-                f"- Initiating the All-Time 'Champions of Champions' Gauntlet simulation against past monthly winners..."
-            ])
-
-            with open(report_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as e:
-            print(f"[LiveBot:Monthly Tournament] Notice: Could not write tournament report: {e}")
-
-        # Promote as active strategy if superior
-        if monthly_champ["win_rate_pct"] > self.champion_stats.get("win_rate", 40.0):
-            self.active_strategy_name = monthly_champ["name"]
-            self.timeframe = monthly_champ["timeframe"]
-            self.active_params = monthly_champ["params"]
-            self.champion_stats = {
-                "name": monthly_champ["name"],
-                "timeframe": monthly_champ["timeframe"],
-                "win_rate": monthly_champ["win_rate_pct"],
-                "expectancy_r": monthly_champ["net_expectancy_r"],
-                "score": monthly_champ["reproducibility_score"],
-                "upgrades_count": self.champion_stats.get("upgrades_count", 0) + 1,
-                "crowned_at": now.strftime("%Y-%m-%d %H:%M:%S")
-            }
-
-        self._archive_entry("monthly_strategy_tournaments", champion_entry)
-        self.save_state()
-
-        # Run the Multi-Month Champions of Champions Gauntlet
-        await self.run_champions_of_champions_gauntlet(monthly_champ)
-        return champion_entry
-
-    async def run_champions_of_champions_gauntlet(self, current_champ: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """
-        Multi-Month 'Champions of Champions' Gauntlet.
-        Simulates the current Monthly Champion against ALL past historical monthly champions across
-        deep 2,000+ candle multi-regime history to crown the All-Time Grand Champion (GOAT).
-        """
-        now = ph_now()
-        month_str = now.strftime("%Y_%m")
-        print(f"[LiveBot:Champions Gauntlet] Running Champions of Champions Gauntlet for {month_str}...")
-
-        if not current_champ:
-            current_champ = {
-                "name": self.active_strategy_name,
-                "timeframe": self.timeframe,
-                "params": self.active_params,
-                "win_rate_pct": self.champion_stats.get("win_rate", 42.0),
-                "reproducibility_score": 85.0,
-                "net_expectancy_r": self.champion_stats.get("expectancy_r", 0.25)
-            }
-
-        # Gather all historical champions
-        contenders = list(self.hall_of_fame)
-        if not any(c.get("strategy_name") == current_champ.get("name") for c in contenders):
-            contenders.append({
-                "month": month_str,
-                "strategy_name": current_champ.get("name", self.active_strategy_name),
-                "timeframe": current_champ.get("timeframe", self.timeframe),
-                "params": current_champ.get("params", self.active_params),
-                "win_rate_pct": current_champ.get("win_rate_pct", 42.0),
-                "reproducibility_score": current_champ.get("reproducibility_score", 85.0),
-                "net_expectancy_r": current_champ.get("net_expectancy_r", 0.25)
-            })
-
-        # Rank all historical contenders by combined All-Time Score
-        ranked_contenders = sorted(
-            contenders,
-            key=lambda c: (c.get("win_rate_pct", 0) * (c.get("reproducibility_score", 80) / 100.0)),
-            reverse=True
-        )
-
-        all_time_goat = ranked_contenders[0] if ranked_contenders else current_champ
-        self.all_time_grand_champion = all_time_goat
-
-        # Write All-Time Championship Markdown Audit
-        os.makedirs(REPORTS_DIR, exist_ok=True)
-        report_file = os.path.join(REPORTS_DIR, f"all_time_championship_report_{month_str}.md")
-        try:
-            lines = [
-                f"# 🏛️ All-Time 'Champions of Champions' Strategy Gauntlet Audit",
-                f"*Generated on: {now.strftime('%Y-%m-%d %H:%M:%S')} (Multi-Month All-Time Benchmark)*",
-                "",
-                "## 1. 🌟 Reigning All-Time Grand Champion (GOAT)",
-                f"- **Strategy Name**: `{all_time_goat.get('strategy_name', all_time_goat.get('name'))}`",
-                f"- **Crowned Month**: `{all_time_goat.get('month', month_str)}`",
-                f"- **All-Time Win Rate**: `{all_time_goat.get('win_rate_pct')}%`",
-                f"- **Reproducibility Score**: `{all_time_goat.get('reproducibility_score')}/100`",
-                f"- **Net Expectancy**: `+{all_time_goat.get('net_expectancy_r')} R`",
-                "",
-                "## 2. All-Time Historical Champions Leaderboard",
-                "| All-Time Rank | Crowned Month | Strategy Name | Timeframe | Win Rate % | Reproducibility | Net R Exp | Status |",
-                "| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
-            ]
-
-            for rank, c in enumerate(ranked_contenders, 1):
-                status_badge = "👑 **ALL-TIME GOAT**" if rank == 1 else "🏛️ Hall of Fame Legend"
-                lines.append(
-                    f"| #{rank} | `{c.get('month')}` | **{c.get('strategy_name', c.get('name'))}** | `{c.get('timeframe')}` | **{c.get('win_rate_pct')}%** | `{c.get('reproducibility_score')}/100` | `+{c.get('net_expectancy_r')}R` | {status_badge} |"
-                )
-
-            lines.extend([
-                "",
-                "## 3. Permanent Archival",
-                "- Stored permanently in `reports/monthly_champions_hall_of_fame.json`.",
-                "- Accessible in the live web dashboard under the **Champions Hall of Fame** section."
-            ])
-
-            with open(report_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as e:
-            print(f"[LiveBot:Champions Gauntlet] Notice: Could not write gauntlet report: {e}")
-
-        self._archive_entry("all_time_gauntlets", all_time_goat)
-        self.save_state()
-        print(f"[LiveBot:Champions Gauntlet] All-Time Grand Champion crowned: {all_time_goat.get('strategy_name', all_time_goat.get('name'))} (Report: {report_file})")
-        return all_time_goat
+    def _forward_metrics(self):
+        closed = [t for t in self.closed_trades if t.get("forward_run_id") == self.forward_run_id and t.get("schema_version") == 2]
+        positions = [p for p in self.open_positions.values() if p.get("forward_run_id") == self.forward_run_id and p.get("schema_version") == 2]
+        metrics = compile_simulation_metrics(closed, self.active_strategy_name, self.target_rr)
+        records = closed + positions
+        flows = sorted((f for p in records for f in p.get("fills", [])), key=lambda f: (f["timestamp"], f["fill_id"]))
+        equity = peak = drawdown = 0.0
+        equity_r = peak_r = drawdown_r = 0.0
+        risk_by_fill = sorted(((f["timestamp"], f["fill_id"], f["cash_delta_usd"] / p["risk_amount_usd"]) for p in records for f in p.get("fills", [])))
+        for fill in flows:
+            equity += fill["cash_delta_usd"]
+            peak = max(peak, equity)
+            drawdown = max(drawdown, peak - equity)
+        for _, _, cash_r in risk_by_fill:
+            equity_r += cash_r
+            peak_r = max(peak_r, equity_r)
+            drawdown_r = max(drawdown_r, peak_r - equity_r)
+        return {"run_id": self.forward_run_id, "configuration": copy.deepcopy(self.forward_run_config),
+                "optimizer_mode": "report_only", "validation_status": "NOT_VALIDATED",
+                "closed_trades": len(closed), "open_positions": len(positions),
+                "net_pnl_usd": round(equity, 8), "closed_pnl_usd": round(sum(t["pnl_usd"] for t in closed), 8),
+                "unrealized_pnl_usd": round(sum(p.get("unrealized_pnl_usd", 0) for p in positions), 8),
+                "fees_usd": round(sum(p.get("fees_usd", 0) for p in records), 8),
+                "slippage_usd": round(sum(p.get("slippage_usd", 0) for p in records), 8),
+                "costs_usd": round(sum(p.get("fees_usd", 0) + p.get("slippage_usd", 0) for p in records), 8),
+                "max_drawdown_usd": round(drawdown, 8), "max_drawdown_r": round(drawdown_r, 8),
+                "expectancy_r": metrics.get("expectancy_r") if closed else None,
+                "win_rate_pct": metrics.get("win_rate_pct") if closed else None,
+                "profit_factor": metrics.get("profit_factor") if closed else None,
+                "rejected_entries": dict(self.rejected_entries),
+                "cost_assumptions": {"fee_pct": self.fee_pct, "slippage_pct": self.slippage_pct,
+                                     "basis": "per modeled fill", "funding_or_borrow_costs": "not modeled"}}
 
     def get_telemetry(self) -> Dict[str, Any]:
         """Return full real-time telemetry metrics for dashboard visualization."""
         total_trades = len(self.closed_trades)
         wins = [t for t in self.closed_trades if t.get('net_r', 0) > 0]
-        be_trades = [t for t in self.closed_trades if t.get('outcome') in ['BE_EXIT', 'BREAKEVEN_DEFENSE'] or (t.get('net_r', 0) == 0 and t.get('outcome') != 'LOSS')]
-        losses = [t for t in self.closed_trades if t.get('net_r', 0) < 0 and t not in be_trades]
+        be_trades = [t for t in self.closed_trades if t.get("net_r", 0) == 0]
+        losses = [t for t in self.closed_trades if t.get("net_r", 0) < 0]
         
-        win_rate = round((len(wins) / total_trades * 100.0), 2) if total_trades > 0 else 0.0
+        win_rate = round((len(wins) / total_trades * 100.0), 2) if total_trades > 0 else None
         total_net_r = round(sum(t.get('net_r', 0) for t in self.closed_trades), 2)
         total_win_r = sum(t.get('net_r', 0) for t in wins)
         total_loss_r = abs(sum(t.get('net_r', 0) for t in losses))
-        profit_factor = round(total_win_r / total_loss_r, 2) if total_loss_r > 0 else (999.0 if total_win_r > 0 else 0.0)
-        expectancy_r = round(total_net_r / total_trades, 3) if total_trades > 0 else 0.0
+        profit_factor = round(total_win_r / total_loss_r, 2) if total_loss_r > 0 else None
+        expectancy_r = round(total_net_r / total_trades, 3) if total_trades > 0 else None
 
         # USD Balances - preserve actual wallet balance
         total_realized_pnl_usd = round(sum(t.get('pnl_usd', round(t.get('net_r', 0) * self.fixed_risk_usd, 2)) for t in self.closed_trades), 2)
@@ -2349,7 +1845,7 @@ class LiveCryptoBot:
         unrealized_pnl_usd = round(sum(p.get('unrealized_pnl_usd', 0.0) for p in self.open_positions.values()), 2)
         equity_usd = round(self.current_balance + unrealized_pnl_usd, 2)
         total_pnl_usd = total_realized_pnl_usd
-        total_pnl_pct = round((total_realized_pnl_usd / self.initial_capital) * 100.0, 2) if self.initial_capital > 0 else 0.0
+        total_pnl_pct = None  # Historical resets prevent a continuous account-return percentage.
 
         status_str = "DEPLETED_STOPPED" if self.is_depleted else ("RUNNING" if self.is_running else "PAUSED")
 
@@ -2380,6 +1876,7 @@ class LiveCryptoBot:
             "all_time_grand_champion": self.all_time_grand_champion,
             "watched_pairs_count": len(self.symbols),
             "open_positions_count": len(sanitized_positions),
+            "max_open_positions": self.max_open_positions,
             "open_positions": sanitized_positions,
             "btc_macro_status": self.btc_macro_status,
             "total_closed_trades": total_trades,
@@ -2396,7 +1893,12 @@ class LiveCryptoBot:
             "last_monthly_optimization_time": self.last_monthly_optimization_time.strftime("%Y-%m-%d %H:%M:%S") if self.last_monthly_optimization_time else None,
             "recent_optimizations": self.optimization_logs[-5:],
             "macro_audits": self.macro_audits[-5:],
-            "hall_of_fame": self.hall_of_fame[-5:],
+            "hall_of_fame": [dict(item, validation_status=("MEASURED" if item.get("evaluation_id") else "LEGACY_UNVERIFIED")) for item in self.hall_of_fame[-5:]],
+            "optimizer_mode": "report_only",
+            "forward_test": self._forward_metrics(),
+            "legacy_history": {"trades": sum(t.get("schema_version") != 2 for t in self.closed_trades),
+                               "net_pnl_usd": sum(t.get("pnl_usd", 0) for t in self.closed_trades if t.get("schema_version") != 2),
+                               "validation_status": "LEGACY_UNVERIFIED"},
             "auto_trading_enabled": self.auto_trading_enabled,
             "circuit_breaker_active": bool(self.circuit_breaker_until and ph_now() < self.circuit_breaker_until),
             "circuit_breaker_until": self.circuit_breaker_until.strftime("%Y-%m-%d %H:%M:%S") if self.circuit_breaker_until and self.circuit_breaker_until > ph_now() else None,
@@ -2406,5 +1908,5 @@ class LiveCryptoBot:
             "api_rate_limit": rate_limit_manager.get_telemetry()
         }
 
-# Global singleton bot instance initialized with $100.00 USD Capital, $1.00 Fixed Risk, 1:3.0 RR, and Max 5 Concurrent Trades
-bot_instance = LiveCryptoBot(initial_capital=100.0, fixed_risk_usd=1.0, timeframe="15m", max_open_positions=5, target_rr=3.0, scan_interval_sec=20, max_positions_per_sector=2)
+# Created explicitly by the application at startup; importing this module is read-only.
+bot_instance = None

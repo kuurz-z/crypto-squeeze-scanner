@@ -19,7 +19,7 @@ mimetypes.add_type("text/html", ".html")
 
 from scanner import scan_market, fetch_klines, compute_indicators, calculate_rr_levels, fetch_top_usdt_pairs, get_http_session
 from backtester import backtest_symbol, backtest_portfolio
-from live_bot import bot_instance
+from live_bot import LiveCryptoBot
 from data_loader import rate_limit_manager
 from strategy_memory import load_saved_strategies
 
@@ -28,6 +28,15 @@ _candle_cache = {}
 CANDLE_CACHE_TTL = 10.0
 
 app = FastAPI(title="Quant Squeeze & Pattern Scanner", version="1.0.0")
+app.state.bot = None
+
+
+def get_bot() -> LiveCryptoBot:
+    """Runtime dependency; tests inject a temporary bot without starting a worker."""
+    if app.state.bot is None:
+        raise HTTPException(status_code=503, detail="Paper bot has not started")
+    return app.state.bot
+
 
 # Enable CORS for local cross-origin development
 app.add_middleware(
@@ -248,32 +257,35 @@ async def run_backtest(
 @app.on_event("startup")
 async def startup_event():
     """Automatically start the live trading bot background engine when the web server runs."""
-    await bot_instance.start()
+    if app.state.bot is None:
+        app.state.bot = LiveCryptoBot()
+    await get_bot().start()
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Gracefully stop the live trading bot worker."""
-    await bot_instance.stop()
+    if app.state.bot is not None:
+        await get_bot().stop()
 
 @app.get("/api/bot/status")
 async def get_bot_status():
     """Return real-time bot status, live positions, R-returns, win rate, and diagnostic logs."""
-    return bot_instance.get_telemetry()
+    return get_bot().get_telemetry()
 
 @app.post("/api/bot/toggle")
 async def toggle_bot():
     """Toggle automated bot running / paused state."""
-    if bot_instance.is_running:
-        await bot_instance.stop()
+    if get_bot().is_running:
+        await get_bot().stop()
         return {"status": "PAUSED", "message": "Live automated bot paused."}
     else:
-        await bot_instance.start()
+        await get_bot().start()
         return {"status": "RUNNING", "message": "Live automated bot started."}
 
 @app.post("/api/bot/toggle_auto_trading")
 async def toggle_bot_auto_trading():
     """Toggle between active auto-trading execution and signals-only scanning mode."""
-    new_state = bot_instance.toggle_auto_trading()
+    new_state = get_bot().toggle_auto_trading()
     return {
         "success": True,
         "auto_trading_enabled": new_state,
@@ -283,29 +295,29 @@ async def toggle_bot_auto_trading():
 
 @app.post("/api/bot/optimize_now")
 async def trigger_optimization():
-    """Manually trigger an immediate strategy self-perfection & parameter walk-forward test."""
-    opt_result = await bot_instance.run_self_optimization()
-    return {"message": "Optimization completed.", "result": opt_result}
+    """Run a report-only chronological research evaluation."""
+    opt_result = await get_bot().run_self_optimization()
+    return {"message": "Report-only evaluation completed; paper configuration unchanged.", "result": opt_result}
 
 @app.get("/api/bot/saved_strategies")
 async def get_saved_strategies_api():
-    """Return catalog of saved reproducible strategies."""
-    return load_saved_strategies()
+    """Return research results and explicitly unverified historical records."""
+    return load_saved_strategies(filepath=os.path.join(get_bot().data_dir or ".", "saved_strategies.json"))
 
 @app.post("/api/bot/reset")
 async def reset_bot_wallet():
     """Reset the live bot wallet balance to $100.00 USD without clearing trade history."""
-    bot_instance.reset_account(100.0)
-    if not bot_instance.is_running:
-        await bot_instance.start()
+    get_bot().reset_account(100.0)
+    if not get_bot().is_running:
+        await get_bot().start()
     return {"message": "Account wallet reset to $100.00 USD (trade history preserved).", "balance": 100.0}
 
 @app.get("/api/bot/depletion_report")
 async def get_depletion_report():
     """Return the final markdown summary report if capital was depleted."""
-    if bot_instance.depletion_report_file and os.path.exists(bot_instance.depletion_report_file):
-        with open(bot_instance.depletion_report_file, "r", encoding="utf-8") as f:
-            return {"status": "DEPLETED", "content": f.read(), "file": bot_instance.depletion_report_file}
+    if get_bot().depletion_report_file and os.path.exists(get_bot().depletion_report_file):
+        with open(get_bot().depletion_report_file, "r", encoding="utf-8") as f:
+            return {"status": "DEPLETED", "content": f.read(), "file": get_bot().depletion_report_file}
     return {"status": "ACTIVE", "message": "Capital is not depleted."}
 
 from pydantic import BaseModel
@@ -318,11 +330,11 @@ class ForceClosePositionRequest(BaseModel):
 async def force_close_position_api(symbol: str, payload: Optional[ForceClosePositionRequest] = None):
     """Force close an active live position at current market price."""
     clean_sym = symbol.upper().replace("/", "").replace("-", "")
-    if clean_sym not in bot_instance.open_positions:
+    if clean_sym not in get_bot().open_positions:
         raise HTTPException(status_code=404, detail=f"No active open position found for symbol {clean_sym}")
     
     price = payload.exit_price if payload else None
-    closed_trade = await bot_instance.force_close_position(clean_sym, exit_price=price)
+    closed_trade = await get_bot().force_close_position(clean_sym, exit_price=price)
     if not closed_trade:
         raise HTTPException(status_code=500, detail=f"Failed to close position for {clean_sym}")
     
@@ -342,14 +354,14 @@ async def set_bot_timeframe(payload: SetTimeframeRequest):
     valid_tfs = ["5m", "15m", "30m", "triple", "dual", "1h", "4h", "1d"]
     if tf not in valid_tfs:
         raise HTTPException(status_code=400, detail=f"Timeframe must be one of {valid_tfs}")
-    success = bot_instance.set_timeframe(tf)
+    success = get_bot().set_timeframe(tf)
     if not success:
         raise HTTPException(status_code=400, detail=f"Failed to set timeframe to {tf}")
     return {
         "success": True,
         "timeframe": tf,
-        "profile": bot_instance.timeframe_profile,
-        "message": f"Bot timeframe set to {tf} ({bot_instance.timeframe_profile['name']})"
+        "profile": get_bot().timeframe_profile,
+        "message": f"Bot timeframe set to {tf} ({get_bot().timeframe_profile['name']})"
     }
 
 class RestartBotRequest(BaseModel):
@@ -361,7 +373,7 @@ async def restart_bot_with_capital(payload: RestartBotRequest):
     """Re-fund the bot with user-defined capital and fixed risk, then immediately resume scanning."""
     cap = max(1.0, payload.capital)
     risk = max(0.1, payload.fixed_risk_usd)
-    await bot_instance.restart_with_capital(capital=cap, fixed_risk_usd=risk)
+    await get_bot().restart_with_capital(capital=cap, fixed_risk_usd=risk)
     return {
         "status": "RUNNING",
         "message": f"Bot re-funded with ${cap:.2f} USD (${risk:.2f}/trade) and scanning started.",
@@ -375,31 +387,31 @@ async def trigger_macro_optimization(period: str = Query("WEEKLY", description="
     p = period.upper()
     if p not in ["WEEKLY", "MONTHLY"]:
         p = "WEEKLY"
-    result = await bot_instance.run_macro_optimization(period=p)
+    result = await get_bot().run_macro_optimization(period=p)
     return {"message": f"{p} Macro Strategy Optimization completed.", "result": result}
 
 @app.post("/api/bot/daily_snapshot_now")
 async def trigger_daily_snapshot():
     """Trigger an on-demand daily strategy snapshot & quantitative audit log."""
-    result = await bot_instance.run_daily_strategy_snapshot()
+    result = await get_bot().run_daily_strategy_snapshot()
     return {"message": "Daily Strategy Snapshot completed and archived.", "result": result}
 
 @app.post("/api/bot/monthly_tournament_now")
 async def trigger_monthly_tournament():
     """Trigger an on-demand End-of-Month Multi-Strategy Championship Tournament."""
-    result = await bot_instance.run_monthly_strategy_tournament()
+    result = await get_bot().run_monthly_strategy_tournament()
     return {"message": "End-of-Month Strategy Tournament completed.", "result": result}
 
 @app.post("/api/bot/champions_gauntlet_now")
 async def trigger_champions_gauntlet():
-    """Trigger an on-demand Multi-Month Champions of Champions Gauntlet."""
-    result = await bot_instance.run_champions_of_champions_gauntlet()
-    return {"message": "Champions of Champions Gauntlet completed.", "result": result}
+    """Return historical comparison; no new simulation is run."""
+    result = await get_bot().run_champions_of_champions_gauntlet()
+    return {"message": "Historical comparison only; no fresh simulation.", "result": result}
 
 @app.get("/api/bot/hall_of_fame")
 async def get_hall_of_fame_api():
     """Return the Monthly Champions Hall of Fame registry."""
-    hof_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports", "monthly_champions_hall_of_fame.json")
+    hof_file = get_bot().hall_of_fame_file
     if os.path.exists(hof_file):
         try:
             import json
@@ -407,12 +419,12 @@ async def get_hall_of_fame_api():
                 return json.load(f)
         except Exception as e:
             return {"error": f"Failed to read Hall of Fame: {e}"}
-    return bot_instance.hall_of_fame
+    return get_bot().hall_of_fame
 
 @app.get("/api/bot/historical_archive")
 async def get_historical_archive_api():
     """Return the permanent structured historical archive of all trades, micro, and macro optimizations."""
-    archive_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reports", "historical_archive.json")
+    archive_file = get_bot().archive_file
     if os.path.exists(archive_file):
         try:
             import json

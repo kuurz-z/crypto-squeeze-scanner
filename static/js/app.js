@@ -1,3 +1,4 @@
+let currentBotPositionLimit = 5;
 // Application State
 let currentInterval = '15m';
 let currentSymbol = 'BTCUSDT';
@@ -823,7 +824,7 @@ function updateTopMetrics(data) {
 async function executeBacktest() {
   const btSelect = document.getElementById('bt-symbol');
   const sym = (btSelect ? btSelect.value : currentSymbol).toUpperCase();
-  const targetRR = parseFloat(document.getElementById('bt-target-rr').value || '3.0');
+  const targetRR = parseFloat(document.getElementById('bt-target-rr').value || '2.0');
   const bars = parseInt(document.getElementById('bt-bars').value || '1000');
   const tbody = document.getElementById('bt-trades-tbody');
   
@@ -844,10 +845,10 @@ async function executeBacktest() {
 
     // Populate Metrics Cards
     document.getElementById('bt-total-trades').innerText = data.total_trades || 0;
-    document.getElementById('bt-win-rate').innerText = `${data.win_rate_pct || 0}%`;
-    document.getElementById('bt-tp1-rate').innerText = `${data.tp1_hit_rate_pct || 0}%`;
-    document.getElementById('bt-profit-factor').innerText = data.profit_factor || 0;
-    document.getElementById('bt-expectancy').innerText = `${data.expectancy_r > 0 ? '+' : ''}${data.expectancy_r || 0} R`;
+    document.getElementById('bt-win-rate').innerText = data.win_rate_pct == null ? 'Not validated' : `${data.win_rate_pct}%`;
+    document.getElementById('bt-tp1-rate').innerText = data.total_trades > 0 ? `${data.tp1_hit_rate_pct}%` : 'Not validated';
+    document.getElementById('bt-profit-factor').innerText = data.profit_factor_unbounded ? 'No recorded losses' : (data.profit_factor ?? 'Not validated');
+    document.getElementById('bt-expectancy').innerText = data.expectancy_r == null ? 'Not validated' : `${data.expectancy_r > 0 ? '+' : ''}${data.expectancy_r} R`;
     document.getElementById('bt-max-dd').innerText = `-${data.max_drawdown_r || 0} R`;
 
     // Populate Trades Table
@@ -1089,7 +1090,7 @@ function setupViewNavigation() {
   }
 
   function updateFundExplainer(risk) {
-    if (fundCalcWin) fundCalcWin.innerText = `+$${(risk * 3.0).toFixed(2)} USD`;
+    if (fundCalcWin) fundCalcWin.innerText = `+$${(risk * 2.0).toFixed(2)} USD`;
     if (fundCalcLoss) fundCalcLoss.innerText = `-$${risk.toFixed(2)} USD`;
   }
 
@@ -1139,7 +1140,7 @@ function setupViewNavigation() {
       try {
         const res = await fetch('/api/bot/daily_snapshot_now', { method: 'POST' });
         const data = await res.json();
-        alert(`Daily Strategy Snapshot Saved!\nDate: ${data.result?.date}\nBalance: $${data.result?.account_balance?.toFixed(2)} USD\nWin Rate: ${data.result?.win_rate_pct}%\nArchived to: reports/historical_archive.json`);
+        alert(`Forward-test snapshot saved. Balance: $${data.result?.account_balance?.toFixed(2)}. Results remain unvalidated.`);
         fetchBotTelemetry();
       } catch (e) {
         alert('Daily snapshot failed. Please check network.');
@@ -1157,7 +1158,7 @@ function setupViewNavigation() {
       try {
         const res = await fetch('/api/bot/macro_optimize_now?period=WEEKLY', { method: 'POST' });
         const data = await res.json();
-        alert(`Weekly Macro Optimization Complete!\nOptimal Timeframe: ${data.result?.optimal_timeframe || '1h'}\nTested: ${data.result?.metrics?.tested_trades || 0} trades (${data.result?.metrics?.win_rate_pct || 0}% Win Rate)\nReport saved to: ${data.result?.report_file || 'reports/'}`);
+        alert(`Research report: ${data.result?.status || "Complete"}. Active paper strategy remains fixed.`);
         fetchBotTelemetry();
       } catch (e) {
         alert('Weekly optimization failed. Please check network.');
@@ -1175,7 +1176,7 @@ function setupViewNavigation() {
       try {
         const res = await fetch('/api/bot/monthly_tournament_now', { method: 'POST' });
         const data = await res.json();
-        alert(`🏆 End-of-Month Championship Tournament Complete!\nCrowned Monthly Champion: ${data.result?.strategy_name} (${data.result?.timeframe})\nWin Rate: ${data.result?.win_rate_pct}% (Floor >= 40%)\nReproducibility Score: ${data.result?.reproducibility_score}/100\nSaved to Hall of Fame!`);
+        alert(`Research report: ${data.result?.status || "Complete"}. Active paper strategy remains fixed.`);
         fetchBotTelemetry();
       } catch (e) {
         alert('Monthly tournament failed. Please check network.');
@@ -1193,7 +1194,7 @@ function setupViewNavigation() {
       try {
         const res = await fetch('/api/bot/champions_gauntlet_now', { method: 'POST' });
         const data = await res.json();
-        alert(`🏛️ All-Time Champions of Champions Gauntlet Complete!\nReigning All-Time GOAT: ${data.result?.strategy_name || data.result?.name}\nWin Rate: ${data.result?.win_rate_pct}%\nReproducibility: ${data.result?.reproducibility_score}/100`);
+        alert(`Research report: ${data.result?.status || "Complete"}. Active paper strategy remains fixed.`);
         fetchBotTelemetry();
       } catch (e) {
         alert('Gauntlet simulation failed. Please check network.');
@@ -1332,7 +1333,7 @@ async function fetchBotTelemetry() {
     renderBotClosedHistory(t.recent_journal || []);
     renderBotJournal(t.recent_journal || []);
     renderBotEvolution(t.recent_optimizations || []);
-    renderBotParams(t.active_params || {});
+    renderBotParams(t.active_params || {}, t.timeframe);
   } catch (err) {
     // Background silent fail
   }
@@ -1343,11 +1344,12 @@ function renderBotMetrics(t) {
   // Scanner 24/7 Status & Pulse Dot
   const statusBadge = document.getElementById('bot-status-badge');
   const pulseDot = document.getElementById('header-bot-pulse');
+  const running = t.status === 'RUNNING';
   if (statusBadge) {
-    statusBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5';
-    statusBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span> <span>SCANNER: 24/7 ACTIVE</span>';
+    statusBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-500/10 border border-slate-500/20';
+    statusBadge.innerText = running ? 'SCANNER: RUNNING' : `SCANNER: ${t.status || 'UNKNOWN'}`;
   }
-  if (pulseDot) pulseDot.className = 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse';
+  if (pulseDot) pulseDot.className = `w-2 h-2 rounded-full ${running ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`;
 
   // Auto-Trading Execution Gateway Toggle & Badge
   const autoTradeBtn = document.getElementById('btn-bot-toggle-autotrade');
@@ -1371,7 +1373,7 @@ function renderBotMetrics(t) {
   if (autoTradeBadge && autoTradeText) {
     if (isAutoTrading) {
       autoTradeBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 flex items-center gap-1.5';
-      autoTradeText.innerHTML = '<i class="fa-solid fa-robot text-indigo-500"></i> Auto-Trading: ON ($100 Paper)';
+      autoTradeText.innerText = 'Auto-Trading: ON (Paper)';
     } else {
       autoTradeBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 flex items-center gap-1.5';
       autoTradeText.innerHTML = '<i class="fa-solid fa-tower-broadcast text-amber-500"></i> Signals-Only Mode';
@@ -1383,15 +1385,16 @@ function renderBotMetrics(t) {
   const tfText = document.getElementById('bot-tf-text');
   if (tfBadge && tfText) {
     tfBadge.className = 'px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 flex items-center gap-1.5';
-    tfText.innerHTML = '<i class="fa-solid fa-layer-group text-purple-500"></i> Mode: <b>Triple Matrix (5m/15m/30m)</b> <span class="text-[10px] opacity-80 font-normal">[Automated]</span>';
+    tfText.innerText = `Paper test: ${t.timeframe || '15m'} | Strategy fixed | Optimizers report-only`;
+    currentBotPositionLimit = t.max_open_positions ?? 5;
   }
 
   // Account Capital & Balances
   const walletBalEl = document.getElementById('bot-wallet-balance');
-  if (walletBalEl) walletBalEl.innerText = `$${(t.current_balance || 100.0).toFixed(2)}`;
+  if (walletBalEl) walletBalEl.innerText = `$${(t.current_balance ?? 0).toFixed(2)}`;
 
   const walletEqEl = document.getElementById('bot-wallet-equity');
-  if (walletEqEl) walletEqEl.innerText = `Equity: $${(t.equity_usd || t.current_balance || 100.0).toFixed(2)}`;
+  if (walletEqEl) walletEqEl.innerText = `Equity: $${(t.equity_usd ?? t.current_balance ?? 0).toFixed(2)}`;
 
   const totalPnlUsdEl = document.getElementById('bot-total-pnl-usd');
   if (totalPnlUsdEl) {
@@ -1404,15 +1407,15 @@ function renderBotMetrics(t) {
   if (totalREl) {
     const netR = t.total_net_r || 0.0;
     const pnlPct = t.total_pnl_pct || 0.0;
-    totalREl.innerText = `${netR >= 0 ? '+' : ''}${netR.toFixed(2)} R (${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(1)}%)`;
+    totalREl.innerText = `${netR >= 0 ? '+' : ''}${netR.toFixed(2)} R (all recorded trades)`;
   }
 
-  const riskUsdEl = document.getElementById('bot-risk-usd');
-  const riskPctEl = document.getElementById('bot-risk-pct');
+  const riskUsdEl = document.getElementById('bot-risk-per-trade');
+  const riskPctEl = document.getElementById('bot-risk-percent');
   const riskVal = t.fixed_risk_usd !== undefined ? t.fixed_risk_usd : (t.risk_per_trade_usd || 1.0);
   if (riskUsdEl) riskUsdEl.innerText = `$${riskVal.toFixed(2)}`;
   if (riskPctEl) {
-    const bal = t.current_balance || 100.0;
+    const bal = t.current_balance ?? 0;
     const pct = bal > 0 ? (riskVal / bal) * 100.0 : 1.0;
     riskPctEl.innerText = `${pct.toFixed(1)}% of Balance`;
   }
@@ -1423,18 +1426,20 @@ function renderBotMetrics(t) {
 
   // Metrics
   const winRateEl = document.getElementById('bot-win-rate');
-  if (winRateEl) winRateEl.innerText = `${t.win_rate_pct || 0}%`;
+  if (winRateEl) winRateEl.innerText = t.total_closed_trades > 0 && t.win_rate_pct != null ? `${t.win_rate_pct}% (recorded)` : 'Not validated';
 
   const winLossCount = document.getElementById('bot-win-loss-count') || document.getElementById('bot-win-loss-split');
   if (winLossCount) winLossCount.innerText = `${t.win_count || 0}W - ${t.loss_count || 0}L (${t.total_closed_trades || 0} Trades)`;
 
   const pfEl = document.getElementById('bot-profit-factor');
   if (pfEl) {
-    const pf = t.profit_factor || 0.0;
-    if (pf >= 999.0 || (t.win_count > 0 && t.loss_count === 0)) {
-      pfEl.innerHTML = '<span>MAX <span class="text-xs font-normal opacity-75">(0 Losses)</span></span>';
+    const pf = t.profit_factor;
+    if (!(t.total_closed_trades > 0)) {
+      pfEl.innerText = 'Not validated';
+    } else if (t.win_count > 0 && t.loss_count === 0) {
+      pfEl.innerText = 'No recorded losses';
     } else {
-      pfEl.innerText = pf.toFixed(2);
+      pfEl.innerText = pf == null ? 'Not validated' : pf.toFixed(2);
     }
   }
 
@@ -1458,14 +1463,14 @@ function renderBotMetrics(t) {
   // Champion Formula Status Badge
   const champWrBadge = document.getElementById('champion-wr-badge');
   if (champWrBadge && t.champion_stats) {
-    champWrBadge.innerText = `Champion (WR: ${t.champion_stats.win_rate || 40}% | Floor \u2265 40%)`;
+    champWrBadge.innerText = t.champion_stats.validation_status === 'MEASURED' && t.champion_stats.win_rate != null ? `Measured WR: ${t.champion_stats.win_rate}%` : 'Not validated';
   }
 
   // Macro Daily / Weekly / Monthly Audit Badges
   const macroDailyLast = document.getElementById('macro-daily-last');
   const macroWeeklyLast = document.getElementById('macro-weekly-last');
   const macroMonthlyLast = document.getElementById('macro-monthly-last');
-  if (macroDailyLast) macroDailyLast.innerText = `Last: ${t.last_daily_snapshot_time ? formatPhDateTime(t.last_daily_snapshot_time).split(' ')[0] : 'Today'}`;
+  if (macroDailyLast) macroDailyLast.innerText = `Last: ${t.last_daily_snapshot_time ? formatPhDateTime(t.last_daily_snapshot_time).split(' ')[0] : 'Never'}`;
   if (macroWeeklyLast) macroWeeklyLast.innerText = `Last: ${t.last_weekly_optimization_time ? formatPhDateTime(t.last_weekly_optimization_time).split(' ')[0] : 'Awaiting'}`;
   if (macroMonthlyLast) macroMonthlyLast.innerText = `Last: ${t.last_monthly_optimization_time ? formatPhDateTime(t.last_monthly_optimization_time).split(' ')[0] : 'Awaiting'}`;
 
@@ -1475,10 +1480,24 @@ function renderBotMetrics(t) {
   if (t.all_time_grand_champion) {
     const goat = t.all_time_grand_champion;
     if (hofGoatStrat) hofGoatStrat.innerText = `${(goat.strategy_name || goat.name || 'Trend Pullback Confluence').replace(/_/g, ' ')} (${goat.timeframe || '15m'})`;
-    if (hofGoatWr) hofGoatWr.innerText = `${goat.win_rate_pct || 42.5}% WR | ${goat.reproducibility_score || 85} Rep`;
+    if (hofGoatWr) hofGoatWr.innerText = goat.validation_status === 'MEASURED' && goat.win_rate_pct != null ? `${goat.win_rate_pct}% historical WR` : 'Legacy history: unverified';
   } else if (t.champion_stats) {
     if (hofGoatStrat) hofGoatStrat.innerText = `${(t.champion_stats.name || 'Trend Pullback Confluence').replace(/_/g, ' ')} (${t.champion_stats.timeframe || '15m'})`;
-    if (hofGoatWr) hofGoatWr.innerText = `${t.champion_stats.win_rate || 42}% WR | 85 Rep`;
+    if (hofGoatWr) hofGoatWr.innerText = 'Not validated';
+  }
+
+  const forward = t.forward_test;
+  if (forward) {
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.innerText = text; };
+    set('forward-run', `Run ${forward.run_id.slice(0, 8)} | ${forward.closed_trades} closed / ${forward.open_positions} open | Not validated`);
+    set('forward-pnl', `$${Number(forward.net_pnl_usd).toFixed(2)}`);
+    set('forward-costs', `$${Number(forward.costs_usd).toFixed(4)}`);
+    set('forward-expectancy', forward.expectancy_r == null ? 'Not validated' : `${Number(forward.expectancy_r).toFixed(3)}R`);
+    set('forward-drawdown', `$${Number(forward.max_drawdown_usd).toFixed(2)}`);
+    set('forward-rejections', Object.entries(forward.rejected_entries || {}).map(([reason, count]) => `${reason.replace(/_/g, ' ')}: ${count}`).join(' | ') || 'No rejected entries recorded');
+    set('forward-cost-assumptions', `Modeled costs per fill: ${forward.cost_assumptions.fee_pct}% fee + ${forward.cost_assumptions.slippage_pct}% adverse slippage. Funding and borrowing costs are not modeled.`);
+    const legacy = t.legacy_history || {};
+    set('forward-legacy', `Legacy history (unverified): ${legacy.trades || 0} trades, $${Number(legacy.net_pnl_usd || 0).toFixed(2)} recorded PnL. Account resets prevent a continuous return percentage.`);
   }
 
   // API Rate Limit & Weight Budget
@@ -1506,58 +1525,15 @@ function getMilestoneExitBadge(pos) {
 }
 
 function formatBotOutcome(t) {
-  const raw = (t.outcome || '').toUpperCase();
-  const netR = t.net_r !== undefined ? t.net_r : 0;
-  const pnlUsd = t.pnl_usd !== undefined ? t.pnl_usd : 0;
-
-  if (raw === 'TRAILING_STOP_WIN' || raw.includes('TRAILING')) {
-    return {
-      text: 'TRAILING_STOP_WIN',
-      badgeClass: 'text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/60 border-purple-300 dark:border-purple-500/30',
-      rColor: 'text-purple-600 dark:text-purple-400 font-bold',
-      isWin: true,
-      isBE: false
-    };
-  }
-  if (raw.includes('BE') || raw.includes('BREAKEVEN') || (!raw.includes('WIN') && !raw.includes('LOSS') && netR === 0 && pnlUsd === 0)) {
-    return {
-      text: 'BE_EXIT (🛡️ $0.00)',
-      badgeClass: 'text-indigo-700 dark:text-indigo-400 bg-indigo-100 dark:bg-indigo-950/60 border-indigo-300 dark:border-indigo-500/30',
-      rColor: 'text-indigo-600 dark:text-indigo-400 font-bold',
-      isWin: false,
-      isBE: true
-    };
-  }
-  if (raw.includes('TIME') || raw.includes('STAGNATION')) {
-    const winTime = netR > 0 || pnlUsd > 0;
-    return {
-      text: 'TIME_EXIT',
-      badgeClass: winTime 
-        ? 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30' 
-        : 'text-amber-700 dark:text-amber-400 bg-amber-100 dark:bg-amber-950/60 border-amber-300 dark:border-amber-500/30',
-      rColor: winTime ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-amber-600 dark:text-amber-400 font-bold',
-      isWin: winTime,
-      isBE: false
-    };
-  }
-  if (raw.includes('WIN') || netR > 0 || pnlUsd > 0) {
-    const rDisplay = netR >= 3.0 ? '+3.0R+' : `+${netR > 0 ? (netR >= 3 ? '3.0R+' : netR.toFixed(1) + 'R') : '3.0R+'}`;
-    return {
-      text: `WIN (${rDisplay})`,
-      badgeClass: 'text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-500/30',
-      rColor: 'text-emerald-600 dark:text-emerald-400 font-bold',
-      isWin: true,
-      isBE: false
-    };
-  }
-  // Default to LOSS
-  const rLossDisplay = netR < 0 ? `-${Math.abs(netR).toFixed(1)}R` : '-1.0R';
+  const netR = Number(t.net_r ?? 0);
+  const pnl = Number(t.pnl_usd ?? netR);
+  const isWin = pnl > 0, isBE = pnl === 0;
+  const color = isWin ? 'emerald' : (isBE ? 'indigo' : 'rose');
   return {
-    text: `LOSS (${rLossDisplay})`,
-    badgeClass: 'text-rose-700 dark:text-rose-400 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-500/30',
-    rColor: 'text-rose-600 dark:text-rose-400 font-bold',
-    isWin: false,
-    isBE: false
+    text: `${isWin ? 'PROFIT' : (isBE ? 'FLAT' : 'LOSS')} (${netR >= 0 ? '+' : ''}${netR.toFixed(2)}R)`,
+    badgeClass: `text-${color}-700 dark:text-${color}-300 bg-${color}-100 dark:bg-${color}-950/60 border-${color}-300`,
+    rColor: `text-${color}-600 dark:text-${color}-400 font-bold`,
+    isWin, isBE
   };
 }
 
@@ -1566,8 +1542,8 @@ function renderBotPositions(positions) {
   const countBadge = document.getElementById('bot-positions-count-badge');
   const tabBadge = document.getElementById('tab-badge-active-count');
   
-  if (countBadge) countBadge.innerText = `${positions.length} / 10 Active`;
-  if (tabBadge) tabBadge.innerText = `${positions.length} / 10`;
+  if (countBadge) countBadge.innerText = `${positions.length} / ${currentBotPositionLimit} Active`;
+  if (tabBadge) tabBadge.innerText = `${positions.length} / ${currentBotPositionLimit}`;
 
   if (!tbody) return;
 
@@ -1576,7 +1552,7 @@ function renderBotPositions(positions) {
       <tr>
         <td colspan="9" class="py-6 text-center text-slate-400 dark:text-gray-500">
           <i class="fa-solid fa-radar text-lg mb-1 block text-indigo-500"></i>
-          No open positions right now. The bot is actively scanning 100 pairs with $100 capital for valid &ge; 1:3.0 RR setups (Max 10 Concurrent Trades).
+          No open positions. New paper entries require completed candles and a valid higher-timeframe anchor.
         </td>
       </tr>
     `;
@@ -1632,7 +1608,7 @@ function renderBotPositions(positions) {
         </td>
         <td class="py-3 px-2 font-mono text-emerald-600 dark:text-emerald-400 whitespace-nowrap align-top">
           <div class="h-5 flex items-center font-medium leading-5">$${pos.tp_price}</div>
-          <div class="mt-1 text-[9px] text-slate-400 font-sans leading-tight">(1:${pos.target_rr || 3.0})</div>
+          <div class="mt-1 text-[9px] text-slate-400 font-sans leading-tight">(1:${pos.target_rr || 2.0})</div>
         </td>
         <td class="py-3 px-3 text-right font-mono ${rColor} whitespace-nowrap align-top">
           <div class="h-5 flex items-center justify-end text-xs font-bold leading-5">${pnlUsdStr}</div>
@@ -1840,48 +1816,11 @@ function renderBotJournal(trades) {
     const badgeBg = outcomeInfo.badgeClass;
     const rColor = outcomeInfo.rColor;
 
-    const ctx = t.pre_trade_context || {
-      reason: isWin ? 'Clean trend pullback & momentum confluence' : 'Pullback into key MA support zone',
-      rvol: 1.8,
-      rsi: isWin ? 54.5 : 46.2,
-      volatility_atr: 0.05,
-      regime: isWin ? 'Bullish Trend & Confluence Extension' : 'Range Pullback Support'
+    const ctx = t.pre_trade_context || {};
+    const diag = t.diagnostic || {
+      catalyst_type: t.exit_reason || t.outcome || 'Not recorded',
+      summary: 'No diagnostic was recorded for this trade.', key_factors: []
     };
-
-    let diag = t.diagnostic || {};
-    if (!diag.catalyst_type) {
-      if (isWin && t.outcome === 'WIN') {
-        diag = {
-          catalyst_type: "Impulsive Confluence Expansion (1:3.0+ RR)",
-          summary: `Rapid target hit in ${t.bars_held || 1} bars. Strong order flow propelled price directly to target without significant drawdown.`,
-          key_factors: ["High confluence alignment", "Low adverse excursion (MAE)", "Clean 1:3.0+ RR technical extension"]
-        };
-      } else if (isWin && t.outcome === 'TRAILING_STOP_WIN') {
-        diag = {
-          catalyst_type: "Dynamic Trailing Stop Profit Locked",
-          summary: `Dynamic milestone exit locked in +${t.net_r}R profit as price progressed favorably.`,
-          key_factors: ["Dynamic stop protection prevented giving back gains", "Secured runner profit"]
-        };
-      } else if (t.outcome === 'TIME_EXIT' || (t.outcome && t.outcome.includes('TIME'))) {
-        diag = {
-          catalyst_type: isWin ? "Time Stagnation Exit (Profitable)" : "Time Stagnation Invalidation",
-          summary: `Position held for maximum ${t.bars_held || 1} bars without hitting full stop or target. Released capital with ${pnlUsdStr} (${t.net_r}R).`,
-          key_factors: ["Max bars held threshold reached", isWin ? "Secured positive price progression" : "Freed risk capacity for new setups"]
-        };
-      } else if (isBE) {
-        diag = {
-          catalyst_type: "Breakeven Shield De-risking (🛡️ $0.00)",
-          summary: `Position reached +1.0R favorable milestone, triggering automated breakeven shield. Exited with zero capital loss.`,
-          key_factors: ["Automated milestone de-risking prevented a full -1.0R loss", "Exchange trading fees fully covered"]
-        };
-      } else {
-        diag = {
-          catalyst_type: "Immediate Liquidity Wick / Trap",
-          summary: `Quick stop-out within ${t.bars_held || 1} bars. Invalidation level breached by counter-trend liquidity sweep.`,
-          key_factors: ["Hostile order flow against position", "False breakout or liquidity sweep"]
-        };
-      }
-    }
 
     const isCollapsed = !expandedJournalCards.has(tradeId);
     const containerClasses = isCollapsed 
@@ -1925,21 +1864,22 @@ function renderBotJournal(trades) {
           <div class="grid grid-cols-2 md:grid-cols-4 gap-2 bg-white/70 dark:bg-black/20 p-2.5 rounded-lg border border-slate-200/50 dark:border-gray-800 text-[11px]">
             <div><span class="text-slate-400 text-[10px] block">Entry ➔ Exit</span><span class="font-mono font-medium">$${t.entry_price} ➔ $${t.exit_price}</span></div>
             <div><span class="text-slate-400 text-[10px] block">Stop Loss (1R)</span><span class="font-mono font-medium text-rose-500">$${t.sl_price || t.entry_price}</span></div>
-            <div><span class="text-slate-400 text-[10px] block">Take Profit (1:${t.target_rr || 3.0} RR)</span><span class="font-mono font-medium text-emerald-500">$${t.tp_price || t.exit_price}</span></div>
+            <div><span class="text-slate-400 text-[10px] block">Take Profit (1:${t.target_rr || 2.0} RR)</span><span class="font-mono font-medium text-emerald-500">$${t.tp_price || t.exit_price}</span></div>
             <div><span class="text-slate-400 text-[10px] block">MFE / MAE Excursion</span><span class="font-mono font-medium text-indigo-500">+${t.mfe_r || 0}R / -${t.mae_r || 0}R</span></div>
           </div>
 
+          ${t.schema_version === 2 ? `<div class="text-[11px] text-slate-500">Exit: ${t.exit_reason} | Fees: $${Number(t.fees_usd ?? 0).toFixed(4)} | Modeled slippage: $${Number(t.slippage_usd ?? 0).toFixed(4)} | Fills: ${(t.fills || []).length}</div>` : '<div class="text-[11px] text-slate-500">Legacy history: accounting not revalidated</div>'}
           <!-- Pre-Trade Context -->
           <div class="bg-slate-50 dark:bg-[#1e293b]/50 p-2.5 rounded-lg border border-slate-200/40 dark:border-gray-800/40">
             <div class="font-semibold text-slate-700 dark:text-gray-300 flex items-center gap-1.5 text-[11px] mb-1">
               <i class="fa-solid fa-magnifying-glass-chart text-indigo-500"></i> Pre-Trade Analysis (Why Entered):
             </div>
-            <p class="text-slate-600 dark:text-gray-400 text-[11px]">${ctx.reason || 'Trend pullback confluence with multi-indicator confirmation'}</p>
+            <p class="text-slate-600 dark:text-gray-400 text-[11px]">${ctx.reason || 'Not recorded'}</p>
             <div class="flex flex-wrap gap-3 text-[10px] text-slate-500 dark:text-gray-400 mt-1 font-mono">
-              <span>RVOL: <b>${ctx.rvol || '1.8'}x</b></span>
-              <span>RSI(14): <b>${ctx.rsi || '54.0'}</b></span>
-              <span>ATR14: <b>$${ctx.volatility_atr || '0.05'}</b></span>
-              <span>Regime: <b>${ctx.regime || (isWin ? 'Bullish Trend Confluence' : 'Pullback Support Zone')}</b></span>
+              <span>RVOL: <b>${ctx.rvol ?? 'N/A'}x</b></span>
+              <span>RSI(14): <b>${ctx.rsi ?? 'N/A'}</b></span>
+              <span>ATR14: <b>$${ctx.volatility_atr ?? 'N/A'}</b></span>
+              <span>Regime: <b>${ctx.regime || 'Not recorded'}</b></span>
             </div>
           </div>
 
@@ -1950,7 +1890,7 @@ function renderBotJournal(trades) {
                 <i class="fa-solid fa-stethoscope ${isWin ? 'text-emerald-500' : 'text-rose-500'}"></i> Post-Trade Root Cause Diagnostic:
                 <b class="${isWin ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}">(${diag.catalyst_type})</b>
               </span>
-              <span class="text-slate-400 font-mono text-[10px]">Balance: $${t.account_balance || 100}</span>
+              <span class="text-slate-400 font-mono text-[10px]">Balance: $${t.account_balance ?? 'N/A'}</span>
             </div>
             <p class="text-slate-600 dark:text-gray-400 text-[11px]">${diag.summary}</p>
             ${diag.key_factors && diag.key_factors.length ? `
@@ -1991,7 +1931,7 @@ function renderBotJournal(trades) {
   }
 }
 
-function renderBotParams(params) {
+function renderBotParams(params, timeframe) {
   if (!params) return;
   const tfEl = document.getElementById('param-timeframe');
   const rrEl = document.getElementById('param-target-rr');
@@ -2000,7 +1940,7 @@ function renderBotParams(params) {
   const tpEl = document.getElementById('param-atr-tp');
   
   if (tfEl) {
-    const tf = currentInterval || 'triple';
+    const tf = timeframe || '15m';
     if (tf === 'triple') {
       tfEl.innerText = 'Triple (5m / 15m / 30m)';
     } else if (tf === 'dual') {
@@ -2020,7 +1960,7 @@ function renderBotParams(params) {
     }
   }
 
-  const targetRR = params.target_rr || 3.0;
+  const targetRR = params.target_rr || 2.0;
   const rrLabel = targetRR % 1 === 0 ? targetRR.toFixed(0) : targetRR.toFixed(1);
   if (rrEl) rrEl.innerText = `1:${targetRR.toFixed(1)} RR`;
   if (rvolEl) rvolEl.innerText = `\u2265 ${params.rvol_min || 1.10}x`;
@@ -2049,7 +1989,7 @@ function renderBotEvolution(optimizations) {
     container.innerHTML = `
       <div class="text-center py-6 text-slate-400 dark:text-gray-500">
         <i class="fa-solid fa-microchip text-xl mb-1.5 block text-slate-300 dark:text-gray-600"></i>
-        The AI evaluates trade cycles and refines parameters every 5 closed trades.
+        Not validated. Research evaluations are report-only; the paper configuration stays fixed.
       </div>
     `;
     if (paginationBar) paginationBar.classList.add('hidden');
@@ -2065,40 +2005,37 @@ function renderBotEvolution(optimizations) {
   const pageItems = cachedEvoOptimizations.slice(startIndex, startIndex + EVO_PER_PAGE);
 
   container.innerHTML = pageItems.map(opt => {
-    const s = opt.summary;
-    const isObj = typeof s === 'object' && s !== null;
-    const isPromoted = opt.improved || opt.status === 'PROMOTED' || (isObj && s.status === 'PROMOTED');
-    const isDefensive = (isObj && s.defensive_bias) || opt.status === 'DEFENSIVE_ADJUSTED';
-
-    let badgeHtml = `<span class="px-2 py-0.5 rounded bg-slate-500/10 text-slate-600 dark:text-gray-400 font-semibold text-[10px] border border-slate-500/20"><i class="fa-solid fa-shield mr-1"></i>Champion Retained</span>`;
-    if (isPromoted) {
-      badgeHtml = `<span class="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold text-[10px] border border-emerald-500/20"><i class="fa-solid fa-crown mr-1"></i>New Champion Crowned</span>`;
-    } else if (isDefensive) {
-      badgeHtml = `<span class="px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-bold text-[10px] border border-amber-500/20"><i class="fa-solid fa-shield-halved mr-1"></i>Defensive Adjustment</span>`;
-    }
+    const safeText = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[c]));
+    const measured = opt.report_only && opt.validation_version;
+    const badge = measured ? 'Report only' : 'Unverified history';
+    const candidate = opt.selected_candidate;
+    const finalResults = Array.isArray(opt.final_results) ? opt.final_results : [];
+    const resultsHtml = measured ? finalResults.map(result => {
+      const m = result.metrics || {};
+      const metric = (name, places = 3) => m[name] == null ? 'Not validated' : Number(m[name]).toFixed(places);
+      return `<div class="mt-2 text-[10px] font-mono">
+        <div>${result.is_incumbent ? 'Incumbent' : 'Selected candidate'} final test: ${safeText(result.candidate?.strategy)} / ${safeText(result.candidate?.timeframe)}</div>
+        <div>${m.total_trades ?? 0} trades | Expectancy ${m.expectancy_r == null ? 'Not validated' : metric('expectancy_r') + 'R'} | Drawdown ${metric('max_drawdown_r')}R</div>
+        <div>Window-end closures: ${m.window_end_trades ?? 0} | Net contribution ${metric('window_end_net_r')}R</div>
+      </div>`;
+    }).join('') : '';
+    const legacySummary = typeof opt.summary === 'string' ? opt.summary : JSON.stringify(opt.summary || {});
+    const message = measured ? (opt.message || 'Not validated') : legacySummary;
 
     return `
       <div class="p-3 rounded-lg border border-slate-200 dark:border-gray-800 bg-slate-50 dark:bg-[#1e293b]/40 shadow-xs">
         <div class="flex items-center justify-between text-[11px] mb-1.5">
           <span class="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-            <i class="fa-solid fa-dna text-purple-500"></i> Walk-Forward Optimization
+            <i class="fa-solid fa-dna text-purple-500"></i> ${measured ? 'Chronological research evaluation' : 'Historical evaluation'}
           </span>
           <div class="flex items-center gap-2">
-            ${badgeHtml}
+            <span class="px-2 py-0.5 rounded bg-slate-500/10 text-[10px]">${badge}</span>
             <span class="text-slate-400 text-[10px]">${formatPhDateTime(opt.timestamp)}</span>
           </div>
         </div>
-        ${isObj ? `
-          <div class="space-y-1 text-[10px] text-slate-600 dark:text-gray-300 font-mono mt-2">
-            <div class="flex justify-between"><span>Optimized Timeframe:</span> <b class="text-indigo-600 dark:text-indigo-400">${opt.best_timeframe || s.timeframe || '15m'}</b></div>
-            <div class="flex justify-between"><span>Out-of-Sample Validated:</span> <b>${s.tested_trades} setups (500+ candles)</b></div>
-            <div class="flex justify-between"><span>Walk-Forward Win Rate:</span> <b class="text-emerald-600 dark:text-emerald-400">${s.win_rate_pct}%</b></div>
-            <div class="flex justify-between"><span>Profit Factor:</span> <b class="text-blue-600 dark:text-blue-400">${s.profit_factor || '1.4'}</b></div>
-            <div class="flex justify-between"><span>Net Expectancy:</span> <b class="text-purple-600 dark:text-purple-400">+${s.expectancy_r} R / trade</b></div>
-            <div class="flex justify-between"><span>Parameters:</span> <b class="text-slate-700 dark:text-gray-200">1:${s.params ? s.params.target_rr : 2.0} RR | SL: ${s.params ? s.params.atr_sl_mult : 1.3}x ATR</b></div>
-          </div>
-          ${s.reason ? `<div class="text-[10px] text-slate-600 dark:text-gray-300 bg-slate-100 dark:bg-gray-800/60 p-1.5 rounded border border-slate-200 dark:border-gray-700 mt-2 font-sans">${s.reason}</div>` : ''}
-        ` : `<p class="text-slate-600 dark:text-gray-400 text-[10px] leading-relaxed">${s}</p>`}
+        <p class="text-slate-600 dark:text-gray-400 text-[10px] leading-relaxed">${safeText(message)}</p>
+        ${candidate ? `<p class="mt-1 text-[10px]">Validation selection: ${safeText(candidate.strategy)} / ${safeText(candidate.timeframe)}</p>` : ''}
+        ${resultsHtml}
       </div>
     `;
   }).join('');
@@ -2138,10 +2075,11 @@ async function loadSavedStrategiesCatalog() {
         </div>
         <p class="text-[10px] text-slate-600 dark:text-gray-400">${item.rules_and_description}</p>
         <div class="mt-1.5 flex gap-2 text-[10px] font-mono text-slate-500 dark:text-gray-400">
-          <span>Win: <b>${item.metrics.win_rate_pct}%</b></span>
-          <span>PF: <b>${item.metrics.profit_factor}</b></span>
-          <span>Exp: <b>+${item.metrics.expectancy_r}R</b></span>
+          <span>Win: <b>${item.metrics?.win_rate_pct == null ? 'Not validated' : `${item.metrics.win_rate_pct}%`}</b></span>
+          <span>PF: <b>${item.metrics?.profit_factor ?? 'Not validated'}</b></span>
+          <span>Exp: <b>${item.metrics?.expectancy_r == null ? 'Not validated' : `${item.metrics.expectancy_r}R`}</b></span>
         </div>
+        <p class="mt-1 text-[10px]">${item.provenance ? 'Research result only' : 'Unverified history'}</p>
       </div>
     `).join('');
   } catch (e) {

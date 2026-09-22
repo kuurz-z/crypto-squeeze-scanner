@@ -6,6 +6,8 @@ import tempfile
 import shutil
 import pandas as pd
 import numpy as np
+import copy
+from unittest.mock import AsyncMock, patch
 from live_bot import LiveCryptoBot
 
 class TestLiveBotEngine(unittest.TestCase):
@@ -30,6 +32,33 @@ class TestLiveBotEngine(unittest.TestCase):
             shutil.rmtree(self.test_dir)
         except Exception:
             pass
+
+    def _qualified_entry_fixture(self, *symbols):
+        """A valid completed pullback signal and its completed 200-bar anchor."""
+        decision = int(pd.Timestamp("2026-09-22T12:00:00Z").timestamp())
+        clock = patch("live_bot.time.time", return_value=decision + 1)
+        clock.start()
+        self.addCleanup(clock.stop)
+
+        def frame(seconds):
+            return pd.DataFrame({
+                "time": np.arange(decision - 200 * seconds, decision, seconds),
+                "open": [99.0] * 200, "high": [100.2] * 200,
+                "low": [98.5] * 200, "close": [100.0] * 200,
+                "volume": [1000.0] * 200, "ema20": [99.0] * 200,
+                "ema50": [98.0] * 200, "ema200": [95.0] * 200,
+                "atr14": [2.0] * 200, "rsi14": [48.0] * 200,
+                "rvol": [2.5] * 200, "momentum": [1.0] * 200,
+                "hurst": [0.6] * 200, "adx14": [25.0] * 200,
+                "bb_width_percentile": [20.0] * 200,
+            })
+
+        entry = frame(900)
+        for symbol in symbols:
+            self.bot.mtf_data[symbol] = {"1h": frame(3600)}
+        self.assertIsNotNone(self.bot._evaluate_active_strategy(
+            entry, len(entry) - 1, htf_data=self.bot.mtf_data[symbols[0]], timeframe="15m"))
+        return entry
 
     def test_bot_initialization(self):
         self.assertEqual(self.bot.initial_capital, 100.0)
@@ -429,25 +458,7 @@ class TestLiveBotEngine(unittest.TestCase):
         }
 
         # Mock synthetic breakout candle for an Altcoin (SOLUSDT)
-        dates = pd.date_range(start='2026-08-01', periods=60, freq='15min')
-        mock_df = pd.DataFrame({
-            'time': [int(d.timestamp()) for d in dates],
-            'open': [120.0] * 59 + [146.0],
-            'high': [125.0] * 59 + [149.0],
-            'low': [118.0] * 59 + [144.5],
-            'close': [122.0] * 59 + [148.0],
-            'volume': [1000] * 59 + [5000],
-            'squeeze_on': [False] * 60,
-            'bb_upper': [160] * 60,
-            'bb_lower': [100] * 60,
-            'ema20': [145.0] * 60,
-            'ema50': [140.0] * 60,
-            'ema200': [120.0] * 60,
-            'atr14': [5.0] * 60,
-            'rsi14': [48.0] * 60,
-            'momentum': [2.0] * 60,
-            'rvol': [2.5] * 60
-        })
+        mock_df = self._qualified_entry_fixture("SOLUSDT", "BTCUSDT")
 
         asyncio.run(self.bot._scan_new_entries({"SOLUSDT": mock_df}))
         # SOLUSDT Long must be BLOCKED by BTC Macro Gatekeeper
@@ -491,25 +502,7 @@ class TestLiveBotEngine(unittest.TestCase):
             "target_rr": 2.0
         }
 
-        dates = pd.date_range(start='2026-08-01', periods=60, freq='15min')
-        mock_df = pd.DataFrame({
-            'time': [int(d.timestamp()) for d in dates],
-            'open': [12.0] * 59 + [14.0],
-            'high': [13.0] * 59 + [15.2],
-            'low': [11.0] * 59 + [13.9],
-            'close': [12.5] * 59 + [15.0],
-            'volume': [1000] * 59 + [5000],
-            'squeeze_on': [False] * 60,
-            'bb_upper': [16] * 60,
-            'bb_lower': [10] * 60,
-            'ema20': [14.0] * 60,
-            'ema50': [13.0] * 60,
-            'ema200': [11.0] * 60,
-            'atr14': [0.5] * 60,
-            'rsi14': [48.0] * 60,
-            'momentum': [2.0] * 60,
-            'rvol': [2.5] * 60
-        })
+        mock_df = self._qualified_entry_fixture("PEPEUSDT", "FETUSDT")
 
         # Try to open PEPEUSDT (3rd MEMES sector trade)
         asyncio.run(self.bot._scan_new_entries({"PEPEUSDT": mock_df}))
@@ -595,14 +588,22 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertIsNotNone(self.bot.last_daily_snapshot_time)
 
     def test_monthly_tournament_and_champions_gauntlet(self):
-        """Verify that Monthly Strategy Tournament crowns champion and updates Hall of Fame."""
-        res = asyncio.run(self.bot.run_monthly_strategy_tournament())
-        self.assertIn("strategy_name", res)
-        self.assertIn("win_rate_pct", res)
-        self.assertIsNotNone(self.bot.all_time_grand_champion)
-
-        hof_path = os.path.join("reports", "monthly_champions_hall_of_fame.json")
-        self.assertTrue(os.path.exists(hof_path))
+        """Monthly research and historical comparisons never promote a strategy."""
+        frozen = copy.deepcopy((self.bot.active_params, self.bot.forward_run_id,
+                                self.bot.all_time_grand_champion, self.bot.hall_of_fame))
+        research = {"status": "NO_VALIDATED_CANDIDATE", "evaluation_id": "monthly-test"}
+        with patch("validation.run_report_only_evaluation", new=AsyncMock(return_value=research)) as evaluate:
+            res = asyncio.run(self.bot.run_monthly_strategy_tournament())
+            comparison = asyncio.run(self.bot.run_champions_of_champions_gauntlet())
+        evaluate.assert_awaited_once()
+        self.assertEqual(evaluate.await_args.kwargs["mode"], "monthly")
+        self.assertEqual(evaluate.await_args.kwargs["report_dir"], self.bot.reports_dir)
+        self.assertEqual(res["optimizer_mode"], "report_only")
+        self.assertFalse(res["promoted"])
+        self.assertEqual(comparison["status"], "HISTORICAL_COMPARISON")
+        self.assertIsNone(comparison["win_rate_pct"])
+        self.assertEqual(frozen, (self.bot.active_params, self.bot.forward_run_id,
+                                 self.bot.all_time_grand_champion, self.bot.hall_of_fame))
 
     def test_server_restart_persistence_and_state_recovery(self):
         """Verify that open positions, trade journal, and balance survive a server restart."""
@@ -767,25 +768,7 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertGreater(self.bot.symbol_loss_cooldowns["HOMEUSDT"], ph_now())
 
         # 3. Simulate another scan immediately with pullback signal
-        dates = pd.date_range("2026-01-01", periods=60, freq="15min")
-        df_entry = pd.DataFrame({
-            "time": [int(d.timestamp()) for d in dates],
-            "open": [0.015] * 59 + [0.017],
-            "high": [0.016] * 59 + [0.021],
-            "low": [0.014] * 59 + [0.0169],
-            "close": [0.0155] * 59 + [0.020],
-            "volume": np.full(60, 5000.0),
-            "squeeze_on": [False] * 60,
-            "bb_upper": [0.025] * 60,
-            "bb_lower": [0.010] * 60,
-            "ema20": [0.017] * 60,
-            "ema50": [0.015] * 60,
-            "ema200": [0.012] * 60,
-            "atr14": [0.001] * 60,
-            "rsi14": [48.0] * 60,
-            "momentum": [1.0] * 60,
-            "rvol": [2.5] * 60
-        })
+        df_entry = self._qualified_entry_fixture("HOMEUSDT")
         asyncio.run(self.bot._scan_new_entries({"HOMEUSDT": df_entry}))
         # Must be blocked by anti-churn quarantine
         self.assertNotIn("HOMEUSDT", self.bot.open_positions)
@@ -823,19 +806,25 @@ class TestLiveBotEngine(unittest.TestCase):
             self.assertGreaterEqual(c["rvol_min"], 1.30)
 
     def test_dynamic_walk_forward_optimization_run(self):
-        """Verify that run_self_optimization completes with structured diagnostic reporting."""
-        # Mock symbols
+        """Research preserves the frozen configuration and forwards measured results."""
         self.bot.symbols = ["BTCUSDT", "ETHUSDT"]
-        
-        opt_entry = asyncio.run(self.bot.run_self_optimization())
-        self.assertIsNotNone(opt_entry)
-        self.assertIn("status", opt_entry)
-        self.assertIn("champion_stats", opt_entry)
-        self.assertIn("challenger_summary", opt_entry)
-        self.assertIn("failure_diagnostic", opt_entry)
-        self.assertIn("summary", opt_entry)
-        self.assertIn("report_file", opt_entry)
-        self.assertTrue(os.path.exists(opt_entry["report_file"]))
+        frozen = copy.deepcopy((self.bot.active_strategy_name, self.bot.active_params,
+                                self.bot.forward_run_id, self.bot.champion_stats))
+        research = {"status": "NO_VALIDATED_CANDIDATE", "evaluation_id": "micro-test",
+                    "final_results": {"candidate": {"net_expectancy_r": -0.1}}}
+        with patch("validation.run_report_only_evaluation", new=AsyncMock(return_value=research)) as evaluate:
+            opt_entry = asyncio.run(self.bot.run_self_optimization())
+        evaluate.assert_awaited_once()
+        self.assertEqual(evaluate.await_args.kwargs["mode"], "micro")
+        self.assertEqual(evaluate.await_args.kwargs["symbols"], self.bot.symbols)
+        self.assertEqual(opt_entry["evaluation_id"], "micro-test")
+        self.assertEqual(opt_entry["final_results"], research["final_results"])
+        self.assertFalse(opt_entry["improved"])
+        self.assertFalse(opt_entry["promoted"])
+        self.assertEqual(opt_entry["optimizer_mode"], "report_only")
+        self.assertEqual(self.bot.optimization_logs[-1], opt_entry)
+        self.assertEqual(frozen, (self.bot.active_strategy_name, self.bot.active_params,
+                                 self.bot.forward_run_id, self.bot.champion_stats))
 
     def test_timeframe_profiles_and_switching(self):
         """Verify that timeframe profiles load correctly, set_timeframe allows 15m and 30m, and blocks 1h/4h/1d."""
@@ -979,48 +968,29 @@ class TestLiveBotEngine(unittest.TestCase):
         self.assertIsNone(trade)
 
     def test_force_close_position_api_endpoint(self):
-        """Verify the FastAPI HTTP POST /api/bot/positions/{symbol}/close endpoint."""
+        """The HTTP close endpoint uses injected temporary storage only."""
         from fastapi.testclient import TestClient
-        from unittest.mock import patch
+        from unittest.mock import patch, AsyncMock
         from app import app
-        from live_bot import bot_instance
-
-        # Seed an open position in the global bot_instance
-        bot_instance.open_positions["TESTUSDT"] = {
-            "trade_id": 999,
-            "symbol": "TESTUSDT",
-            "sector": "MEMES",
-            "strategy": "Squeeze_Momentum_Breakout",
-            "timeframe": "15m",
-            "direction": "LONG",
-            "entry_time": 1700000000,
-            "entry_time_str": "2026-08-20 12:00:00",
-            "entry_price": 1.0,
-            "current_price": 1.10,
-            "sl_price": 0.90,
-            "tp_price": 1.20,
-            "risk_distance": 0.10,
-            "risk_amount_usd": 1.0,
-            "target_rr": 2.0,
-            "bars_held": 2,
-            "pre_trade_context": {"reason": "API test"}
+        original_bot = app.state.bot
+        app.state.bot = self.bot
+        self.bot.open_positions["TESTUSDT"] = {
+            "trade_id": 999, "symbol": "TESTUSDT", "direction": "LONG",
+            "entry_price": 1.0, "current_price": 1.1, "sl_price": 0.9,
+            "tp_price": 1.2, "risk_distance": 0.1, "risk_amount_usd": 1.0,
+            "timeframe": "15m", "target_rr": 2.0, "bars_held": 2,
+            "pre_trade_context": {"reason": "API test"},
         }
-
-        with patch.object(bot_instance, "save_state"):
-            client = TestClient(app)
-
-            # 1. Close active position
-            response = client.post("/api/bot/positions/TESTUSDT/close", json={"exit_price": 1.10})
-            self.assertEqual(response.status_code, 200)
-            data = response.json()
-            self.assertTrue(data["success"])
-            self.assertEqual(data["trade"]["symbol"], "TESTUSDT")
-            self.assertEqual(data["trade"]["outcome"], "FORCED_CLOSE")
-            self.assertNotIn("TESTUSDT", bot_instance.open_positions)
-
-            # 2. 404 when closing again
-            response_404 = client.post("/api/bot/positions/TESTUSDT/close", json={})
-            self.assertEqual(response_404.status_code, 404)
+        try:
+            with patch("live_bot.fetch_symbol_klines", new=AsyncMock(return_value=None)):
+                client = TestClient(app)
+                result = client.post("/api/bot/positions/TESTUSDT/close", json={"exit_price": 1.1})
+                self.assertEqual(result.status_code, 200)
+                self.assertEqual(result.json()["trade"]["outcome"], "FORCED_CLOSE")
+                self.assertNotIn("TESTUSDT", self.bot.open_positions)
+                self.assertEqual(client.post("/api/bot/positions/TESTUSDT/close", json={}).status_code, 404)
+        finally:
+            app.state.bot = original_bot
 
     def test_telemetry_returns_all_closed_trades_unlimited(self):
         # Populate bot with 25 closed trades
